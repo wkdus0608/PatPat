@@ -1,0 +1,268 @@
+# 규칙: 모든 클래스, 속성, 관계는 근거로 역추적되며 relations의 대상은 이 파일의 8개 클래스 중 하나다.
+version: 1
+classes:
+  Teacher:
+    description: 아동의 활동과 반응을 관찰하고 보육 기록을 작성·검토하는 교사
+    # 이 클래스를 만든 조사 근거, Teahcer 를 왜 넣었는가
+    evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+    attributes: #Teacher 가 가지는 특징
+      recall_strategies: # 교사가 기억을 복원하는 방법
+        type: list
+        examples: [동료에게 묻기, 사진 보기, 메모 보기, 놀잇감·교구 보기, 아동에게 확인]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      review_focus: # 기록을 검토할 때 보는 것
+        type: list
+        examples: [자연스러운 문장, 오탈자, 표준보육과정 반영, 보호자 관점의 이해 가능성]
+        # 이 속성의 조사 근거
+        evidence: [로그 2, 로그 3, 로그 4, 로그 6, 로그 7, 로그 9, 로그 10]
+    relations: # 다른 클래스와의 연결
+      - observes: Child
+        evidence: [로그 2, 로그 3, 로그 6, 로그 7, 로그 9, 로그 10]
+      - documents: Activity
+        evidence: [로그 1, 로그 2, 로그 5, 로그 7, 로그 8, 로그 9]
+      - performs: WritingSession # 교사가 작성 작업을 수행한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - authors: ChildcareRecord
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - reviews: ChildcareRecord
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - consults: EvidenceSource
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      - communicates_with: Guardian
+        evidence: [로그 2, 로그 3, 로그 5, 로그 6, 로그 8, 로그 9]
+
+  Child:
+    description: 활동에 참여하고 교사의 관찰 및 개별 기록 대상이 되는 아동
+    # 이 클래스를 만든 조사 근거, Child 를 왜 넣었는가
+    evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+    attributes: # Child 가 가지는 특징
+      participation_expression: # 아동이 활동에 참여하며 보이는 표현
+        type: list
+        examples: [바라보기, 적극적으로 의견 내기, 역할 수행, 말하기, 작품 만들기]
+        # 이 속성의 조사 근거
+        evidence: [로그 2, 로그 7, 로그 9, 로그 10]
+      individual_characteristics: # 아동별로 기록에 담기는 특징
+        type: list
+        examples: [역할, 말, 행동, 반응, 작품 내용, 특이사항]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 4, 로그 7, 로그 8, 로그 9, 로그 10]
+    relations: # 다른 클래스와의 연결
+      - participates_in: Activity # 아동이 활동에 참여한다 라는 의미임
+        evidence: [로그 2, 로그 5, 로그 7, 로그 9, 로그 10]
+      - is_subject_of: Observation # 아동이 관찰의 대상이 된다 라는 의미임
+        evidence: [로그 2, 로그 3, 로그 6, 로그 7, 로그 9, 로그 10]
+      - subject_of: ChildcareRecord # 아동이 보육 기록의 대상이 된다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - has_guardian: Guardian # 아동에게 보호자가 있다 라는 의미임
+        evidence: [로그 2, 로그 3, 로그 5, 로그 6, 로그 8, 로그 9]
+
+  Guardian:
+    description: 아동의 하루와 특이사항을 보육 기록으로 전달받는 보호자
+    # 이 클래스를 만든 조사 근거, Guardian 을 왜 넣었는가
+    evidence: [로그 2, 로그 3, 로그 5, 로그 6, 로그 8, 로그 9]
+    attributes: # Guardian 이 가지는 특징
+      information_needs: # 보호자가 기록으로 알고 싶은 내용
+        type: list
+        examples: [놀이·활동, 특이사항, 전달사항, 부상 상황, 놀이 지원 내용]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 3, 로그 5, 로그 6, 로그 8, 로그 9]
+      sensitive_contexts: # 보호자에게 전달할 때 주의할 상황
+        type: list
+        examples: [부상·충돌, 상담 피드백, 오해 가능 상황]
+        # 이 속성의 조사 근거
+        evidence: [로그 2, 로그 3, 로그 5, 로그 8]
+    relations: # 다른 클래스와의 연결
+      - guardian_of: Child # 보호자가 아동의 보호자다 라는 의미임
+        evidence: [로그 2, 로그 3, 로그 5, 로그 6, 로그 9]
+      - receives: ChildcareRecord # 보호자가 보육 기록을 전달받는다 라는 의미임
+        evidence: [로그 3, 로그 5, 로그 6, 로그 9]
+      - communicates_with: Teacher # 보호자가 교사와 소통한다 라는 의미임
+        evidence: [로그 3, 로그 8]
+
+  Activity:
+    description: 아동이 참여하고 교사가 보육 기록에 담는 놀이·일과·행사 맥락
+    # 이 클래스를 만든 조사 근거, Activity 를 왜 넣었는가
+    evidence: [로그 1, 로그 2, 로그 3, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+    attributes: # Activity 가 가지는 특징
+      activity_scope: # 기록에 담는 활동의 범위
+        type: list
+        examples: [당일 놀이, 한 주 일과, 행사]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 5, 로그 8, 로그 9]
+    relations: # 다른 클래스와의 연결
+      - involves: Child # 활동에 아동이 참여한다 라는 의미임
+        evidence: [로그 2, 로그 5, 로그 7, 로그 9, 로그 10]
+      - is_context_of: Observation # 활동이 관찰이 일어난 맥락이다 라는 의미임
+        evidence: [로그 2, 로그 3, 로그 6, 로그 7, 로그 9, 로그 10]
+      - summarized_in: ChildcareRecord # 활동 내용이 보육 기록에 정리된다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+
+  Observation:
+    description: 활동 중 교사가 확인한 아동의 행동·반응·발화·특이사항
+    # 이 클래스를 만든 조사 근거, Observation 을 왜 넣었는가
+    evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+    attributes: # Observation 이 가지는 특징
+      observation_type: # 교사가 확인한 관찰 내용의 종류
+        type: list
+        examples: [놀이, 행동, 반응, 발화, 참여도, 감정, 부상·다툼, 특이사항]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 3, 로그 6, 로그 7, 로그 9, 로그 10]
+      individual_detail: # 관찰에 담기는 아동별 구체 내용
+        type: list
+        examples: [아동의 역할, 아동이 한 말, 아동의 행동, 아동의 반응, 작품 내용]
+        # 이 속성의 조사 근거
+        evidence: [로그 2, 로그 4, 로그 7, 로그 8, 로그 9, 로그 10]
+    relations: # 다른 클래스와의 연결
+      - about: Child # 관찰이 특정 아동에 관한 것이다 라는 의미임
+        evidence: [로그 2, 로그 3, 로그 6, 로그 7, 로그 9, 로그 10]
+      - occurs_during: Activity # 관찰이 활동 중에 일어난다 라는 의미임
+        evidence: [로그 2, 로그 3, 로그 6, 로그 7, 로그 9, 로그 10]
+      - supported_by: EvidenceSource # 관찰이 근거 자료로 뒷받침된다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      - documented_in: ChildcareRecord # 관찰이 보육 기록에 작성된다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - recorded_by: Teacher # 교사가 관찰 내용을 기록한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+
+  EvidenceSource:
+    description: 교사가 관찰 사실을 회상하거나 재확인할 때 사용하는 사진·메모·사람·사물
+    # 이 클래스를 만든 조사 근거, EvidenceSource 를 왜 넣었는가
+    evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+    attributes: # EvidenceSource 가 가지는 특징
+      source_type: # 교사가 확인하는 근거의 종류
+        type: list
+        examples: [사진, 메모, 동료 교사의 기억, 아동의 확인, 놀잇감·교구, 교사의 기억]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      use_purpose: # 근거를 확인하는 이유
+        type: list
+        examples: [기억 회상, 사실 재확인, 사진 선택, 특이사항 확인]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      availability_effect: # 근거가 있는지에 따라 달라지는 점
+        type: list
+        examples: [사진이 없으면 동료와 회상, 아동이 있으면 직접 확인, 근거가 없으면 행동 내용 제외]
+        # 이 속성의 조사 근거
+        evidence: [로그 2, 로그 8, 로그 9]
+    relations: # 다른 클래스와의 연결
+      - supports: Observation # 근거 자료가 관찰을 뒷받침한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      - used_by: Teacher # 교사가 근거 자료를 사용한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      - informs: ChildcareRecord # 근거 자료가 보육 기록 작성에 참고된다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+
+  WritingSession:
+    description: 교사가 한 명 이상 아동의 알림장 또는 일지를 작성하는 작업 단위
+    # 이 클래스를 만든 조사 근거, WritingSession 을 왜 넣었는가
+    evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+    attributes: # WritingSession 이 가지는 특징
+      start_time: # 기록 작성을 시작한 시각
+        type: string
+        examples: ["13:00", "14:00", "16:30", "6시 이후(오전/오후 미상)", "20:00", "21:00"]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 3, 로그 5, 로그 7, 로그 9, 로그 10]
+      child_count: # 한 번의 작성 작업에서 기록한 아동 수
+        type: object
+        format: {min: int, max: int, approximate: boolean}
+        note: 단일값은 min과 max를 같게 저장하고, '약' 또는 '정도'가 붙은 원문은 approximate로 보존한다.
+        examples:
+          - {min: 1, max: 1, approximate: false}
+          - {min: 4, max: 5, approximate: true}
+          - {min: 5, max: 5, approximate: false}
+          - {min: 27, max: 27, approximate: false}
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      duration_minutes: # 작성에 걸린 시간
+        type: object
+        format: {min: int, max: int, approximate: boolean}
+        note: 범위로 응답한 시간과 근사값을 단일 정수로 축약하지 않는다.
+        examples:
+          - {min: 5, max: 5, approximate: false}
+          - {min: 10, max: 10, approximate: true}
+          - {min: 20, max: 30, approximate: false}
+          - {min: 80, max: 80, approximate: true}
+          - {min: 90, max: 90, approximate: true}
+          - {min: 120, max: 120, approximate: false}
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      work_context: # 기록을 작성한 상황이나 장소
+        type: list
+        examples: [휴게시간, 보육 중 중간중간, 퇴근 전, 퇴근 후, 집]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 3, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      writing_mode: # 기록을 작성한 방식
+        type: enum
+        values: [아동별 개별작성, 공통내용과 특이사항 분리, 일괄작성, 보육 중 중간중간 작성]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      delay_reasons: # 기록 작성이 늦어진 이유
+        type: list
+        examples: [보육과 아동 안전, 행사, 상담, 과다업무, 청소·단체·개인업무, 체력 이슈, 업무 우선순위]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+    relations: # 다른 클래스와의 연결
+      - performed_by: Teacher # 교사가 작성 작업을 수행한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - covers: Child # 작성 작업이 한 명 이상의 아동을 대상으로 한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - uses: EvidenceSource # 작성 작업에서 근거 자료를 사용한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      - produces: ChildcareRecord # 작성 작업으로 보육 기록이 만들어진다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+
+  ChildcareRecord:
+    description: 교사가 관찰과 활동 내용을 정리해 작성·검토하는 알림장 또는 일지
+    # 이 클래스를 만든 조사 근거, ChildcareRecord 를 왜 넣었는가
+    evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+    attributes: # ChildcareRecord 가 가지는 특징
+      record_type: # 작성한 보육 기록의 종류
+        type: enum
+        values: [알림장, 일지]
+        # 이 속성의 조사 근거
+        evidence: [로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      content_sections: # 기록에 포함하는 내용
+        type: list
+        examples: [놀이·활동, 특이사항, 전달사항, 아동 반응, 관찰, 배움 읽기, 놀이 지원, 지원 계획, 한 주 일과, 개별 특성]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      individualization_mode: # 공통 내용과 아동별 내용을 쓰는 방식
+        type: enum
+        values: [아동별 특성 반영, 공통내용 뒤 역할·말·감상 추가, 공통내용 뒤 특이사항 추가, 동일 문장 사용, 일괄작성, 공통틀 뒤 특징적 일화 추가, 공통문장 뒤 개별 한 문장 추가, 참여도별 표현]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      completion_criteria: # 기록을 완료했다고 판단하는 기준
+        type: list
+        examples: [놀이·특이사항·전달사항 포함, 표준보육과정 반영, 문장 매끄러움, 놀이·지원내용 제시, 보호자가 하루를 상상할 수 있음, 오탈자 점검, "관찰 > 배움 읽기 > 놀이 지원 > 지원 계획 반영"]
+        # 이 속성의 조사 근거
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      editing_tool: # 문장을 다듬거나 오탈자를 확인할 때 쓰는 도구
+        type: enum
+        values: [직접 문장 수정·오탈자 점검, GPT 문장 다듬기]
+        # 이 속성의 조사 근거
+        evidence: [로그 3, 로그 4, 로그 5, 로그 10]
+      status: # 기록 작성이 현재 어디까지 되었는지
+        type: enum
+        values: [작성중, 검토중, 완료, 지연]
+        # 이 속성의 조사 근거
+        evidence: [로그 3, 로그 4, 로그 7, 로그 8, 로그 10]
+    relations: # 다른 클래스와의 연결
+      - authored_by: Teacher # 교사가 보육 기록을 작성한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - about: Child # 보육 기록이 특정 아동에 관한 것이다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - summarizes: Activity # 보육 기록이 활동 내용을 정리한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+      - includes: Observation # 보육 기록에 관찰 내용이 포함된다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - shared_with: Guardian # 보육 기록을 보호자에게 전달한다 라는 의미임
+        evidence: [로그 3, 로그 5, 로그 6, 로그 9]
+      - created_in: WritingSession # 보육 기록이 작성 작업 중에 만들어진다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+      - draws_on: EvidenceSource # 보육 기록 작성에 근거 자료를 참고한다 라는 의미임
+        evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
+
+# 범위 밖(명시): 교사의 관찰·판단 대체 / 교사 검토 없는 자동 전송 / 아동 발달 진단 / 외부 어린이집·유치원 플랫폼 연동 / 알림장·일지 외 추가 문서 유형
+# 핵심 흐름: Teacher --(performs)--> WritingSession --(uses)--> EvidenceSource --(supports)--> Observation --(documented_in)--> ChildcareRecord --(shared_with)--> Guardian
+# 관찰 흐름: Child --(participates_in)--> Activity --(is_context_of)--> Observation --(about)--> Child
