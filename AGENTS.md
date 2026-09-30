@@ -2,7 +2,9 @@
 
 ## 1. 제품 맥락
 
-교사가 확인한 메모를 아동·활동별로 구조화하고, 공통 활동과 아동별 사실을 근거와 연결해 알림장·일지 초안으로 만든다. 최종 기록은 교사가 검토·수정·확정한다.
+어린이집 담임 교사가 확인한 메모를 아동·활동별로 구조화하고, 공통 활동과 아동별 사실을 근거와 연결해 알림장·관찰일지 초안으로 만든다. 최종 기록은 교사가 검토·수정·확정한다.
+
+알림장은 작성하는 기관의 당일 일상 공유이며, 관찰일지는 월 1~2회 이상 작성하는 대상 기간의 관찰 기록이다. 알림장 미작성 기관도 관찰일지 지원 대상이다. `record_type`은 `알림장`, `관찰일지`를 쓰고, 대상일·기간에 맞게 선택한 `observation_ids`만 초안의 근거로 사용한다.
 
 팀의 개인정보 결정에 따라 로컬 AI가 음성 전사·이름 가명 처리를 맡고, 외부 AI API는 가명 텍스트의 분류·초안 생성만 맡는다. 실명↔가명 매핑은 로컬 DB에 두고, 결과의 실명 복원도 로컬에서 수행한다. (SPEC 4절, AC10)
 
@@ -19,7 +21,7 @@
 - Observation: 교사가 확인한 관찰. 현재 API 필드는 `observation_id`, `child_ids`, `activity`, `text`.
 - EvidenceSource: 교사의 기존 업무에서 관찰을 회상·재확인할 때 쓰는 근거원. 제품에는 확인한 관찰을 음성·텍스트로만 입력한다.
 - WritingSession: 교사가 여러 아동의 기록을 작성하는 작업 단위.
-- ChildcareRecord: 알림장·일지. 현재 초안은 `common_text`와 아동별 `records`로 나누며, `individual_sentences`, `special_notes`, `missing_evidence`, `status`를 사용한다.
+- ChildcareRecord: 알림장·관찰일지. 현재 초안은 `common_text`와 아동별 `records`로 나누며, `individual_sentences`, `special_notes`, `missing_evidence`, `status`를 사용한다.
 
 `evidence`는 문서의 조사 근거 참조다. `observation_ids`는 생성한 아이별 문장을 입력 관찰에 연결하는 식별자다.
 
