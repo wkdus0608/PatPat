@@ -1,9 +1,13 @@
-# 골든 케이스: 현재 SPEC.md 6절 수용 기준(AC1~AC9)을 사례로 확인하는 파일
+# 골든 케이스: 현재 SPEC.md 6절 수용 기준(AC1~AC10)을 사례로 확인하는 파일
 # 수정 이유: 팀원 원본의 구성·주석을 유지하고, 사용자 요청에 따라 현재 SPEC의 번호·필드·범위를 맞췄다.
+# 개인정보 회의 결정을 반영해 AC10의 가명 처리·복원과 실패 시 호출 차단 사례만 추가했다.
 # 규칙:
 #   - ac는 SPEC.md의 AC 번호, evidence는 interviews.md의 로그·관찰 번호를 가리킨다.
 #     상태 확인처럼 기술 계약을 검사하는 케이스는 evidence를 비워 둔다.
-#   - 아동은 가명 코드(C01, C02 ...)만 쓰고, 관찰 내용은 테스트용 가상 데이터다.
+#   - 구조화 관찰의 아동은 가명 코드(C01, C02 ...)로 다룬다. 관찰·이름·매핑은 모두 가상 데이터다.
+#     개인정보 케이스의 fixtures는 로컬 테스트 준비물이며 API 요청 필드가 아니다.
+#     외부 모델 호출의 모든 요청을 검사한다. 복원 검사는 같은 로컬 복원 함수에 고정 문장을 넣어 대조한다.
+#     no_outbound_send는 보호자·외부 플랫폼 발송 금지이며, 가명 데이터의 외부 AI 호출과 구분한다.
 #   - input.observations는 POST /observations의 결과를 미리 만들어 둔 고정 입력이다.
 #     각 케이스는 저장 공간을 분리해 독립적으로 실행한다.
 #     하니스는 관찰을 먼저 저장한 뒤 observation_id 목록으로 POST /drafts를 호출한다.
@@ -229,7 +233,7 @@ cases:
       steps: [POST /drafts]          # confirm을 호출하지 않는다
     expect:
       no_record_with_status: 완료     # confirm 전에는 '완료' 상태 기록이 없어야 함
-      no_outbound_send: true          # 보호자·외부로 보내는 호출이 없어야 함
+      no_outbound_send: true          # 보호자·외부 플랫폼 발송 호출이 없어야 함
 
   # 확정 후. 교사가 초안을 직접 고쳐서 확정을 눌렀다.
   # 확인: 교사가 고친 문장이 한 글자도 바뀌지 않고 저장되고, 상태가 '완료'가 되는지.
@@ -286,9 +290,49 @@ cases:
       http_status: 200
       body: {status: ok}
 
+  # ───────── 개인정보 처리 (AC10) ─────────
+  # 이름은 모두 가상이다. fixtures는 로컬 DB·복원 함수에만 주고 외부 모델에 보내지 않는다.
+  - id: GC-15
+    title: 로컬 가명 처리 후 외부 AI 호출·로컬 실명 복원
+    ac: [AC10]
+    evidence: []  # 인터뷰가 아닌 팀의 개인정보 회의 결정
+    fixtures:
+      local_identity_map: {C01: 가상민준, C02: 가상서연}
+      local_restore_text: "C01은 블록을 쌓았고 C02는 그림을 그렸다."
+    input:
+      record_type: 알림장
+      child_ids: [C01, C02]
+      text: "블록 놀이. 가상민준은 블록을 쌓음. 가상서연은 그림을 그림."
+      steps: [POST /observations, POST /drafts]
+    expect:
+      local_name_processing_before_external_call: true
+      external_model_call_count_min: 1
+      external_observation_text_equals: "블록 놀이. C01은 블록을 쌓음. C02는 그림을 그림."
+      external_model_requests_forbidden_values: [가상민준, 가상서연]
+      no_raw_audio_or_identity_map_in_external_model_requests: true
+      local_restored_text_equals: "가상민준은 블록을 쌓았고 가상서연은 그림을 그렸다."
+
+  # 로컬 가명 처리 오류를 재현해 외부 호출이 차단되는지 확인한다. 실제 모델 정확도와는 별도 검사다.
+  - id: GC-16
+    title: 로컬 가명 처리 실패 시 외부 AI 호출 중단
+    ac: [AC10]
+    evidence: []
+    fixtures:
+      local_identity_map: {C01: 가상민준}
+      force_local_name_processing_failure: true
+    input:
+      child_ids: [C01]
+      text: "가상민준이 블록을 쌓음."
+      steps: [POST /observations]
+    expect:
+      external_model_call_count: 0
+      teacher_confirmation_required: true
+
 # GC-13(사진 분석)은 SPEC 4절의 비포함 범위이므로 이 파일에서 제외했다.
 # AC 커버리지:
 #   AC1(GC-01, 07) / AC2(GC-02, 08, 09, 12) / AC3(GC-03, 07, 09, 12)
 #   AC4(GC-04, 05) / AC5(GC-05, 06) / AC6(GC-01, 02, 03, 06, 07)
 #   AC7(GC-01 오탐 확인, 08, 09) / AC8(GC-10, 11) / AC9(GC-14)
+#   AC10(GC-15, 16: 텍스트 가명 처리·호출 차단·복원; 음성 전사 경로는 미검증)
+# 가상 음성 준비물과 실행 하니스가 없어 로컬 전사·원본 음성 전송 차단의 실제 동작은 아직 확인하지 않았다.
 # GC-11의 수정문 저장은 SPEC 5절 confirm 계약을, GC-12의 메모 분리는 관찰 입력 계약과 AC2·AC3을 함께 확인한다.
