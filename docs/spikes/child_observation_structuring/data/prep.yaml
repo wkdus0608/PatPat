@@ -1,0 +1,29 @@
+# SP-01 준비용 메모 5건. 모델 연결과 출력 형식을 확인하는 데만 쓴다.
+# 평가 메모(eval.yaml)와 내용이 겹치지 않게 만들었다. 골든 케이스와 프롬프트 예시도 쓰지 않았다.
+# child_ids와 text는 SPEC 5절 POST /observations 요청 필드다. memo_id와 group은 스파이크 기록용이다.
+spike: SP-01
+split: prep
+version: 0
+status: "AI 초안(2026-10-03), 팀 검토 전. 가명 코드와 가상 관찰만 쓴다"
+reviewed_by: []
+memos:
+  - memo_id: P01
+    group: 한 아동
+    child_ids: [C01]
+    text: "점토놀이. C01 점토로 뱀 길게 만들고 '엄청 긴 뱀이에요' 함."
+  - memo_id: P02
+    group: 여러 아동
+    child_ids: [C02, C03]
+    text: "역할놀이. C02 의사 역할로 C03한테 청진기 대 줌. C03은 환자 하면서 누워 있음."
+  - memo_id: P03
+    group: 공통·공동
+    child_ids: [C01, C02, C04]
+    text: "음률 활동. 다 같이 탬버린 흔들며 노래 부름. C04는 박자 맞춰 발 구름."
+  - memo_id: P04
+    group: 여러 아동
+    child_ids: [C05, C06, C07]
+    text: "쌓기놀이. C05 종이컵 10개 쌓음. C06 옆에서 하나씩 세어 줌."
+  - memo_id: P05
+    group: 공통·공동
+    child_ids: [C08, C09]
+    text: "바깥놀이. C08이랑 C09 긴 줄 같이 잡고 돌려 줌."

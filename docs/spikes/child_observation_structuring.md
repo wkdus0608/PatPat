@@ -1,7 +1,7 @@
 # 스파이크 — 아동별 관찰 구조화
 
-가설 ID: SP-01 / 상태: 실험 계획, 미실행 / 수정일: 2026-09-30
-연결: [SPEC](../SPEC.md) 5절 관찰 입력·AC2·AC3, [골든 케이스](../../tests/harness/golden_cases.yaml) GC-12, [온톨로지](../ontology.yaml) Observation
+가설 ID: SP-01 / 상태: 실행 준비 중, 미실행 / 수정일: 2026-10-03
+연결: [SPEC](../SPEC.md) 5절 관찰 입력·AC2·AC3, [골든 케이스](../../tests/harness/golden_cases.yaml) GC-12, [온톨로지](../ontology.yaml) Observation, [실행 키트](child_observation_structuring/README.md)
 
 현재 SPEC의 필드에 맞춰 기존 계획을 간소화했다. 시간·비용·합격선은 기존 계획의 값을 유지한 초안이며, 팀이 실행 전에 확정한다. 아래 결과는 아직 측정하지 않았다.
 
@@ -47,11 +47,11 @@
 
 | 실행 정보 | 현재 상태 |
 |---|---|
-| 준비·평가 데이터 파일과 버전 | 미준비 |
-| 팀원별 라벨과 합의 정답 파일 | 미작성 |
-| 시간·비용·판정 기준의 팀 확정 | 미확정 |
-| 모델·버전·프롬프트·설정 | 미선정 |
-| 실행 코드·명령·실행 일시 | 미실행 |
+| 준비·평가 데이터 파일과 버전 | AI 초안 v0, 팀 검토 전 (`child_observation_structuring/data/`) |
+| 팀원별 라벨과 합의 정답 파일 | 빈 라벨 시트만 준비, 미작성 (`child_observation_structuring/labels/`) |
+| 시간·비용·판정 기준의 팀 확정 | 미확정. 같은 아동의 사실을 정답과 다르게 나눈 경우의 판정 단위도 정해야 한다 (`child_observation_structuring/criteria.yaml`) |
+| 모델·버전·프롬프트·설정 | 프롬프트 `parse_query.md` v1 초안(팀 검토 전), 모델·설정 미선정 |
+| 실행 코드·명령·실행 일시 | 실행 코드 준비 (`child_observation_structuring/spike.py`). 규칙 분할기로 준비용 5건의 배관만 확인했고 실제 실행은 하지 않았다 |
 
 ## 5. 결과
 
