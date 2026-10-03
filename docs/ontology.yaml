@@ -1,5 +1,5 @@
 # 규칙: 모든 클래스, 속성, 관계는 근거로 역추적되며 relations의 대상은 이 파일의 8개 클래스 중 하나다.
-version: 2
+version: 3
 # 제품 대상은 어린이집 담임 교사다. 기록명·작성 주기는 팀의 제품 정의를 따른다.
 # 개인정보 처리 제약의 근거는 팀이 제공한 회의 결정이다(인터뷰 로그와 구분).
 # 로컬 AI: 음성 전사·가명 처리 / 외부 AI API: 가명 관찰 분류·기록 생성 / 로컬: 실명 복원.
@@ -109,6 +109,13 @@ classes:
     # 이 클래스를 만든 조사 근거, Observation 을 왜 넣었는가
     evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
     attributes: # Observation 이 가지는 특징
+      observation_id: # 관찰을 가리키는 식별자
+        description: 생성한 아이별 문장을 근거 관찰에 연결할 때 쓰는 식별자다.
+        type: string
+        key: true
+        note: SPEC 5절 `observation_id`. 코드가 원문 등장 순서로 부여하며 모델이 만들지 않는다. 기록 쪽 연결은 ChildcareRecord.individual_sentences의 `observation_ids`다.
+        # 이 속성의 설계 근거: 입력 메모와 생성 문장을 대조해야 하는 검토 흐름
+        evidence: [로그 9, 관찰 2, 관찰 3]
       observation_type: # 교사가 확인한 관찰 내용의 종류
         type: list
         examples: [놀이, 행동, 반응, 발화, 참여도, 감정, 부상·다툼, 특이사항]
@@ -133,22 +140,22 @@ classes:
         note: 로그 7의 기관별 일지 서식을 참고한 조사 분류다. 현재 제품의 관찰일지에 네 항목을 필수로 강제하지 않으며, 미입력 배움·지원·계획은 생성하지 않는다.
         # 이 속성의 조사 근거
         evidence: [로그 5, 로그 7, 로그 8]
-      evidence_text: # 관찰의 근거가 된 원문 부분
-        description: 교사가 입력하고 확인한 메모에서 해당 사실을 뒷받침하는 부분을 그대로 연결한다.
+      text: # 관찰의 근거가 된 원문 부분
+        description: 교사가 입력하고 확인한 메모(가명 처리본)에서 해당 관찰의 사실을 담은 부분을 그대로 옮긴다.
         type: string
-        note: 원문과 결과를 대조하기 위한 설계 속성이다. 원문 일부가 있다는 것과 관찰 의미가 정확하다는 것은 별도로 검증한다.
+        note: SPEC 5절 `text`. 원문과 결과를 대조하기 위한 설계 속성이다. 원문 일부가 있다는 것과 관찰 의미가 정확하다는 것은 별도로 검증한다.
         # 이 속성의 조사 근거
         evidence: [로그 3, 로그 7, 로그 9, 관찰 2, 관찰 3]
       needs_confirmation: # 누구의 사실인지 다시 확인해야 하는지
         description: 관찰의 주체 등이 불명확하면 아동을 추측해 연결하지 않고 확인이 필요함을 표시한다.
         type: boolean
-        note: 근거가 없을 때 행동을 생략하는 우회로를 제품에서 표현한 설계 속성이다.
+        note: 근거가 없을 때 행동을 생략하는 우회로를 제품에서 표현한 설계 속성이다. 현재 SPEC 5절 API 필드는 아니다. 아동의 개별 관찰이 0건인 기록을 표시하는 ChildcareRecord.missing_evidence와는 다른 개념이다.
         # 이 속성의 조사 근거
         evidence: [로그 9, 관찰 3]
     relations: # 다른 클래스와의 연결
-      - about: Child # 관찰이 특정 아동에 관한 것이다 라는 의미임
+      - about: Child # 관찰이 특정 아동에 관한 것이다 라는 의미임. SPEC 5절에서는 `child_ids`
         evidence: [로그 2, 로그 3, 로그 6, 로그 7, 로그 9, 로그 10]
-      - occurs_during: Activity # 관찰이 활동 중에 일어난다 라는 의미임
+      - occurs_during: Activity # 관찰이 활동 중에 일어난다 라는 의미임. SPEC 5절에서는 `activity`
         evidence: [로그 2, 로그 3, 로그 6, 로그 7, 로그 9, 로그 10]
       - supported_by: EvidenceSource # 관찰이 근거 자료로 뒷받침된다 라는 의미임
         evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]
@@ -290,10 +297,43 @@ classes:
         values: [작성중, 검토중, 완료, 지연]
         # 이 속성의 조사 근거
         evidence: [로그 3, 로그 4, 로그 7, 로그 8, 로그 10]
+      record_id: # 기록을 가리키는 식별자
+        description: 교사가 검토·확정할 기록을 지정하는 식별자다.
+        type: string
+        key: true
+        note: SPEC 5절 `record_id`. `POST /records/{record_id}/confirm`의 대상이다.
+        # 이 속성의 설계 근거: 교사가 기록마다 검토를 마친 뒤 완료하는 흐름
+        evidence: [로그 3, 로그 4, 로그 7, 로그 8, 로그 10]
+      common_text: # 같은 활동에 참여한 아동에게 공통인 문장
+        description: 여러 아동이 함께한 활동의 공통 내용을 아이별 문장과 분리해 담는다.
+        type: string
+        note: SPEC 5절 `common_text`. 공통 관찰만으로 아동의 개별 문장을 만들지 않는다(AC4, AC5).
+        # 이 속성의 조사 근거: 공통문 재사용·일괄작성
+        evidence: [로그 4, 로그 5, 로그 6, 로그 9, 관찰 3]
+      individual_sentences: # 아동별 문장과 그 근거 관찰
+        description: 한 아동에 관한 문장과, 문장의 사실을 뒷받침하는 관찰 ID 목록을 짝으로 담는다.
+        type: list
+        item_fields: [text, observation_ids]
+        note: SPEC 5절 `individual_sentences`. 문장마다 `observation_ids`가 1개 이상이고 그 관찰이 문장의 사실을 뒷받침해야 한다(AC1). 다른 아동의 관찰을 넣지 않는다(AC3).
+        # 이 속성의 조사 근거: 공통문 뒤 아동별 역할·말·반응 추가
+        evidence: [로그 2, 로그 4, 로그 7, 로그 8, 로그 9, 로그 10, 관찰 3]
+      special_notes: # 일반 문장과 분리한 특이사항
+        description: 부상·다툼 같은 민감 사항을 일반 문장과 분리하고 민감 여부를 표시한다.
+        type: list
+        item_fields: [text, sensitive]
+        note: "SPEC 5절 `special_notes`. 부상·다툼은 `sensitive: true`이며 당사자·부위·상황·정도·조치를 바꾸지 않는다(AC7)."
+        # 이 속성의 조사 근거: 부상·민감 사항의 문장 검토
+        evidence: [로그 1, 로그 2, 로그 3, 로그 5, 관찰 2]
+      missing_evidence: # 아동의 개별 관찰이 없음
+        description: 선택한 관찰 중 이 아동의 개별 관찰이 0건이면 개별 문장 없이 확인 필요로 표시한다.
+        type: boolean
+        note: SPEC 5절 `missing_evidence`(AC4). 관찰의 주체가 불명확함을 뜻하는 Observation.needs_confirmation과 다른 개념이다.
+        # 이 속성의 조사 근거: 확인할 근거가 없으면 아동별 사실을 빼는 우회로
+        evidence: [로그 9, 관찰 3]
     relations: # 다른 클래스와의 연결
       - authored_by: Teacher # 교사가 보육 기록을 작성한다 라는 의미임
         evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
-      - about: Child # 보육 기록이 특정 아동에 관한 것이다 라는 의미임
+      - about: Child # 보육 기록이 특정 아동에 관한 것이다 라는 의미임. SPEC 5절에서는 `child_id`
         evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
       - summarizes: Activity # 보육 기록이 활동 내용을 정리한다 라는 의미임
         evidence: [로그 1, 로그 2, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9]

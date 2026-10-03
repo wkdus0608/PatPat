@@ -1,7 +1,7 @@
 # 스파이크 — 아동별 관찰 구조화
 
 가설 ID: SP-01 / 상태: 실험 계획, 미실행 / 수정일: 2026-09-30
-연결: [SPEC](../SPEC.md) 5절 관찰 입력·AC2·AC3, [골든 케이스](../golden_cases.yaml) GC-12, [온톨로지](../ontology.yaml) Observation
+연결: [SPEC](../SPEC.md) 5절 관찰 입력·AC2·AC3, [골든 케이스](../../tests/harness/golden_cases.yaml) GC-12, [온톨로지](../ontology.yaml) Observation
 
 현재 SPEC의 필드에 맞춰 기존 계획을 간소화했다. 시간·비용·합격선은 기존 계획의 값을 유지한 초안이며, 팀이 실행 전에 확정한다. 아래 결과는 아직 측정하지 않았다.
 
