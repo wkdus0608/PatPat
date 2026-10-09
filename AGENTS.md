@@ -18,9 +18,7 @@
 - Child: 관찰과 기록의 대상 아동. `child_id`는 가명 코드.
 - Guardian: 기록을 전달받는 보호자. 현재 직접 사용자·발송 API는 없음.
 - Activity: 놀이·일과·행사 맥락. 관찰의 `activity`에 해당한다.
-- Observation: 교사가 확인한 관찰. 현재 API 필드는 `observation_id`, `child_ids`, `activity`, `text`.
-- EvidenceSource: 교사의 기존 업무에서 관찰을 회상·재확인할 때 쓰는 근거원. 제품에는 확인한 관찰을 음성·텍스트로만 입력한다.
-- WritingSession: 교사가 여러 아동의 기록을 작성하는 작업 단위.
+- Observation: 교사가 확인한 관찰. 현재 API 필드는 `observation_id`, `child_ids`, `activity`, `text`. 입력 형식(음성·텍스트)은 속성 `source`다.
 - ChildcareRecord: 알림장·관찰일지. 현재 초안은 `common_text`와 아동별 `records`로 나누며, `individual_sentences`, `special_notes`, `missing_evidence`, `status`를 사용한다.
 
 `evidence`는 문서의 조사 근거 참조다. `observation_ids`는 생성한 아이별 문장을 입력 관찰에 연결하는 식별자다.
