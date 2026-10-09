@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ObservationParseResult",
+  "description": "PatPat: 가명 처리된 교사 메모를 아동별 Observation 목록으로 나눈 구조화 결과 (강의 3 산출물, 초안). observation_id는 모델이 아니라 코드가 원문 등장 순서로 부여한다.",
+  "type": "object",
+  "properties": {
+    "observations": {
+      "type": "array",
+      "description": "메모에 나온 관찰을 원문 등장 순서대로 담는다. 아동에게 연결할 관찰이 없으면 빈 배열",
+      "items": {
+        "type": "object",
+        "properties": {
+          "child_ids": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^C[0-9]+$"},
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "이 관찰의 대상 아동 가명 코드. 요청에 주어진 child_ids 중에서만 고른다"
+          },
+          "activity": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "description": "메모에 나온 활동명 그대로. 메모에 활동이 없으면 null"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "이 관찰의 사실을 담은 메모 부분. 사실을 더하거나 빼지 않는다"
+          }
+        },
+        "required": ["child_ids", "activity", "text"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["observations"],
+  "additionalProperties": false
+}

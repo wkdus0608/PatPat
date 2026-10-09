@@ -8,7 +8,7 @@
 
 팀의 개인정보 결정에 따라 로컬 AI가 음성 전사·이름 가명 처리를 맡고, 외부 AI API는 가명 텍스트의 분류·초안 생성만 맡는다. 실명↔가명 매핑은 로컬 DB에 두고, 결과의 실명 복원도 로컬에서 수행한다. (SPEC 4절, AC10)
 
-왜 만드는가는 `docs/PROBLEM.md`, 무엇을 만드는가는 `docs/SPEC.md`, 도메인 구조는 `docs/ontology.yaml`이 정본이다. 판정 데이터는 `docs/golden_cases.yaml`을 따른다. 작업 전 해당 문서를 읽고 용어·범위·AC를 맞춘다.
+왜 만드는가는 `docs/PROBLEM.md`, 무엇을 만드는가는 `docs/SPEC.md`, 도메인 구조는 `docs/ontology.yaml`이 정본이다. 판정 데이터는 `tests/harness/golden_cases.yaml`을 따른다. 작업 전 해당 문서를 읽고 용어·범위·AC를 맞춘다.
 
 ## 2. 도메인 용어집
 
@@ -23,7 +23,7 @@
 - WritingSession: 교사가 여러 아동의 기록을 작성하는 작업 단위.
 - ChildcareRecord: 알림장·관찰일지. 현재 초안은 `common_text`와 아동별 `records`로 나누며, `individual_sentences`, `special_notes`, `missing_evidence`, `status`를 사용한다.
 
-`evidence`는 문서의 조사 근거 참조다. `observation_ids`는 생성한 아이별 문장을 입력 관찰에 연결하는 식별자다.
+`evidence`는 문서의 조사 근거 참조다. `observation_ids`는 생성한 아이별 문장을 입력 관찰에 연결하는 식별자다. `missing_evidence`는 기록에서 아동의 개별 관찰이 0건임을, 온톨로지의 `Observation.needs_confirmation`은 관찰의 주체가 불명확함을 뜻하며 후자는 현재 API 필드가 아니다.
 
 ## 3. 절대 규칙
 
@@ -66,7 +66,7 @@
 저장소 루트에서 실행한다.
 
 ```sh
-ruby -ryaml -e 'ARGV.each { |path| YAML.load_file(path); puts "#{path}: YAML OK" }' docs/ontology.yaml docs/golden_cases.yaml
+ruby -ryaml -e 'ARGV.each { |path| YAML.load_file(path); puts "#{path}: YAML OK" }' docs/ontology.yaml tests/harness/golden_cases.yaml
 git diff --check
 ```
 
@@ -81,7 +81,9 @@ git diff --check
 - `docs/research/interviews.md`: 조사 로그·관찰·Job Story
 - `docs/PROBLEM.md`, `docs/SPEC.md`: 문제와 개발 계약
 - `docs/ontology.yaml`: 도메인 정본
-- `docs/golden_cases.yaml`: 판정 데이터 정본
+- `tests/harness/golden_cases.yaml`: 판정 데이터 정본
 - `docs/spikes/`: 기술 가정별 실험 기록
+- `src/patpat/schemas/`: 구조화 출력 스키마 (강의 3)
+- `src/patpat/prompts/`: 제품이 런타임에 읽는 프롬프트 (강의 3)
 
 제품 테스트 결과는 실행 시 기록하고, 실험 결과는 해당 스파이크 문서에 남긴다. 이 파일에 측정 성과나 진행률을 복제하지 않는다.
