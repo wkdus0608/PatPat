@@ -1,7 +1,7 @@
 # 스파이크 — 없는 사실과 빈 맥락의 생성 방지
 
 가설 ID: SP-03 / 상태: 실험 계획, 미실행 / 수정일: 2026-09-30
-연결: [SPEC](../SPEC.md) AC1·AC2·AC4·AC6·AC7, [온톨로지](../ontology.yaml) Observation·ChildcareRecord
+연결: [SPEC](../SPEC.md) AC1·AC5·AC6, [온톨로지](../ontology.yaml) Observation·ChildcareRecord
 
 사용자가 지적한 사실 생성·맥락 보완 위험과 조사 로그 2·3·5·9를 근거로 작성했다. 시간·합격선은 실행 전에 확정할 초안이며, 결과는 아직 없다.
 

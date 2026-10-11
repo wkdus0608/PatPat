@@ -88,7 +88,7 @@ classes:
       # 관찰이 공통 활동(common)인지, 한 아이의 사실(individual)인지, 여러 아이의 공동 사건(joint)인지, 누구 일인지 모르는지(unresolved)
       scope: {type: enum, values: [common, individual, joint, unresolved], note: "SPEC의 설계 분류. unresolved는 주체가 불명확해 아동을 추측해 연결하지 않는 경우", evidence: [로그 5, 로그 9, 관찰 3]}
       # 부상·다툼처럼 보호자에게 민감한 관찰인지 (true면 따로 분리해 사실을 그대로 둔다)
-      sensitive: {type: boolean, note: "부상·다툼은 special_notes로 분리하고 사실을 바꾸지 않는다(AC7)", evidence: [로그 2, 로그 3, 로그 5, 관찰 1]}
+      sensitive: {type: boolean, note: "부상·다툼은 special_notes로 분리하고 사실을 바꾸지 않는다(AC4)", evidence: [로그 2, 로그 3, 로그 5, 관찰 1]}
     relations:
       - recorded_by: Teacher          # 관찰한다: 교사가 이 관찰을 남겼다
         evidence: [로그 7, 로그 10, 관찰 2]
@@ -144,15 +144,15 @@ classes:
       deadline: {type: string, examples: [퇴근 전], evidence: [로그 7]}  # 알림장은 원칙상 퇴근 전에 끝낸다 (일지와 다른 점)
       common_text: {type: string, evidence: [로그 5, 로그 9, 관찰 3]}  # 같은 활동을 한 아이들에게 똑같이 쓰는 문장
       # 아이마다 다르게 쓰는 문장. 문장마다 어떤 관찰에서 나왔는지 연결된다
-      individual_sentences: {type: list, note: "문장마다 근거 observation_ids 1개 이상, 다른 아동의 관찰을 섞지 않는다(AC1, AC3)", evidence: [로그 1, 로그 2, 로그 4, 로그 9, 로그 10, 관찰 2, 관찰 3]}
+      individual_sentences: {type: list, note: "문장마다 근거 observation_ids 1개 이상, 다른 아동의 관찰을 섞지 않는다(AC1, AC2)", evidence: [로그 1, 로그 2, 로그 4, 로그 9, 로그 10, 관찰 2, 관찰 3]}
       # 특이·전달사항, 부상·다툼처럼 따로 떼어 신중하게 쓰는 부분
       special_notes: {type: list, examples: [특이사항, 전달사항, 부상·다툼 경위], evidence: [로그 1, 로그 2, 로그 3, 로그 5, 관찰 1]}
       # 이 아이의 관찰이 없어서 개별 문장을 만들지 않았는지 (true = "확인 필요")
-      missing_evidence: {type: boolean, note: "근거가 없으면 개별 문장을 만들지 않고 표시만 한다(AC4)", evidence: [관찰 3]}
+      missing_evidence: {type: boolean, note: "근거가 없으면 개별 문장을 만들지 않고 표시만 한다(AC1)", evidence: [관찰 3]}
       # 교사가 '끝났다'고 판단하는 기준
       completion_criteria: {type: list, examples: [놀이가 자세히 묘사됨, 부모가 오해하지 않을 표현, 오타·맞춤법 점검, 부모가 하루를 상상할 수 있음], evidence: [로그 1, 로그 3, 로그 4, 관찰 1, 관찰 3]}
       # 진행 상태. 작성중 = 초안(Draft), 검토중 = 교사가 고치는 중, 완료 = 교사가 확정함
-      status: {type: enum, values: [작성중, 검토중, 완료], note: "완료는 교사 확정으로만 바뀐다(AC8)", evidence: [관찰 1, 관찰 2]}
+      status: {type: enum, values: [작성중, 검토중, 완료], note: "완료는 교사 확정으로만 바뀐다(AC5)", evidence: [관찰 1, 관찰 2]}
     relations:
       - about: Child                # 어느 아이의 알림장인지
         evidence: [로그 3, 로그 9, 로그 10, 관찰 1, 관찰 3]
@@ -177,14 +177,14 @@ classes:
       target_period: {type: string, examples: [한 주], note: "관찰 선택 기준. API 필드는 아니다(SPEC 5절)", evidence: [로그 8]}
       length_limit: {type: string, examples: ["1~2장"], note: "자세히 쓰면서도 압축해야 한다", evidence: [로그 8]}  # 분량 제한 (알림장과 다른 점)
       common_text: {type: string, evidence: [로그 5, 로그 6, 로그 8]}  # 같은 활동을 한 아이들에게 똑같이 쓰는 문장
-      individual_sentences: {type: list, note: "AC1, AC3은 DailyNote와 같다", evidence: [로그 1, 로그 2, 로그 4, 로그 8, 로그 10]}  # 아이마다 다르게 쓰는 문장
+      individual_sentences: {type: list, note: "AC1, AC2는 DailyNote와 같다", evidence: [로그 1, 로그 2, 로그 4, 로그 8, 로그 10]}  # 아이마다 다르게 쓰는 문장
       # 표준보육과정 4단계 중 어디에 해당하는 내용인지 (일지 서식에서 확인하는 항목)
       content_kind: {type: enum, values: [관찰, 배움 읽기, 놀이 지원, 지원 계획], note: "표준보육과정 4단계. 강제하지 않으며 입력되지 않은 단계는 생성하지 않는다", evidence: [관찰 2]}
-      missing_evidence: {type: boolean, note: "AC4는 두 기록에 같이 적용된다(SPEC 6절)", evidence: [관찰 3]}  # 관찰이 없어 개별 문장을 만들지 않았는지
+      missing_evidence: {type: boolean, note: "AC1은 두 기록에 같이 적용된다(SPEC 6절)", evidence: [관찰 3]}  # 관찰이 없어 개별 문장을 만들지 않았는지
       # 교사가 '끝났다'고 판단하는 기준
       completion_criteria: {type: list, examples: [표준보육과정 4단계 반영, 1~2장 안에 압축, 오타·맞춤법 점검], evidence: [로그 4, 로그 8, 관찰 2]}
       # 진행 상태. 작성중 = 초안(Draft), 검토중 = 교사가 고치는 중, 완료 = 교사가 확정함
-      status: {type: enum, values: [작성중, 검토중, 완료], note: "완료는 교사 확정으로만 바뀐다(AC8)", evidence: [관찰 2]}
+      status: {type: enum, values: [작성중, 검토중, 완료], note: "완료는 교사 확정으로만 바뀐다(AC5)", evidence: [관찰 2]}
     relations:
       - about: Child                # 어느 아이의 일지인지
         evidence: [로그 4, 로그 8, 로그 10]
