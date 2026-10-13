@@ -1,128 +1,75 @@
-# 골든 케이스: 현재 SPEC.md 6절 수용 기준(AC1~AC10)을 사례로 확인하는 파일
-# 수정 이유: 팀원 원본의 구성·주석을 유지하고, 사용자 요청에 따라 현재 SPEC의 번호·필드·범위를 맞췄다.
-# 기록 구분 수정: 일지 표기를 관찰일지로 통일하고, 당일 관찰과 대상 기간의 누적 관찰을 구분한다.
-# 개인정보 회의 결정을 반영해 AC10의 가명 처리·복원과 실패 시 호출 차단 사례만 추가했다.
-# 규칙:
-#   - ac는 SPEC.md의 AC 번호, evidence는 interviews.md의 로그·관찰 번호를 가리킨다.
-#     상태 확인처럼 기술 계약을 검사하는 케이스는 evidence를 비워 둔다.
-#   - 구조화 관찰의 아동은 가명 코드(C01, C02 ...)로 다룬다. 관찰·이름·매핑은 모두 가상 데이터다.
-#     fixtures는 로컬 테스트 준비물·작성 대상일/기간 정보이며 API 요청 필드가 아니다.
-#     외부 모델 호출의 모든 요청을 검사한다. 복원 검사는 같은 로컬 복원 함수에 고정 문장을 넣어 대조한다.
-#     no_outbound_send는 보호자·외부 플랫폼 발송 금지이며, 가명 데이터의 외부 AI 호출과 구분한다.
-#   - input.observations는 POST /observations의 결과를 미리 만들어 둔 고정 입력이다.
-#     각 케이스는 저장 공간을 분리해 독립적으로 실행한다.
-#     하니스는 관찰을 먼저 저장한 뒤 input.observation_ids가 있으면 그 목록으로 POST /drafts를 호출한다.
-#     목록이 없으면 해당 케이스의 모든 관찰 ID를 사용한다. 생성 근거는 선택한 관찰만이며 저장된 다른 관찰은 아니다.
-#     steps가 있으면 그 순서대로 실행하고, 다음 단계의 ID는 앞 단계에서 반환된 ID를 사용한다.
-#     요청에는 SPEC의 필드만 보낸다. 예를 들어 POST /observations에는 child_ids와 text를 보낸다.
-#   - expect는 응답 전체가 아니라 판정 조건이다. records의 C01 같은 키는 응답 배열의 child_id로 찾고,
-#     special_notes의 조건은 응답의 해당 특이사항 항목에 적용한다.
-#     common_text_forbidden_facts는 공통 문장에도 선택 밖 관찰이 섞이지 않았는지 확인한다.
-#   - 구조·근거 번호는 자동 검사하고, required_facts는 해당 위치에서 뜻이 모두 보존됐는지 사람이 확인한다.
-#     forbidden_facts 및 같은 뜻의 주장은 없어야 하며, 목록 밖이라도 입력에 없는 사실을 추가하면 실패다.
-#     근거 번호가 실제로 존재해도 그 관찰이 문장의 사실을 뒷받침하지 않으면 실패다.
-#     문자열 검사만으로 최종 통과하지 않는다. 뜻을 보존한 동의어·바꿔 쓰기는 허용한다.
-#   - 이 파일은 테스트 데이터이며, 실행 도구·제품 테스트·사람 판정은 아직 미실행이다.
-version: 1
-spec: docs/SPEC.md
+# 초안 생성: fixtures.observations를 저장한 뒤 input으로 POST /drafts를 호출한다.
+# name = 기존 GC 번호와 이름
+# note = 대응 AC와 조사·설계 근거
+# expect의 records는 child_id로 찾는다. 사실 조건은 아동 기록 전체, 중첩 조건은 해당 항목에 적용한다.
+# 필수·금지 사실은 뜻으로 판정한다. 입력 밖 사실·선택 밖 근거·사실을 뒷받침하지 않는 근거는 실패다.
+# 구조·ID·호출·저장은 자동 검사하고, 문장·activity의 의미는 두 사람이 독립 판정 후 합의한다.
+# content_kinds_must_equal은 단계 집합을 비교한다. 날짜·기간은 준비 정보이며 요청 필드가 아니다.
 
+version: 3
+spec: "docs/SPEC.md"
+execution_status: "미실행"
 cases:
-  # ───────── 초안 생성 (POST /drafts) ─────────
 
-  # 기본 흐름. 아이 3명이 같은 블록 놀이에서 서로 다른 행동을 한 평범한 날.
-  # 확인: 아이별 문장마다 근거 관찰 번호가 붙는지, 없는 번호를 지어내지 않는지, 관찰의 핵심 사실이 빠지지 않는지.
-  # 덤으로 부상·다툼이 없는 날에 특이사항(special_notes)이 괜히 생기지 않는지도 본다.
-  - id: GC-01
-    title: 기본 흐름 — 아이별 문장마다 입력에 있는 근거가 연결되고 필수 사실이 담긴다
-    ac: [AC1, AC6, AC7]
-    evidence: [로그 2, 로그 7, 관찰 1]
-    input:
-      record_type: 알림장
-      child_ids: [C01, C02, C03]
+  - name: "GC-01 기본 흐름: 사실·근거 연결"
+    fixtures:
       observations:
-        - {observation_id: O1, child_ids: [C01], activity: 블록 놀이, text: "C01이 블록으로 기찻길을 만들고 '칙칙폭폭 출발'이라고 말함"}
-        - {observation_id: O2, child_ids: [C02], activity: 블록 놀이, text: "C02는 네모 블록만 골라 높이 쌓아 올림"}
-        - {observation_id: O3, child_ids: [C03], activity: 블록 놀이, text: "C03은 친구가 만든 기찻길 옆에 역을 만들어 줌"}
+        - {observation_id: "O1", child_ids: ["C01"], activity: "블록 놀이", text: "C01이 블록으로 기찻길을 만들고 '칙칙폭폭 출발'이라고 말함", observation_type: ["행동", "말"], scope: "individual", sensitive: false}
+        - {observation_id: "O2", child_ids: ["C02"], activity: "블록 놀이", text: "C02는 네모 블록만 골라 높이 쌓아 올림", observation_type: ["행동"], scope: "individual", sensitive: false}
+        - {observation_id: "O3", child_ids: ["C03"], activity: "블록 놀이", text: "C03은 친구가 만든 기찻길 옆에 역을 만들어 줌", observation_type: ["행동"], scope: "individual", sensitive: false}
+    input: {record_type: "알림장", child_ids: ["C01", "C02", "C03"], observation_ids: ["O1", "O2", "O3"]}
     expect:
-      every_individual_sentence_has_observation_ids: true   # AC1
-      observation_ids_must_be_from_input: true              # AC1 — O1~O3 외의 id가 나오면 실패
-      special_notes_empty: [C01, C02, C03]                  # AC7 오탐 확인 — 부상·다툼이 없으면 비어 있어야 함
+      every_individual_sentence_has_observation_ids: true
+      observation_ids_must_be_from_input: true
+      special_notes_empty: ["C01", "C02", "C03"]
       records:
-        C01: {required_facts: ["C01이 블록으로 기찻길을 만들었다", "C01이 칙칙폭폭 출발이라고 말했다"]}           # AC6
+        C01: {required_facts: ["C01이 블록으로 기찻길을 만들었다", "C01이 칙칙폭폭 출발이라고 말했다"]}
         C02: {required_facts: ["C02가 네모 블록만 골라 높이 쌓아 올렸다"]}
         C03: {required_facts: ["C03이 친구가 만든 기찻길 옆에 역을 만들었다"]}
+    note: "AC1·AC4 — 로그 2, 로그 7, 관찰 2"
 
-  # 지어내기 금지. 관찰에는 '모래를 컵에 담아 뒤집음'뿐이다.
-  # 확인: '즐거워했어요', '웃으며' 같은 감정·말을 PatPat이 덧붙이지 않는지.
-  # 왜: 교사는 확인하지 못한 행동을 쓰지 않는다(로그 9). 그럴듯한 문장보다 사실이 먼저다.
-  - id: GC-02
-    title: 없는 사실 생성 금지 — 관찰에 없는 감정·발화를 덧붙이지 않는다
-    ac: [AC2, AC6]
-    evidence: [로그 9, 관찰 2]
-    input:
-      record_type: 알림장
-      child_ids: [C01]
+  - name: "GC-02 없는 감정·발화 생성 금지"
+    fixtures:
       observations:
-        - {observation_id: O1, child_ids: [C01], activity: 모래 놀이, text: "C01이 모래를 컵에 담아 뒤집어 모양을 만듦"}
+        - {observation_id: "O1", child_ids: ["C01"], activity: "모래 놀이", text: "C01이 모래를 컵에 담아 뒤집어 모양을 만듦", observation_type: ["행동"], scope: "individual", sensitive: false}
+    input: {record_type: "알림장", child_ids: ["C01"], observation_ids: ["O1"]}
     expect:
       records:
-        C01:
-          required_facts: ["C01이 모래를 컵에 담아 뒤집어 모양을 만들었다"]
-          forbidden_facts: ["C01이 즐거워하거나 기뻐하거나 뿌듯해했다", "C01이 웃었다", "C01이 말을 했다", "C01이 친구와 함께 놀이했다"]   # 입력에 감정·발화·친구 없음
+        C01: {required_facts: ["C01이 모래를 컵에 담아 뒤집어 모양을 만들었다"], forbidden_facts: ["C01이 즐거워하거나 기뻐하거나 뿌듯해했다", "C01이 웃었다", "C01이 말을 했다", "C01이 친구와 함께 놀이했다"]}
+    note: "AC1 — 로그 9, 관찰 3"
 
-  # 섞임 금지. 같은 물감 놀이를 한 두 아이의 관찰이 서로 다르다.
-  # 확인: C01 기록에 C02의 '손바닥'이, C02 기록에 C01의 '보라색'이 들어가지 않는지.
-  # 왜: 다른 아이 이야기가 들어간 알림장은 보호자 신뢰를 바로 잃는다.
-  - id: GC-03
-    title: 다른 아동 관찰 섞임 금지 — 한 아동의 기록에 다른 아동의 사실이 들어가지 않는다
-    ac: [AC3, AC6]
-    evidence: [로그 2, 로그 4]
-    input:
-      record_type: 알림장
-      child_ids: [C01, C02]
+  - name: "GC-03 다른 아동 사실 혼입 금지"
+    fixtures:
       observations:
-        - {observation_id: O1, child_ids: [C01], activity: 물감 놀이, text: "C01이 빨강과 파랑을 섞어 보라색을 만들고 '포도색이다'라고 말함"}
-        - {observation_id: O2, child_ids: [C02], activity: 물감 놀이, text: "C02는 붓 대신 손바닥으로 찍기를 반복함"}
+        - {observation_id: "O1", child_ids: ["C01"], activity: "물감 놀이", text: "C01이 빨강과 파랑을 섞어 보라색을 만들고 '포도색이다'라고 말함", observation_type: ["행동", "말"], scope: "individual", sensitive: false}
+        - {observation_id: "O2", child_ids: ["C02"], activity: "물감 놀이", text: "C02는 붓 대신 손바닥으로 찍기를 반복함", observation_type: ["행동"], scope: "individual", sensitive: false}
+    input: {record_type: "알림장", child_ids: ["C01", "C02"], observation_ids: ["O1", "O2"]}
     expect:
       records:
-        C01: {required_facts: ["C01이 빨강과 파랑을 섞어 보라색을 만들었다", "C01이 포도색이라고 말했다"], forbidden_facts: ["C01이 손바닥으로 찍었다"], allowed_observation_ids: [O1]}
-        C02: {required_facts: ["C02가 붓 대신 손바닥으로 찍기를 반복했다"], forbidden_facts: ["C02가 보라색을 만들었다", "C02가 포도색이라고 말했다"], allowed_observation_ids: [O2]}
+        C01: {required_facts: ["C01이 빨강과 파랑을 섞어 보라색을 만들었다", "C01이 포도색이라고 말했다"], forbidden_facts: ["C01이 손바닥으로 찍었다"], allowed_observation_ids: ["O1"]}
+        C02: {required_facts: ["C02가 붓 대신 손바닥으로 찍기를 반복했다"], forbidden_facts: ["C02가 보라색을 만들었다", "C02가 포도색이라고 말했다"], allowed_observation_ids: ["O2"]}
+    note: "AC1·AC2 — 로그 2, 로그 4"
 
-  # 근거 없는 아이. C03은 입력 관찰이 하나도 없다.
-  # 확인: C03의 개별 문장을 만들지 않고 '확인 필요(missing_evidence: true)'로 표시하는지.
-  # 왜: 실제 교사도 확인할 방법이 없으면 행동을 빼고 쓴다(로그 9, 관찰 3).
-  - id: GC-04
-    title: 근거 없는 아동 — 관찰이 0건이면 개별 문장을 만들지 않는다
-    ac: [AC4]
-    evidence: [로그 9, 관찰 3]
-    input:
-      record_type: 알림장
-      child_ids: [C01, C02, C03]
+  - name: "GC-04 관찰 없는 아동의 개별 문장 금지"
+    fixtures:
       observations:
-        - {observation_id: O1, child_ids: [C01], activity: 물감 놀이, text: "C01이 노란색으로 해님을 그림"}
-        - {observation_id: O2, child_ids: [C02], activity: 물감 놀이, text: "C02는 초록색으로 나뭇잎을 찍음"}
-        # C03은 입력 관찰 없음
+        - {observation_id: "O1", child_ids: ["C01"], activity: "물감 놀이", text: "C01이 노란색으로 해님을 그림", observation_type: ["행동"], scope: "individual", sensitive: false}
+        - {observation_id: "O2", child_ids: ["C02"], activity: "물감 놀이", text: "C02는 초록색으로 나뭇잎을 찍음", observation_type: ["행동"], scope: "individual", sensitive: false}
+    input: {record_type: "알림장", child_ids: ["C01", "C02", "C03"], observation_ids: ["O1", "O2"]}
     expect:
       records:
         C01: {missing_evidence: false}
         C02: {missing_evidence: false}
         C03: {missing_evidence: true, individual_sentences_count: 0}
+    note: "AC1 — 로그 9, 관찰 3"
 
-  # 근거 없는 아이 2. C03은 반 전체 산책 관찰에만 들어 있고, 개별 관찰은 없다.
-  # 확인: 공통 관찰만으로 C03의 개별 문장을 만들지 않고 '확인 필요'로 표시하는지.
-  # 왜: '산책을 다녀왔어요'는 모두에게 같은 내용이라 C03만의 근거가 아니다(개별 근거 부족에 대한 AC4와 공통·개별 분리에 대한 AC5).
-  - id: GC-05
-    title: 근거 없는 아동(공통 관찰만 있음) — 공통 활동 관찰은 개별 근거로 세지 않는다
-    ac: [AC4, AC5]
-    evidence: [로그 9, 관찰 3]
-    input:
-      record_type: 알림장
-      child_ids: [C01, C02, C03]
+  - name: "GC-05 공통 관찰만 있는 아동의 개별 문장 금지"
+    fixtures:
       observations:
-        - {observation_id: O1, child_ids: [C01, C02, C03], activity: 산책, text: "반 전체가 어린이집 앞 공원으로 산책을 다녀옴"}
-        - {observation_id: O2, child_ids: [C01], activity: 산책, text: "C01이 떨어진 솔방울을 주워 선생님에게 보여 줌"}
-        - {observation_id: O3, child_ids: [C02], activity: 산책, text: "C02는 개미 줄을 따라가며 쪼그려 앉아 지켜봄"}
-        # C03은 공통 관찰(O1)에만 포함되고 개별 관찰 없음
+        - {observation_id: "O1", child_ids: ["C01", "C02", "C03"], activity: "산책", text: "반 전체가 어린이집 앞 공원으로 산책을 다녀옴", observation_type: ["행동"], scope: "common", sensitive: false}
+        - {observation_id: "O2", child_ids: ["C01"], activity: "산책", text: "C01이 떨어진 솔방울을 주워 선생님에게 보여 줌", observation_type: ["행동"], scope: "individual", sensitive: false}
+        - {observation_id: "O3", child_ids: ["C02"], activity: "산책", text: "C02는 개미 줄을 따라가며 쪼그려 앉아 지켜봄", observation_type: ["행동"], scope: "individual", sensitive: false}
+    input: {record_type: "알림장", child_ids: ["C01", "C02", "C03"], observation_ids: ["O1", "O2", "O3"]}
     expect:
       common_text_required: true
       common_text_required_facts: ["반 전체가 어린이집 앞 공원으로 산책을 다녀왔다"]
@@ -130,242 +77,108 @@ cases:
         C01: {missing_evidence: false, required_facts: ["C01이 떨어진 솔방울을 주워 선생님에게 보여 주었다"]}
         C02: {missing_evidence: false, required_facts: ["C02가 개미 줄을 따라가며 쪼그려 앉아 지켜봤다"]}
         C03: {missing_evidence: true, individual_sentences_count: 0}
+    note: "AC1·AC3 — 로그 9, 관찰 3"
 
-  # 공통 + 개별 분리. 반 전체가 같은 동화를 들었지만 아이마다 반응이 다르다.
-  # 확인: 동화 제목은 공통 문장에, 아이별 반응은 각자 다른 문장으로 나오는지. 두 아이 문장이 똑같으면 실패.
-  # 왜: 바쁘면 모두 같은 문장을 쓰게 된다는 게 핵심 페인이다(로그 4, 6).
-  - id: GC-06
-    title: 공통 활동과 아이별 문장 분리 — 참여 방식이 다르면 개별 문장도 달라야 한다
-    ac: [AC5, AC6]
-    evidence: [로그 4, 로그 6, 로그 10, 관찰 3]
-    input:
-      record_type: 알림장
-      child_ids: [C01, C02, C03]
+  - name: "GC-06 공통 활동과 개별 사실 분리"
+    fixtures:
       observations:
-        - {observation_id: O1, child_ids: [C01, C02, C03], activity: 동화 듣기, text: "반 전체가 '아기 돼지 삼형제' 동화를 들음"}
-        - {observation_id: O2, child_ids: [C01], activity: 동화 듣기, text: "C01은 늑대가 나오는 장면에서 손을 들고 '벽돌집이 제일 튼튼해요'라고 의견을 냄"}
-        - {observation_id: O3, child_ids: [C02], activity: 동화 듣기, text: "C02는 끝까지 그림책을 가만히 바라봄"}
-        - {observation_id: O4, child_ids: [C03], activity: 동화 듣기, text: "C03은 돼지 역할을 맡아 '후~' 부는 흉내를 냄"}
+        - {observation_id: "O1", child_ids: ["C01", "C02", "C03"], activity: "동화 듣기", text: "반 전체가 '아기 돼지 삼형제' 동화를 들음", observation_type: ["행동"], scope: "common", sensitive: false}
+        - {observation_id: "O2", child_ids: ["C01"], activity: "동화 듣기", text: "C01은 늑대가 나오는 장면에서 손을 들고 '벽돌집이 제일 튼튼해요'라고 의견을 냄", observation_type: ["행동", "말"], scope: "individual", sensitive: false}
+        - {observation_id: "O3", child_ids: ["C02"], activity: "동화 듣기", text: "C02는 끝까지 그림책을 가만히 바라봄", observation_type: ["행동"], scope: "individual", sensitive: false}
+        - {observation_id: "O4", child_ids: ["C03"], activity: "동화 듣기", text: "C03은 돼지 역할을 맡아 '후~' 부는 흉내를 냄", observation_type: ["역할", "행동"], scope: "individual", sensitive: false}
+    input: {record_type: "알림장", child_ids: ["C01", "C02", "C03"], observation_ids: ["O1", "O2", "O3", "O4"]}
     expect:
       common_text_required: true
       common_text_required_facts: ["반 전체가 아기 돼지 삼형제 동화를 들었다"]
-      individual_sentences_must_differ: [C01, C02, C03]    # 셋 중 두 아동의 개별 문장이 같으면 실패
+      individual_sentences_must_differ: ["C01", "C02", "C03"]
       records:
         C01: {required_facts: ["C01이 늑대가 나오는 장면에서 손을 들고 벽돌집이 제일 튼튼하다고 말했다"]}
         C02: {required_facts: ["C02가 끝까지 그림책을 가만히 바라봤다"]}
         C03: {required_facts: ["C03이 돼지 역할을 맡아 후~ 부는 흉내를 냈다"]}
+    note: "AC1·AC3 — 로그 4, 로그 6, 로그 10, 관찰 3"
 
-  # 관찰일지. 당일 기록과 달리 대상 기간의 여러 날짜 관찰을 모아 작성한다.
-  # 확인: 날짜를 합치거나 기간 밖 관찰을 넣지 않고 근거 연결·필수 사실·아동 구분을 지키는지.
-  # 작성 기간은 테스트 준비 정보이며 POST /drafts에는 선택한 ID 목록만 보낸다.
-  - id: GC-07
-    title: 관찰일지 — 대상 기간의 누적 관찰만 사용하고 날짜·아동별 사실을 보존한다
-    ac: [AC1, AC2, AC3, AC6]
-    evidence: [로그 7, 로그 8, 관찰 1]
+  - name: "GC-07 관찰일지: 선택한 기간 관찰만 사용"
     fixtures:
-      writing_period: {start: "2026-09-01", end: "2026-09-30"}  # 주기·기간 선택은 팀의 제품 정의
-    input:
-      record_type: 관찰일지
-      child_ids: [C01, C02]
-      observation_ids: [O1, O2, O3]
+      writing_period:
+        start: "2026-09-01"
+        end: "2026-09-30"
       observations:
-        - {observation_id: O1, child_ids: [C01, C02], activity: 텃밭 활동, text: "2026-09-03 반 전체가 텃밭에 상추 모종을 심음"}
-        - {observation_id: O2, child_ids: [C01], activity: 텃밭 활동, text: "2026-09-03 C01은 모종삽으로 흙을 파고 '뿌리가 길어요'라고 말함"}
-        - {observation_id: O3, child_ids: [C02], activity: 텃밭 활동, text: "2026-09-16 C02는 물뿌리개로 모종마다 물을 줌"}
-        - {observation_id: O4, child_ids: [C01], activity: 블록 놀이, text: "2026-08-31 C01이 빨간 블록으로 다리를 만듦"}  # 기간 밖 저장 관찰: 선택하지 않음
+        - {observation_id: "O1", child_ids: ["C01", "C02"], activity: "텃밭 활동", text: "2026-09-03 반 전체가 텃밭에 상추 모종을 심음", observation_type: ["행동"], scope: "common", sensitive: false}
+        - {observation_id: "O2", child_ids: ["C01"], activity: "텃밭 활동", text: "2026-09-03 C01은 모종삽으로 흙을 파고 '뿌리가 길어요'라고 말함", observation_type: ["행동", "말"], scope: "individual", sensitive: false}
+        - {observation_id: "O3", child_ids: ["C02"], activity: "텃밭 활동", text: "2026-09-16 C02는 물뿌리개로 모종마다 물을 줌", observation_type: ["행동"], scope: "individual", sensitive: false}
+        - {observation_id: "O4", child_ids: ["C01"], activity: "블록 놀이", text: "2026-08-31 C01이 빨간 블록으로 다리를 만듦", observation_type: ["행동"], scope: "individual", sensitive: false}
+    input: {record_type: "관찰일지", child_ids: ["C01", "C02"], observation_ids: ["O1", "O2", "O3"]}
     expect:
       every_individual_sentence_has_observation_ids: true
-      observation_ids_must_be_from_input: true  # 여기서 input은 선택한 O1~O3
+      observation_ids_must_be_from_input: true
       common_text_required_facts: ["2026-09-03 반 전체가 텃밭에 상추 모종을 심었다"]
       common_text_forbidden_facts: ["C01이 빨간 블록으로 다리를 만들었다"]
       records:
-        C01: {required_facts: ["2026-09-03 C01이 모종삽으로 흙을 팠다", "2026-09-03 C01이 뿌리가 길다고 말했다"], forbidden_facts: ["C01이 물뿌리개로 물을 주었다", "C01이 빨간 블록으로 다리를 만들었다"], allowed_observation_ids: [O1, O2]}
-        C02: {required_facts: ["2026-09-16 C02가 물뿌리개로 모종마다 물을 주었다"], forbidden_facts: ["C02가 모종삽으로 흙을 팠다", "C02가 뿌리에 대해 말했다", "2026-09-03 C02가 물뿌리개로 물을 주었다"], allowed_observation_ids: [O1, O3]}
+        C01: {required_facts: ["2026-09-03 C01이 모종삽으로 흙을 팠다", "2026-09-03 C01이 뿌리가 길다고 말했다"], forbidden_facts: ["C01이 물뿌리개로 물을 주었다", "C01이 빨간 블록으로 다리를 만들었다"], allowed_observation_ids: ["O1", "O2"]}
+        C02: {required_facts: ["2026-09-16 C02가 물뿌리개로 모종마다 물을 주었다"], forbidden_facts: ["C02가 모종삽으로 흙을 팠다", "C02가 뿌리에 대해 말했다", "2026-09-03 C02가 물뿌리개로 물을 주었다"], allowed_observation_ids: ["O1", "O3"]}
+    note: "AC1·AC2·AC3 — 로그 7, 로그 8, 관찰 2"
 
-  # ───────── 민감 관찰 ─────────
-
-  # 부상. 미끄럼틀에서 넘어져 오른쪽 무릎이 까지고 밴드를 붙인 상황.
-  # 확인: 특이사항(sensitive)으로 분리되는지, 부위·상황·조치가 그대로인지(왼쪽으로 바뀌거나 '병원' 같은 과장이 없는지).
-  # 왜: 부상 설명이 기록에서 가장 오래 걸리고, 보호자 오해로 이어진다(로그 2, 3).
-  - id: GC-08
-    title: 부상 관찰 — 특이사항으로 분리하고 부위·상황·조치를 바꾸지 않는다
-    ac: [AC7, AC2]
-    evidence: [로그 2, 로그 3, 관찰 2]
-    input:
-      record_type: 알림장
-      child_ids: [C02]
-      observations:
-        - {observation_id: O1, child_ids: [C02], activity: 실외 놀이, text: "C02가 미끄럼틀 계단을 오르다 넘어져 오른쪽 무릎이 살짝 까짐. 흐르는 물로 씻고 밴드를 붙임"}
-    expect:
-      records:
-        C02:
-          special_notes:
-            sensitive: true
-            required_facts: ["C02가 미끄럼틀 계단을 오르다 넘어졌다", "C02의 오른쪽 무릎이 살짝 까졌다", "흐르는 물로 씻고 밴드를 붙였다"]
-          forbidden_facts: ["C02가 왼쪽 무릎을 다쳤다", "피가 많이 났다", "병원에 갔다", "C02가 울었다"]   # 부위 변경·과장·없는 반응 금지
-
-  # 다툼. 두 아이가 장난감을 잡아당겼고 교사가 번갈아 쓰기로 중재했다.
-  # 확인: 양쪽 기록 모두 특이사항으로 분리되는지, '때렸다', '울었다' 같은 없는 행동을 붙이지 않는지.
-  # 왜: 다툼은 보호자가 민감하게 받아들이는 내용이라 문장 수정에 시간이 많이 든다(로그 5).
-  - id: GC-09
-    title: 다툼 관찰 — 상황을 과장하거나 없는 행동을 추가하지 않는다
-    ac: [AC7, AC2, AC3]
-    evidence: [로그 2, 로그 5]
-    input:
-      record_type: 알림장
-      child_ids: [C01, C04]
-      observations:
-        - {observation_id: O1, child_ids: [C01, C04], activity: 자유 놀이, text: "C01과 C04가 자동차 장난감을 두고 서로 잡아당김. 교사가 중재해 번갈아 쓰기로 함"}
-    expect:
-      records:
-        C01:
-          special_notes: {sensitive: true, required_facts: ["C01과 C04가 자동차 장난감을 서로 잡아당겼다", "교사가 중재해 번갈아 쓰기로 했다"]}
-          forbidden_facts: ["아동이 상대를 때리거나 밀었다", "아동이 울거나 다쳤다"]
-        C04:
-          special_notes: {sensitive: true, required_facts: ["C01과 C04가 자동차 장난감을 서로 잡아당겼다", "교사가 중재해 번갈아 쓰기로 했다"]}
-          forbidden_facts: ["아동이 상대를 때리거나 밀었다", "아동이 울거나 다쳤다"]
-
-  # ───────── 확정 (POST /records/{record_id}/confirm) ─────────
-
-  # 확정 전. 초안만 만들고 교사가 아직 확정을 누르지 않은 상태.
-  # 확인: 이 상태에서 기록이 '완료'가 되거나 보호자에게 보내지는 일이 없는지.
-  # 왜: 최종 판단은 항상 교사가 한다(관찰 2 — GPT 교정 결과도 교사가 여러 번 검토 후 보냄).
-  - id: GC-10
-    title: 교사 확정 전 완료·발송 금지
-    ac: [AC8]
-    evidence: [로그 3, 관찰 2]
-    input:
-      record_type: 알림장
-      child_ids: [C01]
-      observations:
-        - {observation_id: O1, child_ids: [C01], activity: 점심 시간, text: "C01이 처음으로 브로콜리를 한 입 먹음"}
-      steps: [POST /drafts]          # confirm을 호출하지 않는다
-    expect:
-      no_record_with_status: 완료     # confirm 전에는 '완료' 상태 기록이 없어야 함
-      no_outbound_send: true          # 보호자·외부 플랫폼 발송 호출이 없어야 함
-
-  # 확정 후. 교사가 초안을 직접 고쳐서 확정을 눌렀다.
-  # 확인: 교사가 고친 문장이 한 글자도 바뀌지 않고 저장되고, 상태가 '완료'가 되는지.
-  # 왜: PatPat이 교사의 수정본을 다시 다듬으면 교사가 확인한 사실이 바뀔 수 있다(관찰 2).
-  - id: GC-11
-    title: 교사 확정 후 — 교사가 고친 문장을 바꾸지 않고 저장하고 완료로 바꾼다
-    ac: [AC8]
-    evidence: [로그 3, 관찰 2]
-    input:
-      record_type: 알림장
-      child_ids: [C01]
-      observations:
-        - {observation_id: O1, child_ids: [C01], activity: 점심 시간, text: "C01이 처음으로 브로콜리를 한 입 먹음"}
-      steps: ["POST /drafts", "POST /records/{record_id}/confirm"]
-      confirm_body:
-        edited_text: "오늘 점심에 C01이 처음으로 브로콜리를 한 입 먹어 보았어요. 가정에서도 한 번 권해 주세요."
-    expect:
-      status: 완료
-      stored_text_equals_edited_text: true   # 한 글자라도 다르면 실패 (PatPat이 다시 다듬으면 안 됨)
-      no_outbound_send: true
-
-  # ───────── 관찰 입력 (POST /observations) ─────────
-
-  # 메모 나누기. 교사가 한 줄 메모에 두 아이 이야기를 같이 적었다.
-  # 확인: 메모가 C01용, C02용 관찰로 나뉘는지, 각 관찰에 해당 아이만 연결되는지.
-  # 왜: 교사는 보육 중에 짧게 몰아서 메모한다(로그 7, 관찰 1). 여기서 잘못 나누면 뒤 단계가 전부 틀린다.
-  - id: GC-12
-    title: 한 메모에 여러 아동 — 메모를 아동별 관찰로 나누고 해당 아동에게만 연결한다
-    ac: [AC2, AC3]
-    evidence: [로그 7, 관찰 1]
-    input:
-      record_type: 알림장
-      child_ids: [C01, C02]
-      text: "물감놀이. C01 보라색 만들고 포도색이라고 함. C02 손바닥 찍기 계속."
-      steps: [POST /observations, POST /drafts]
-    expect:
-      observations:                                  # SPEC 5절 관찰 입력 — child_ids가 정확히 일치해야 함
-        - {child_ids: [C01], required_facts: ["C01이 보라색을 만들고 포도색이라고 말했다"]}
-        - {child_ids: [C02], required_facts: ["C02가 손바닥 찍기를 계속했다"]}
-      records:
-        C01: {forbidden_facts: ["C01이 손바닥 찍기를 했다"]}
-        C02: {forbidden_facts: ["C02가 보라색을 만들었다"]}
-
-  # ───────── 상태 확인 (GET /health) ─────────
-
-  # 현재 SPEC의 AC9. 관찰 데이터 없이 상태 확인 응답만 검사한다.
-  - id: GC-14
-    title: 상태 확인 — 200과 status ok를 반환한다
-    ac: [AC9]
-    evidence: []
-    input:
-      steps: [GET /health]
-    expect:
-      http_status: 200
-      body: {status: ok}
-
-  # ───────── 개인정보 처리 (AC10) ─────────
-  # 이름은 모두 가상이다. fixtures는 로컬 DB·복원 함수에만 주고 외부 모델에 보내지 않는다.
-  - id: GC-15
-    title: 로컬 가명 처리 후 외부 AI 호출·로컬 실명 복원
-    ac: [AC10]
-    evidence: []  # 인터뷰가 아닌 팀의 개인정보 회의 결정
+  - name: "GC-08 부상: 특이사항 분리·사실 보존"
     fixtures:
-      local_identity_map: {C01: 가상민준, C02: 가상서연}
-      local_restore_text: "C01은 블록을 쌓았고 C02는 그림을 그렸다."
-    input:
-      record_type: 알림장
-      child_ids: [C01, C02]
-      text: "블록 놀이. 가상민준은 블록을 쌓음. 가상서연은 그림을 그림."
-      steps: [POST /observations, POST /drafts]
+      observations:
+        - {observation_id: "O1", child_ids: ["C02"], activity: "실외 놀이", text: "C02가 미끄럼틀 계단을 오르다 넘어져 오른쪽 무릎이 살짝 까짐. 흐르는 물로 씻고 밴드를 붙임", observation_type: ["부상·다툼"], scope: "individual", sensitive: true}
+    input: {record_type: "알림장", child_ids: ["C02"], observation_ids: ["O1"]}
     expect:
-      local_name_processing_before_external_call: true
-      external_model_call_count_min: 1
-      external_observation_text_equals: "블록 놀이. C01은 블록을 쌓음. C02는 그림을 그림."
-      external_model_requests_forbidden_values: [가상민준, 가상서연]
-      no_raw_audio_or_identity_map_in_external_model_requests: true
-      local_restored_text_equals: "가상민준은 블록을 쌓았고 가상서연은 그림을 그렸다."
+      records:
+        C02: {special_notes: {sensitive: true, required_facts: ["C02가 미끄럼틀 계단을 오르다 넘어졌다", "C02의 오른쪽 무릎이 살짝 까졌다", "흐르는 물로 씻고 밴드를 붙였다"]}, forbidden_facts: ["C02가 왼쪽 무릎을 다쳤다", "피가 많이 났다", "병원에 갔다", "C02가 울었다"]}
+    note: "AC1·AC4 — 로그 2, 로그 3, 관찰 1"
 
-  # 로컬 가명 처리 오류를 재현해 외부 호출이 차단되는지 확인한다. 실제 모델 정확도와는 별도 검사다.
-  - id: GC-16
-    title: 로컬 가명 처리 실패 시 외부 AI 호출 중단
-    ac: [AC10]
-    evidence: []
+  - name: "GC-09 다툼: 참여 아동별 사실 보존"
     fixtures:
-      local_identity_map: {C01: 가상민준}
-      force_local_name_processing_failure: true
-    input:
-      child_ids: [C01]
-      text: "가상민준이 블록을 쌓음."
-      steps: [POST /observations]
+      observations:
+        - {observation_id: "O1", child_ids: ["C01", "C04"], activity: "자유 놀이", text: "C01과 C04가 자동차 장난감을 두고 서로 잡아당김. 교사가 중재해 번갈아 쓰기로 함", observation_type: ["부상·다툼"], scope: "joint", sensitive: true}
+    input: {record_type: "알림장", child_ids: ["C01", "C04"], observation_ids: ["O1"]}
     expect:
-      external_model_call_count: 0
-      teacher_confirmation_required: true
+      records:
+        C01: {special_notes: {sensitive: true, required_facts: ["C01과 C04가 자동차 장난감을 서로 잡아당겼다", "교사가 중재해 번갈아 쓰기로 했다"]}, forbidden_facts: ["아동이 상대를 때리거나 밀었다", "아동이 울거나 다쳤다"]}
+        C04: {special_notes: {sensitive: true, required_facts: ["C01과 C04가 자동차 장난감을 서로 잡아당겼다", "교사가 중재해 번갈아 쓰기로 했다"]}, forbidden_facts: ["아동이 상대를 때리거나 밀었다", "아동이 울거나 다쳤다"]}
+    note: "AC1·AC2·AC4 — 로그 2, 로그 5"
 
-  # 알림장은 대상일 관찰만 선택한다. 과거 관찰은 저장돼 있어도 오늘의 일처럼 넣지 않는다.
-  - id: GC-17
-    title: 알림장 — 대상일 관찰만 사용하고 과거 사건을 오늘 일로 쓰지 않는다
-    ac: [AC1, AC2, AC6]
-    evidence: []  # 팀이 정한 알림장·관찰일지의 작성 범위
+  - name: "GC-17 알림장: 선택한 대상일 관찰만 사용"
     fixtures:
       target_day: "2026-09-30"
-    input:
-      record_type: 알림장
-      child_ids: [C01]
-      observation_ids: [O2]
       observations:
-        - {observation_id: O1, child_ids: [C01], activity: 블록 놀이, text: "2026-09-08 C01이 파란 블록으로 탑을 쌓음"}
-        - {observation_id: O2, child_ids: [C01], activity: 물감 놀이, text: "2026-09-30 C01이 노란색으로 해님을 그림"}
+        - {observation_id: "O1", child_ids: ["C01"], activity: "블록 놀이", text: "2026-09-08 C01이 파란 블록으로 탑을 쌓음", observation_type: ["행동"], scope: "individual", sensitive: false}
+        - {observation_id: "O2", child_ids: ["C01"], activity: "물감 놀이", text: "2026-09-30 C01이 노란색으로 해님을 그림", observation_type: ["행동"], scope: "individual", sensitive: false}
+    input: {record_type: "알림장", child_ids: ["C01"], observation_ids: ["O2"]}
     expect:
       every_individual_sentence_has_observation_ids: true
-      observation_ids_must_be_from_input: true  # 선택한 O2만 허용
+      observation_ids_must_be_from_input: true
       common_text_forbidden_facts: ["C01이 파란 블록으로 탑을 쌓았다"]
       records:
-        C01:
-          required_facts: ["2026-09-30 C01이 노란색으로 해님을 그렸다"]
-          forbidden_facts: ["C01이 파란 블록으로 탑을 쌓았다"]
-          allowed_observation_ids: [O2]
+        C01: {required_facts: ["2026-09-30 C01이 노란색으로 해님을 그렸다"], forbidden_facts: ["C01이 파란 블록으로 탑을 쌓았다"], allowed_observation_ids: ["O2"]}
+    note: "AC1 — 팀 설계: SPEC 4·5절의 관찰 선택"
 
-# GC-13(사진 분석)은 SPEC 4절의 비포함 범위이므로 이 파일에서 제외했다.
-# AC 커버리지:
-#   AC1(GC-01, 07, 17) / AC2(GC-02, 07, 08, 09, 12, 17) / AC3(GC-03, 07, 09, 12)
-#   AC4(GC-04, 05) / AC5(GC-05, 06) / AC6(GC-01, 02, 03, 06, 07, 17)
-#   AC7(GC-01 오탐 확인, 08, 09) / AC8(GC-10, 11) / AC9(GC-14)
-#   AC10(GC-15, 16: 텍스트 가명 처리·호출 차단·복원; 음성 전사 경로는 미검증)
-# 가상 음성 준비물과 실행 하니스가 없어 로컬 전사·원본 음성 전송 차단의 실제 동작은 아직 확인하지 않았다.
-# GC-11의 수정문 저장은 SPEC 5절 confirm 계약을, GC-12의 메모 분리는 관찰 입력 계약과 AC2·AC3을 함께 확인한다.
+  - name: "GC-19 관찰일지: 항목 구분·부상 보존"
+    fixtures:
+      observations:
+        - {observation_id: "O1", child_ids: ["C01"], activity: "실외 놀이", text: "관찰: C01이 미끄럼틀 계단을 오르다 넘어져 오른쪽 무릎이 살짝 까짐. 흐르는 물로 씻고 밴드를 붙임.", observation_type: ["부상·다툼"], scope: "individual", sensitive: true}
+        - {observation_id: "O2", child_ids: ["C01"], activity: "실외 놀이", text: "지원 계획: 다음 실외 놀이 전에 C01과 미끄럼틀 계단을 천천히 오르는 방법을 확인할 예정임.", observation_type: ["지원 계획"], scope: "individual", sensitive: false}
+        - {observation_id: "O3", child_ids: ["C02"], activity: "블록 놀이", text: "관찰: C02가 네모 블록 세 개를 쌓음.", observation_type: ["행동"], scope: "individual", sensitive: false}
+    input: {record_type: "관찰일지", child_ids: ["C01", "C02"], observation_ids: ["O1", "O2", "O3"]}
+    expect:
+      every_individual_sentence_has_observation_ids: true
+      observation_ids_must_be_from_input: true
+      special_notes_empty: ["C01", "C02"]
+      records:
+        C01:
+          missing_evidence: false
+          allowed_observation_ids: ["O1", "O2"]
+          content_kinds_must_equal: ["관찰", "지원 계획"]
+          content_kind_required_facts:
+            관찰: ["C01이 미끄럼틀 계단을 오르다 넘어졌다", "C01의 오른쪽 무릎이 살짝 까졌다", "흐르는 물로 씻고 밴드를 붙였다"]
+            지원 계획: ["다음 실외 놀이 전에 C01과 미끄럼틀 계단을 천천히 오르는 방법을 확인할 예정이다"]
+          forbidden_facts: ["C01이 왼쪽 무릎을 다쳤다", "C01이 병원에 갔다", "C01과 이미 안전한 계단 오르기를 연습했다"]
+        C02:
+          missing_evidence: false
+          allowed_observation_ids: ["O3"]
+          content_kinds_must_equal: ["관찰"]
+          content_kind_required_facts:
+            관찰: ["C02가 네모 블록 세 개를 쌓았다"]
+          forbidden_facts: ["C02가 부상을 입었다", "C02의 배움이나 발달을 해석한 내용", "입력에 없는 교사의 놀이 지원이나 지원 계획"]
+    note: "AC1·AC4 — 팀 설계: SPEC 5절의 관찰일지 항목 분류"
