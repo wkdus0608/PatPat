@@ -106,4 +106,4 @@
 
 ### 온톨로지로 되쓰기
 
-Observation(녹음•텍스트 관찰) -> Draft(공통문 + 아동별 문장) -> Review(민감 표현•사실 검수 후 교사 확정)
+Observation(녹음•텍스트 관찰) -> DailyNote/Journal(공통문 + 아동별 문장) -> Teacher(민감 표현•사실 검수 후 교사 확정; status: 완료)
