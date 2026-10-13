@@ -1,201 +1,102 @@
-# 먼저 로그에서 어휘를 뽑는다.
-# - 반복된 명사 -> 클래스 후보
-#   : 선생님 -> Teacher / 아이 -> Child / 부모님 -> Guardian /
-#     놀이, 활동 -> Activity / 아이의 말, 행동, 반응 -> Observation /
-#     메모, 기억 -> EvidenceSource / 몰아서 쓰기 -> WritingSession / 알림장 -> DailyNote / 일지 -> Journal
-# - 반복된 동사 -> 관계 후보
-#   : 관찰한다(기록한다), 떠올린다(근거를 찾는다), 공통으로 쓴다(활동을 정리한다), 다르게 쓴다(관찰을 담는다), 고친다(검토한다)
-# - 동의어 통합: '일지' = '관찰일지' -> Journal
-#               '초안(Draft)' -> DailyNote / Journal의 작성 중 상태
-# - 범위 밖: 사진 정리와 분류 / 자동 발송 및 외부 앱 연동 / 상담과 발달 기록
-
-version: 3
+# 핵심 흐름: Teacher가 Child·Activity에 연결된 Observation을 기록하고,
+# DailyNote·Journal이 공통 활동과 아이별 사실을 구분해 담으며 Teacher가 확정한다.
+# Guardian·WritingSession의 업무 배경은 조사 문서에서 설명한다.
+# 근거의 종류는 별도 EvidenceSource 클래스 대신 Observation.source_type으로 설명한다.
+# source_type·대상일·기간은 도메인 설명이며, 현재 API에 임의로 추가하는 필드가 아니다.
+version: 4
 classes:
   Teacher:
-    description: 아동의 활동과 반응을 관찰하고 알림장 및 일지를 작성·검토·확정하는 교사
-    evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
+    description: 관찰을 입력하고 기록 초안을 검토·확정하는 어린이집 담임 교사
+    evidence: [로그 4, 로그 6, 로그 7, 로그 9]
     attributes:
-      id: {type: string, key: true} #교사 식별자
-      # 지금 교사가 쓰고 있는 우회로 = 우리 제품이 대신할 대상
-      workarounds: {type: list, examples: [공통 글 복붙·일괄작성, 특이사항이 있는 아이만 따로 작성, 미리 메모해 두기, GPT로 문장 다듬기, 퇴근 후 작성], evidence: [로그 1, 로그 4, 로그 5, 로그 6, 로그 7, 로그 9, 관찰 1, 관찰 2]}
+      id: {type: string, key: true, note: 팀의 교사 식별 설계}
     relations:
-      - records: Obervation # 교사가 아동을 관찰한다 라는 의미임
-        evidence: [로그 7, 로그 10, 관찰 2]
-      - performs: WritingSession # 교사가 기록 작성 작업을 몰아서 쓴다 라는 의미임
-        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
-      - reviews: DailyNote # 교사가 알림장을 검토·수정한 뒤 확정한다.
-        evidence: [로그 1, 로그 3, 로그 4, 로그 5, 관찰 1, 관찰 3]
-      - reviews: Journal # 교사가 일지를 검토·수정한 뒤 확정한다.
-        evidence: [로그 4, 관찰 2]
+      - records: Observation
+        evidence: [로그 7, 관찰 2]
+      - reviews: DailyNote
+        evidence: [로그 3, 로그 9, 관찰 1]
+      - reviews: Journal
+        evidence: [로그 4, 로그 7, 관찰 2]
 
   Child:
-    description: 활동에 참여하고 관찰 및 기록 대상이 되는 아동
-    evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
-    attributes: 
-      child_id: {type: string, key: true, note: "가명 코드(C01 등). 실명은 로컬 매핑에만 둔다(SPEC 4절)"} # 외부 AI에는 이 코드만 보낸다.
+    description: 확인된 관찰과 기록의 대상 아동
+    evidence: [로그 4, 로그 6, 로그 9]
+    attributes:
+      child_id: {type: string, key: true, note: 가명 코드이며 실명 매핑은 로컬에만 보관하는 팀 설계}
     relations:
-      - participates_in: Activity # 아이가 놀이·활동에 참여한다
-        evidence: [로그 1, 로그 2, 로그 4, 로그 6, 로그 7, 로그 10]
-      - has_guardian: Guardian # 아이에게 보호자가 있다
-        evidence: [로그 2, 로그 3, 로그 5, 로그 8]
-      - covered_by: WritingSession #아이가 직접 작성에서 다뤄진다
-        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
-      - subject_of: DailyNote # 아이가 알림장의 대상이 된다
-        evidence: [로그 3, 로그 9, 로그 10, 관찰 1, 관찰 3]
-      - subject_of: Journal # 아이가 일지의 대상이 된다
-        evidence: [로그 4, 로그 8, 로그 10]
-
-  Guardian:
-    description: 알림장으로 아동의 하루와 특이사항을 전달받는 보호자. 제품의 직접 사용자가 아니다.
-    evidence: [로그 2, 로그 3, 로그 5, 로그 8, 관찰 1, 관찰 3]
-    attributes: 
-      # 보호자가 기록으로 알고 싶은 내용
-      information_needs: {type: list, examples: [놀이 묘사, 특이·전달사항, 부상·다툼 경위, 진행 상황·지도 방향, 아이의 하루를 상상할 수 있는 내용], evidence: [로그 1, 로그 2, 로그 3, 로그 8, 관찰 3]}
-      # 보호자가 오해하거나 민감하게 받아들이기 쉬운 상황 = 교사가 문장을 가장 오래 고치는 곳
-      sensitive_contexts: {type: list, examples: [부상·다툼, 부모가 민감할 수 있는 문장, 상담 기반 지도 방향], evidence: [로그 2, 로그 3, 로그 5, 로그 8, 관찰 1]} 
-    relations:
-      - guardian_of: Child # 보호자가 아동의 보호자다
-        evidence: [로그 2, 로그 3, 로그 5, 로그 8]
-      - receives: DailyNote # 보호자가 알림장을 전달받는다(발송은 교사가 기관 앱으로 한다)
-        evidence: [로그 2, 로그 3, 로그 5, 관찰 1, 관찰 3]
+      - participates_in: Activity
+        evidence: [로그 4, 로그 7, 로그 9]
 
   Activity:
-    description: 아동이 참여하고 교사가 공통 내용으로 정리되는 놀이·일과·행사
-    evidence: [로그 1, 로그 2, 로그 4, 로그 6, 로그 8, 로그 9, 관찰 3]
+    description: 여러 아동이 함께 참여하거나 개별 관찰이 발생한 놀이·일과 맥락
+    evidence: [로그 4, 로그 6, 로그 9]
     attributes:
-      name: {type: string, evidence: [로그 1, 로그 4, 로그 6]} #활동 이름
-      # 기록에 담는 활동의 범위(하루 놀이인지, 행사인지, 한 주 전체인지)
-      activity_scope: {type: enum, values: [당일 놀이, 한 주 일과, 행사], note: "행사가 여러 개인 날은 알림장을 2~3번 쓰기도 한다", evidence: [로그 1, 로그 2, 로그 4, 로그 8, 로그 9]}
-    relations: 
-      - involves: Child # 활동에 아동이 참여한다
-        evidence: [로그 1, 로그 2, 로그 4, 로그 6, 로그 7, 로그 10]
-      - context_of: Observation # 활동이 관찰이 일어난 맥락이 된다
-        evidence: [로그 2, 로그 4, 로그 7, 로그 9]
-      - summarized_in: DailyNote # 공통으로 쓴다: 활동 내용이 알림장의 공통 문장
-        evidence: [로그 5, 로그 9, 관찰 3]
-      - summarized_in: Journal # 공통으로 쓴다: 활동 내용이 일지의 공통 문장
-        evidence: [로그 5, 로그 6, 로그 8]
+      name: {type: string, evidence: [로그 4, 로그 6]}
+    relations:
+      - context_of: Observation
+        evidence: [로그 4, 로그 9]
 
   Observation:
-    description: 활동 중 교사가 확인한 아동의 말·행동·반응·특이사항
-    note: 제품에서는 음성·텍스트로 입력받는다(SPEC 5절 설계 결정, 로그 근거 아님).
-    evidence: [로그 2, 로그 4, 로그 6, 로그 7, 로그 9, 로그 10, 관찰 2, 관찰 3]
-    attributes: 
-      observation_id: {type: string, key: true} # 관찰 한 건의 식별자. 기록 문장이 이 ID로 근거를 가리킨다
-      text: {type: string, evidence: [로그 7, 관찰 2]} # 교사가 남긴 원문
-      # 관찰 내용의 종류
-      observation_type: {type: list, examples: [놀이 반응, 행동, 말, 역할, 감상, 참여도, 작품 내용, 부상·다툼], evidence: [로그 2, 로그 3, 로그 4, 로그 6, 로그 7, 로그 9, 로그 10]}    
-      # 관찰이 공통 활동(common)인지, 한 아이의 사실(individual)인지, 여러 아이의 공동 사건(joint)인지, 누구 일인지 모르는지(unresolved)
-      scope: {type: enum, values: [common, individual, joint, unresolved], note: "SPEC의 설계 분류. unresolved는 주체가 불명확해 아동을 추측해 연결하지 않는 경우", evidence: [로그 5, 로그 9, 관찰 3]}
-      # 부상·다툼처럼 보호자에게 민감한 관찰인지 (true면 따로 분리해 사실을 그대로 둔다)
-      sensitive: {type: boolean, note: "부상·다툼은 special_notes로 분리하고 사실을 바꾸지 않는다(AC4)", evidence: [로그 2, 로그 3, 로그 5, 관찰 1]}
-    relations:
-      - recorded_by: Teacher          # 관찰한다: 교사가 이 관찰을 남겼다
-        evidence: [로그 7, 로그 10, 관찰 2]
-      - about: Child                  # 이 관찰이 어느 아이의 것인지
-        evidence: [로그 2, 로그 4, 로그 6, 로그 7, 로그 9, 로그 10]
-      - occurs_during: Activity       # 이 관찰이 어느 활동 중에 일어났는지 (공통/개별을 나누는 기준)
-        evidence: [로그 2, 로그 4, 로그 7, 로그 9]
-      - supported_by: EvidenceSource  # 떠올린다: 이 관찰을 뒷받침하는 메모·기억·아이 확인
-        evidence: [로그 7, 관찰 2, 관찰 3]
-      - included_in: DailyNote        # 다르게 쓴다: 관찰이 알림장의 아이별 문장이 된다
-        evidence: [로그 1, 로그 2, 로그 4, 로그 9, 로그 10, 관찰 2, 관찰 3]
-      - included_in: Journal          # 다르게 쓴다: 관찰이 일지의 아이별 문장이 된다
-        evidence: [로그 1, 로그 2, 로그 4, 로그 8, 로그 10]
-
-  EvidenceSource:
-    description: 교사가 아동의 활동을 떠올리거나 재확인할 때 사용하는 근거원
-    note: 기존 업무를 설명하는 조사 개념이며 제품 입력 형식이 아니다. 
-    evidence: [로그 6, 로그 7, 관찰 2, 관찰 3]
+    description: 아동에 대해 교사가 확인한 사실과 명시해 입력한 지원 내용
+    evidence: [로그 4, 로그 6, 로그 7, 로그 9]
     attributes:
-      # 교사가 확인하는 근거의 종류: 머릿속 기억, 보육 중 남긴 메모, 아이에게 다시 물어보기
-      source_type: {type: enum, values: [교사의 기억, 당일 메모, 아이에게 직접 확인], evidence: [로그 6, 로그 7, 관찰 2, 관찰 3]}
-      # 근거가 없을 때 교사가 하는 일 → AI도 지어내지 말고 빼야 하는 이유(missing_evidence)
-      when_missing: {type: string, examples: [확인할 수 없으면 그 아이 행동은 빼고 작성], evidence: [관찰 3]}
+      observation_id: {type: string, key: true, note: 문장의 근거를 연결하기 위한 팀 설계}
+      text: {type: string, evidence: [로그 7, 관찰 2]}
+      observation_type: {type: list, examples: [행동, 발화, 반응, 부상, 다툼, 교사 지원, 지원 계획], note: 내용의 종류이며 고정 열거 목록이 아님}
+      scope: {type: enum, values: [common, individual, joint, unresolved], note: 아동 연결과 초안 위치를 결정하는 SPEC의 설계 분류}
+      sensitive: {type: boolean, note: 부상·다툼을 구분하는 설계 속성, evidence: [로그 2, 로그 3, 관찰 1]}
+      source_type: {type: list, examples: [교사의 기억, 메모, 사진 재확인, 동료 교사 확인, 아동에게 확인], note: 기존 업무의 근거 종류이며 제품의 사진 입력·분석 기능이나 API 필드가 아님, evidence: [로그 2, 로그 7, 로그 8, 로그 9]}
     relations:
-      - supports: Observation       # 떠올린다: 메모·기억·아이 확인이 관찰을 뒷받침한다
-        evidence: [로그 7, 관찰 2, 관찰 3]
-
-  WritingSession:
-    description: 어린이집 교사가 한 명 이상 아동의 알림장 또는 관찰일지를 몰아서 작성하는 작업 단위
-    evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
-    attributes:
-      work_context: {type: list, examples: [휴게시간, 퇴근 전, 퇴근 후, 집], evidence: [로그 1, 로그 5, 로그 6, 로그 7, 로그 9, 관찰 2]}  # 언제·어디서 썼는지
-      # 근무 중에 끝내지 못하고 밀린 이유
-      delay_reasons: {type: list, examples: [업무 우선순위, 행사, 보육, 상담, 과다업무, 하원·청소·단체·개인업무, 체력 저하, 안전·요청사항 살피기], evidence: [로그 1, 로그 2, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]}
-    relations:
-      - performed_by: Teacher       # 몰아서 쓴다: 교사가 이 작업을 수행한다
-        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
-      - covers: Child               # 한 번의 작업에서 여러 아이를 다룬다
-        evidence: [로그 1, 로그 2, 로그 3, 로그 4, 로그 5, 로그 6, 로그 7, 로그 8, 로그 9, 로그 10]
-      - produces: DailyNote         # 작업의 결과로 알림장이 나온다
-        evidence: [로그 3, 로그 7, 로그 9, 로그 10, 관찰 1, 관찰 2, 관찰 3]
-      - produces: Journal           # 작업의 결과로 일지가 나온다
-        evidence: [로그 4, 로그 6, 로그 7, 로그 8, 로그 10]
+      - about: Child
+        note: common은 확인된 참여 아동, individual은 1명, joint는 공동 사건 참여 아동들, unresolved는 아동 연결 없음
+        evidence: [로그 4, 로그 9, 관찰 3]
+      - occurs_during: Activity
+        evidence: [로그 4, 로그 9]
 
   DailyNote:
-    description: 대상일의 놀이·특이사항을 보호자와 공유하는 알림장(record_type 알림장)
-    note: 팀 제품 정의상 사용하는 기관에서 매일 쓰며, 쓰지 않는 기관도 있다(로그 3은 부상 시에만 작성). 안부 문구는 관찰 사실의 근거가 아니다.
-    evidence: [로그 3, 로그 7, 로그 9, 로그 10, 관찰 1, 관찰 2, 관찰 3]
+    description: 대상일의 일상과 특이사항을 보호자와 공유하기 위해 교사가 작성하는 알림장
+    evidence: [로그 3, 로그 7, 로그 9]
     attributes:
-      record_id: {type: string, key: true}  # 알림장 한 건의 식별자
-      # 어느 날의 알림장인지 → 그날의 관찰만 골라 쓴다
-      target_date: {type: string, format: "YYYY-MM-DD", note: "관찰 선택 기준. API 필드는 아니다(SPEC 5절)", evidence: [로그 9, 관찰 2]}
-      deadline: {type: string, examples: [퇴근 전], evidence: [로그 7]}  # 알림장은 원칙상 퇴근 전에 끝낸다 (일지와 다른 점)
-      common_text: {type: string, evidence: [로그 5, 로그 9, 관찰 3]}  # 같은 활동을 한 아이들에게 똑같이 쓰는 문장
-      # 아이마다 다르게 쓰는 문장. 문장마다 어떤 관찰에서 나왔는지 연결된다
-      individual_sentences: {type: list, note: "문장마다 근거 observation_ids 1개 이상, 다른 아동의 관찰을 섞지 않는다(AC1, AC2)", evidence: [로그 1, 로그 2, 로그 4, 로그 9, 로그 10, 관찰 2, 관찰 3]}
-      # 특이·전달사항, 부상·다툼처럼 따로 떼어 신중하게 쓰는 부분
-      special_notes: {type: list, examples: [특이사항, 전달사항, 부상·다툼 경위], evidence: [로그 1, 로그 2, 로그 3, 로그 5, 관찰 1]}
-      # 이 아이의 관찰이 없어서 개별 문장을 만들지 않았는지 (true = "확인 필요")
-      missing_evidence: {type: boolean, note: "근거가 없으면 개별 문장을 만들지 않고 표시만 한다(AC1)", evidence: [관찰 3]}
-      # 교사가 '끝났다'고 판단하는 기준
-      completion_criteria: {type: list, examples: [놀이가 자세히 묘사됨, 부모가 오해하지 않을 표현, 오타·맞춤법 점검, 부모가 하루를 상상할 수 있음], evidence: [로그 1, 로그 3, 로그 4, 관찰 1, 관찰 3]}
-      # 진행 상태. 작성중 = 초안(Draft), 검토중 = 교사가 고치는 중, 완료 = 교사가 확정함
-      status: {type: enum, values: [작성중, 검토중, 완료], note: "완료는 교사 확정으로만 바뀐다(AC5)", evidence: [관찰 1, 관찰 2]}
+      record_id: {type: string, key: true, note: 기록 식별 설계}
+      target_date: {type: string, note: 교사의 관찰 선택 기준이며 현재 API 필드가 아님}
+      common_text: {type: string, evidence: [로그 9, 관찰 3]}
+      individual_sentences: {type: list, note: 선택한 근거 관찰 ID를 문장별로 연결, evidence: [로그 4, 로그 9]}
+      special_notes: {type: list, note: 부상·다툼을 분리하되 사실을 보존, evidence: [로그 2, 로그 3, 관찰 1]}
+      missing_evidence: {type: boolean, note: 개별·공동 관찰이 없으면 확인 필요로 표시하는 설계, evidence: [로그 9, 관찰 3]}
+      status: {type: enum, values: [작성중, 검토중, 완료], note: 교사 확정으로만 완료가 되는 설계, evidence: [로그 3, 관찰 1]}
     relations:
-      - about: Child                # 어느 아이의 알림장인지
-        evidence: [로그 3, 로그 9, 로그 10, 관찰 1, 관찰 3]
-      - reviewed_by: Teacher        # 고친다: 교사가 검토·수정한 뒤 확정한다
-        evidence: [로그 1, 로그 3, 로그 4, 로그 5, 관찰 1, 관찰 3]
-      - delivered_to: Guardian      # 보호자에게 전달된다. 제품은 발송하지 않고 교사가 기관 앱으로 보낸다
-        evidence: [로그 2, 로그 3, 로그 5, 관찰 1, 관찰 3]
-      - produced_in: WritingSession # 작성 작업에서 만들어진다
-        evidence: [로그 3, 로그 7, 로그 9, 로그 10, 관찰 1, 관찰 2, 관찰 3]
-      - summarizes: Activity        # 공통으로 쓴다: 활동 내용을 공통 문장으로 정리한다
-        evidence: [로그 5, 로그 9, 관찰 3]
-      - includes: Observation       # 다르게 쓴다: 아이별 관찰을 아이별 문장으로 담는다
-        evidence: [로그 1, 로그 2, 로그 4, 로그 9, 로그 10, 관찰 2, 관찰 3]
- 
-  Journal:
-    description: 대상 기간(월 1~2회 이상)에 확인한 아동의 관찰을 모아 작성하는 일지(record_type 관찰일지)
-    note: 주기는 팀 제품 정의. 원문 '일지'의 기관별 서식을 모두 이 클래스로 해석하지 않는다.
-    evidence: [로그 4, 로그 6, 로그 7, 로그 8, 로그 10, 관찰 2]
-    attributes:
-      record_id: {type: string, key: true}  # 일지 한 건의 식별자
-      # 어느 기간의 일지인지 → 그 기간의 관찰만 골라 쓴다
-      target_period: {type: string, examples: [한 주], note: "관찰 선택 기준. API 필드는 아니다(SPEC 5절)", evidence: [로그 8]}
-      length_limit: {type: string, examples: ["1~2장"], note: "자세히 쓰면서도 압축해야 한다", evidence: [로그 8]}  # 분량 제한 (알림장과 다른 점)
-      common_text: {type: string, evidence: [로그 5, 로그 6, 로그 8]}  # 같은 활동을 한 아이들에게 똑같이 쓰는 문장
-      individual_sentences: {type: list, note: "AC1, AC2는 DailyNote와 같다", evidence: [로그 1, 로그 2, 로그 4, 로그 8, 로그 10]}  # 아이마다 다르게 쓰는 문장
-      # 표준보육과정 4단계 중 어디에 해당하는 내용인지 (일지 서식에서 확인하는 항목)
-      content_kind: {type: enum, values: [관찰, 배움 읽기, 놀이 지원, 지원 계획], note: "표준보육과정 4단계. 강제하지 않으며 입력되지 않은 단계는 생성하지 않는다", evidence: [관찰 2]}
-      missing_evidence: {type: boolean, note: "AC1은 두 기록에 같이 적용된다(SPEC 6절)", evidence: [관찰 3]}  # 관찰이 없어 개별 문장을 만들지 않았는지
-      # 교사가 '끝났다'고 판단하는 기준
-      completion_criteria: {type: list, examples: [표준보육과정 4단계 반영, 1~2장 안에 압축, 오타·맞춤법 점검], evidence: [로그 4, 로그 8, 관찰 2]}
-      # 진행 상태. 작성중 = 초안(Draft), 검토중 = 교사가 고치는 중, 완료 = 교사가 확정함
-      status: {type: enum, values: [작성중, 검토중, 완료], note: "완료는 교사 확정으로만 바뀐다(AC5)", evidence: [관찰 2]}
-    relations:
-      - about: Child                # 어느 아이의 일지인지
-        evidence: [로그 4, 로그 8, 로그 10]
-      - reviewed_by: Teacher        # 고친다: 교사가 검토·수정한 뒤 확정한다
-        evidence: [로그 4, 관찰 2]
-      - produced_in: WritingSession # 작성 작업에서 만들어진다
-        evidence: [로그 4, 로그 6, 로그 7, 로그 8, 로그 10]
-      - summarizes: Activity        # 공통으로 쓴다: 활동 내용을 공통 문장으로 정리한다
-        evidence: [로그 5, 로그 6, 로그 8]
-      - includes: Observation       # 다르게 쓴다: 아이별 관찰을 아이별 문장으로 담는다
-        evidence: [로그 1, 로그 2, 로그 4, 로그 8, 로그 10]
-      # 보호자 전달(delivered_to)은 인터뷰 근거가 없어 두지 않는다 (알림장과 다른 점)
+      - about: Child
+        evidence: [로그 3, 로그 9]
+      - includes: Observation
+        evidence: [로그 4, 로그 9]
+      - summarizes: Activity
+        evidence: [로그 9, 관찰 3]
+      - reviewed_by: Teacher
+        evidence: [로그 3, 관찰 1]
 
-# 핵심 흐름: Teacher --(records: 관찰한다)--> Obervation --(공통으로 쓴다, 다르게 쓴다)--> DailyNote / Journal --(고친다)--> Teacher
+  Journal:
+    description: 교사가 대상 기간의 확인된 관찰을 모아 작성하는 관찰일지
+    evidence: [로그 4, 로그 7, 로그 8]
+    attributes:
+      record_id: {type: string, key: true, note: 기록 식별 설계}
+      target_period: {type: string, note: 교사의 관찰 선택 기준이며 현재 API 필드가 아님}
+      common_text: {type: string, note: 공통 활동을 개별 관찰과 구분하는 팀 설계}
+      individual_sentences: {type: list, note: 선택한 근거 관찰 ID를 문장별로 연결하는 팀 설계}
+      content_kind: {type: enum, values: [관찰, 배움 읽기, 놀이 지원, 지원 계획], note: 교사가 입력한 항목만 분류하며 없는 단계의 내용은 생성하지 않음, evidence: [관찰 2]}
+      missing_evidence: {type: boolean, note: 개별·공동 관찰이 없으면 확인 필요로 표시하는 팀 설계}
+      status: {type: enum, values: [작성중, 검토중, 완료], note: 교사 확정으로만 완료가 되는 팀 설계}
+    relations:
+      - about: Child
+        evidence: [로그 4, 로그 8]
+      - includes: Observation
+        evidence: [로그 4, 로그 7, 관찰 2]
+      - reviewed_by: Teacher
+        evidence: [로그 4, 관찰 2]
+
+rules:
+  - common은 공통 문장에 사용하며 개별 근거로 대신하지 않는다.
+  - individual·joint는 해당 아동이 관여한 사실에만 사용한다.
+  - unresolved는 아동을 추측해 연결하지 않고 초안에서 제외한다.
+  - 입력에 없는 행동·감정·발화·원인·조치를 생성하지 않는다.
+  - 알림장의 부상·다툼은 특이사항으로 분리하며 관찰일지는 관찰 문장으로 보존한다.
+  - 교사 검토·확정 전에는 기록을 완료하지 않는다. 제품은 보호자 발송을 수행하지 않는다.
