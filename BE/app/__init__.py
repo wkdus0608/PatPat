@@ -1,0 +1,1 @@
+"""PatPat backend application package."""
