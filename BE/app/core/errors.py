@@ -9,9 +9,11 @@ class ApiError(Exception):
         code: str,
         message: str,
         details: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details
+        self.headers = headers
         super().__init__(message)

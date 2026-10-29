@@ -20,6 +20,7 @@ def _error_response(
     code: str,
     message: str,
     details: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     payload = ErrorResponse(
         error=ErrorDetail(code=code, message=message, details=details)
@@ -27,6 +28,7 @@ def _error_response(
     return JSONResponse(
         status_code=status_code,
         content=jsonable_encoder(payload),
+        headers=headers,
     )
 
 
@@ -36,6 +38,7 @@ async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
         code=exc.code,
         message=exc.message,
         details=exc.details,
+        headers=exc.headers,
     )
 
 
@@ -60,6 +63,7 @@ async def http_error_handler(
         status_code=exc.status_code,
         code=code,
         message=message,
+        headers=exc.headers,
     )
 
 
