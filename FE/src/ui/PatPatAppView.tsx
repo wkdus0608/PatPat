@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState, type ComponentProps } from 'react';
 import {
-  ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,17 +10,13 @@ import { colors } from './theme';
 export interface RecorderViewProps {
   phase: 'idle' | 'preparing' | 'recording' | 'saving' | 'saved' | 'error';
   durationMillis: number;
-  todayCount: number | null;
-  latestFileName: string | null;
   message: string | null;
   canRetry: boolean;
   canStart: boolean;
-  summaryError: string | null;
   dateLabel: string;
   onStart: () => void;
   onStop: () => void;
   onRetry: () => void;
-  onRefresh: () => void;
 }
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -74,23 +70,9 @@ function RecordingScreen(props: RecorderViewProps) {
         : retry ? '저장 다시 시도' : '녹음 시작';
   const action = recording ? props.onStop : retry ? props.onRetry : props.onStart;
   const iconName: IconName = recording ? 'stop' : retry ? 'refresh' : 'mic';
-  const summaryLoading = props.todayCount === null && !props.summaryError;
-  const latestDescription = props.summaryError ? '저장된 녹음을 확인하지 못했어요.'
-    : summaryLoading ? '저장된 녹음을 확인하고 있어요.' : '아직 저장된 녹음이 없어요.';
 
   return (
     <>
-      <View style={styles.introduction}>
-        <View style={styles.eyebrowRow}>
-          <View style={styles.eyebrowDot} />
-          <Text style={styles.eyebrow}>오늘의 작은 발견</Text>
-        </View>
-        <Text accessibilityRole="header" style={styles.screenTitle}>
-          {'아이의 오늘을\n차곡차곡 담아요.'}
-        </Text>
-        <Text style={styles.screenDescription}>기억해 둘 관찰 내용을 편하게 말해 주세요.</Text>
-      </View>
-
       <View style={styles.recorderCard}>
         <View style={styles.cardTopRow}>
           <Text style={styles.cardTitle}>관찰 녹음</Text>
@@ -155,44 +137,6 @@ function RecordingScreen(props: RecorderViewProps) {
         </View>
       )}
 
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryTopRow}>
-          <View style={styles.summaryHeading}>
-            <View style={styles.summaryIcon}><Ionicons name="sunny-outline" size={19} color={colors.ink} /></View>
-            <Text style={styles.summaryTitle}>오늘 모은 녹음</Text>
-          </View>
-          <Pressable
-            accessibilityRole="button" accessibilityLabel="저장된 녹음 정보 새로고침"
-            onPress={props.onRefresh} hitSlop={8}
-            style={({ pressed }) => [styles.refreshButton, pressed && styles.subtlePressed]}
-            testID="refresh-summary"
-          >
-            <Ionicons name="refresh-outline" size={18} color={colors.muted} />
-          </Pressable>
-        </View>
-        <View style={styles.countRow}>
-          <Text style={styles.count} testID="today-count">{props.todayCount ?? '—'}</Text>
-          {props.todayCount !== null && <Text style={styles.countUnit}>개</Text>}
-          <Text style={styles.countCaption}>
-            {props.summaryError ? '개수를 확인하지 못했어요' : summaryLoading ? '확인하고 있어요' : '오늘의 순간이 차곡차곡'}
-          </Text>
-        </View>
-        {props.summaryError && <Text accessibilityRole="alert" style={styles.summaryError}>{props.summaryError}</Text>}
-      </View>
-
-      <View style={styles.latestCard}>
-        <View style={styles.latestIcon}><Ionicons name="document-text-outline" size={22} color={colors.greenInk} /></View>
-        <View style={styles.latestContent}>
-          <Text style={styles.latestTitle}>최근 저장한 녹음</Text>
-          <Text selectable style={[styles.latestFileName, !props.latestFileName && styles.emptyFileName]} testID="latest-recording">
-            {props.latestFileName ?? latestDescription}
-          </Text>
-        </View>
-        {!!props.latestFileName && !props.summaryError && <Ionicons name="checkmark-circle" size={19} color={colors.greenInk} />}
-      </View>
-      <View style={styles.bottomNote}>
-        <Flower small /><Text style={styles.bottomNoteText}>작은 관찰을 소중한 기록으로.</Text>
-      </View>
     </>
   );
 }
@@ -258,14 +202,22 @@ export function PatPatAppView(props: RecorderViewProps) {
       <View style={[styles.appFrame, { paddingTop: insets.top }]}>
         <View style={styles.appHeader}>
           <View accessibilityLabel="PatPat 쓰담쓰담" style={styles.brand}>
-            <Flower /><Text style={styles.brandName}>PatPat</Text>
+            <View style={styles.brandLogoFrame}>
+              <Image
+                source={require('../../assets/patpat-logo.png')}
+                resizeMode="contain"
+                accessible={false}
+                style={styles.brandLogo}
+              />
+            </View>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.brandName}>PatPat</Text>
           </View>
           <View style={styles.dateBadge}>
             <Ionicons name="calendar-outline" size={13} color={colors.muted} />
             <Text style={styles.dateText}>{props.dateLabel}</Text>
           </View>
         </View>
-        <ScrollView key={tab} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} style={styles.scrollView}>
+        <ScrollView key={tab} contentContainerStyle={[styles.scrollContent, tab === 'record' && styles.recordingScrollContent]} showsVerticalScrollIndicator={false} style={styles.scrollView}>
           {tab === 'record' ? <RecordingScreen {...props} /> : <PlaceholderScreen tab={tab} />}
         </ScrollView>
         {tabNotice && (
@@ -302,7 +254,10 @@ const styles = StyleSheet.create({
   appFrame: { flex: 1, width: '100%', maxWidth: 540, alignSelf: 'center' },
   appHeader: { minHeight: 74, paddingHorizontal: 24, paddingVertical: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 9, flexShrink: 1 },
-  brandName: { fontSize: 27, fontWeight: '900', color: colors.ink, letterSpacing: -1.2 },
+  brandLogoFrame: { width: 60, height: 52, flexShrink: 0, overflow: 'hidden', borderRadius: 12, backgroundColor: colors.white },
+  // Frame the supplied illustration by hiding its outer whitespace; keep the asset unchanged.
+  brandLogo: { width: 114, height: 76, position: 'absolute', left: -27, top: -12 },
+  brandName: { fontSize: 27, fontWeight: '900', color: colors.ink, letterSpacing: -1.2, flexShrink: 1 },
   dateBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 },
   dateText: { fontSize: 11, color: colors.muted, fontWeight: '500', flexShrink: 1 },
   flower: { width: 29, height: 29, position: 'relative' },
@@ -312,6 +267,7 @@ const styles = StyleSheet.create({
   petalBottom: { top: 14, left: 7 }, petalLeft: { top: 7, left: 0 },
   flowerCenter: { position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: colors.background, left: 9.5, top: 9.5 },
   scrollView: { flex: 1 }, scrollContent: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20 },
+  recordingScrollContent: { flexGrow: 1, justifyContent: 'center', paddingTop: 24, paddingBottom: 32 },
   introduction: { paddingTop: 9, marginBottom: 25 },
   eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 11 },
   eyebrowDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E4B64F' },
@@ -344,24 +300,7 @@ const styles = StyleSheet.create({
   successNotice: { backgroundColor: colors.green }, errorNotice: { backgroundColor: '#FFF0EC' },
   noticeText: { color: colors.greenInk, fontSize: 12, lineHeight: 20, flex: 1 },
   errorNoticeText: { color: '#984542' },
-  summaryCard: { backgroundColor: colors.yellowLight, borderRadius: 23, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 17, marginTop: 18 },
-  summaryTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
-  summaryHeading: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
-  summaryIcon: { width: 30, height: 30, backgroundColor: '#FFF9E7', borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
-  summaryTitle: { fontSize: 13, fontWeight: '700', color: colors.ink, flexShrink: 1 },
-  refreshButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   subtlePressed: { opacity: 0.6 },
-  countRow: { flexDirection: 'row', alignItems: 'baseline', gap: 5, marginTop: 7, flexWrap: 'wrap' },
-  count: { fontSize: 35, fontWeight: '800', color: colors.ink, fontVariant: ['tabular-nums'], letterSpacing: -1 },
-  countUnit: { fontSize: 15, fontWeight: '600', color: colors.ink },
-  countCaption: { color: colors.muted, fontSize: 11, marginLeft: 8, lineHeight: 19, flexShrink: 1 },
-  summaryError: { color: '#984542', fontSize: 11, lineHeight: 18, marginTop: 7 },
-  latestCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderRadius: 21, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 16, paddingVertical: 19, marginTop: 12 },
-  latestIcon: { width: 43, height: 43, borderRadius: 15, backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center' },
-  latestContent: { flex: 1, gap: 6 },
-  latestTitle: { color: colors.muted, fontWeight: '500', fontSize: 11 },
-  latestFileName: { color: colors.ink, fontSize: 12, lineHeight: 18, fontWeight: '600' },
-  emptyFileName: { color: colors.muted, fontSize: 11, fontWeight: '400' },
   bottomNote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, marginTop: 20, marginBottom: 1 },
   bottomNoteText: { color: colors.muted, fontSize: 10, letterSpacing: -0.1 },
   placeholderCard: { backgroundColor: colors.white, borderRadius: 28, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center' },

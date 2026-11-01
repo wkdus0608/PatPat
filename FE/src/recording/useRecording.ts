@@ -43,7 +43,6 @@ export function useRecording(): RecorderViewProps {
       if (next !== 'active') void controller.interrupt();
       else {
         setClock(new Date());
-        void controller.refreshSummary();
       }
     });
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -60,18 +59,13 @@ export function useRecording(): RecorderViewProps {
     };
   }, [controller]);
 
-  const dayKey = `${clock.getFullYear()}-${clock.getMonth()}-${clock.getDate()}`;
-  useEffect(() => { void controller.refreshSummary(); }, [controller, dayKey]);
-
   return {
     phase: state.phase, durationMillis: state.durationMillis,
-    todayCount: state.todayCount, latestFileName: state.latest?.fileName ?? null,
-    message: state.message, summaryError: state.summaryError,
+    message: state.message,
     canStart: state.canStart, canRetry: state.canRetry,
     dateLabel: clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' }),
     onStart: () => { void controller.start(); },
     onStop: () => { void controller.stop(); },
     onRetry: () => { void controller.retry(); },
-    onRefresh: () => { void controller.refreshSummary(); },
   };
 }
