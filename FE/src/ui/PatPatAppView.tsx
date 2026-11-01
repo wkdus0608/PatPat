@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState, type ComponentProps } from 'react';
+import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import {
-  ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, BackHandler, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from './theme';
+import { LibraryScreen, type LibraryHandle } from '../library/LibraryScreen';
 
 export interface RecorderViewProps {
   phase: 'idle' | 'preparing' | 'recording' | 'saving' | 'saved' | 'error';
@@ -141,32 +142,31 @@ function RecordingScreen(props: RecorderViewProps) {
   );
 }
 
-function PlaceholderScreen({ tab }: { tab: Exclude<Tab, 'record'> }) {
-  const writing = tab === 'write';
+function PlaceholderScreen() {
   return (
     <>
       <View style={styles.introduction}>
         <View style={styles.eyebrowRow}>
-          <View style={[styles.eyebrowDot, { backgroundColor: writing ? '#9DC5A8' : '#9BBDE0' }]} />
-          <Text style={styles.eyebrow}>{writing ? '관찰일지 작성' : '우리 반 보관함'}</Text>
+          <View style={[styles.eyebrowDot, { backgroundColor: '#9DC5A8' }]} />
+          <Text style={styles.eyebrow}>관찰일지 작성</Text>
         </View>
         <Text accessibilityRole="header" style={styles.screenTitle}>
-          {writing ? '차곡차곡 쌓인 관찰을\n하나의 기록으로.' : '지난 순간을\n다시 만나는 곳.'}
+          {'차곡차곡 쌓인 관찰을\n하나의 기록으로.'}
         </Text>
         <Text style={styles.screenDescription}>
-          {writing ? '선생님의 관찰이 기록으로 이어지는 공간이에요.' : '이전 녹음과 관찰일지를 함께 살펴보는 공간이에요.'}
+          선생님의 관찰이 기록으로 이어지는 공간이에요.
         </Text>
       </View>
       <View style={styles.placeholderCard}>
-        <View style={[styles.placeholderIllustration, { backgroundColor: writing ? colors.green : colors.blue }]}>
-          <Ionicons name={writing ? 'create-outline' : 'folder-open-outline'} size={54} color={writing ? colors.greenInk : colors.blueInk} />
+        <View style={[styles.placeholderIllustration, { backgroundColor: colors.green }]}>
+          <Ionicons name="create-outline" size={54} color={colors.greenInk} />
         </View>
         <View style={styles.preparingBadge}><Text style={styles.preparingBadgeText}>준비 중</Text></View>
         <Text style={styles.placeholderTitle}>
-          {writing ? '관찰일지 작성 공간을\n준비하고 있어요.' : '녹음과 기록을 모아 볼 공간을\n준비하고 있어요.'}
+          {'관찰일지 작성 공간을\n준비하고 있어요.'}
         </Text>
         <Text style={styles.placeholderDescription}>
-          {writing ? '지금은 녹음 탭에서\n기억해 둘 순간을 남겨 주세요.' : '녹음한 파일은 이 기기에 저장돼요.\n목록에서 확인하는 기능은 준비 중이에요.'}
+          {'지금은 녹음 탭에서\n기억해 둘 순간을 남겨 주세요.'}
         </Text>
       </View>
       <View style={styles.bottomNote}>
@@ -180,21 +180,39 @@ export function PatPatAppView(props: RecorderViewProps) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('record');
   const [tabNotice, setTabNotice] = useState<string | null>(null);
+  const libraryRef = useRef<LibraryHandle | null>(null);
+  const switching = useRef(false);
   const blockNavigation = props.phase === 'recording' || props.phase === 'preparing'
     || props.phase === 'saving' || props.canRetry;
 
   useEffect(() => { if (!blockNavigation) setTabNotice(null); }, [blockNavigation]);
 
-  function selectTab(nextTab: Tab) {
-    if (nextTab === tab) return;
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (tab !== 'library') return false;
+      libraryRef.current?.back();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [tab]);
+
+  async function selectTab(nextTab: Tab) {
+    if (nextTab === tab || switching.current) return;
     if (blockNavigation) {
       setTabNotice(props.canRetry
         ? '저장하지 못한 녹음이 있어요. 먼저 저장을 다시 시도해 주세요.'
         : '현재 녹음을 마치고 저장한 뒤 이동해 주세요.');
       return;
     }
-    setTabNotice(null);
-    setTab(nextTab);
+    switching.current = true;
+    try {
+      if (tab === 'library' && await libraryRef.current?.leave() === false) {
+        setTabNotice('처리 중인 작업을 마치거나 삭제 확인창을 닫은 뒤 이동해 주세요.');
+        return;
+      }
+      setTabNotice(null);
+      setTab(nextTab);
+    } finally { switching.current = false; }
   }
 
   return (
@@ -217,9 +235,13 @@ export function PatPatAppView(props: RecorderViewProps) {
             <Text style={styles.dateText}>{props.dateLabel}</Text>
           </View>
         </View>
-        <ScrollView key={tab} contentContainerStyle={[styles.scrollContent, tab === 'record' && styles.recordingScrollContent]} showsVerticalScrollIndicator={false} style={styles.scrollView}>
-          {tab === 'record' ? <RecordingScreen {...props} /> : <PlaceholderScreen tab={tab} />}
-        </ScrollView>
+        {tab === 'library' ? (
+          <LibraryScreen ref={libraryRef} onGoToRecording={() => { void selectTab('record'); }} />
+        ) : (
+          <ScrollView key={tab} contentContainerStyle={[styles.scrollContent, tab === 'record' && styles.recordingScrollContent]} showsVerticalScrollIndicator={false} style={styles.scrollView}>
+            {tab === 'record' ? <RecordingScreen {...props} /> : <PlaceholderScreen />}
+          </ScrollView>
+        )}
         {tabNotice && (
           <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.tabNotice}>
             <Ionicons name="information-circle-outline" size={17} color={colors.ink} />
