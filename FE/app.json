@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "PatPat",
+    "slug": "patpat",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#FFFDF7",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.patpat.frontend"
+    },
+    "android": {
+      "package": "com.patpat.frontend"
+    },
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "관찰 내용을 녹음하기 위해 마이크를 사용합니다.",
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ]
+    ]
+  }
+}

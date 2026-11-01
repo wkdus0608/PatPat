@@ -1,0 +1,16 @@
+export const colors = {
+  background: '#FFFDF7',
+  white: '#FFFFFF',
+  ink: '#49372C',
+  muted: '#81746A',
+  line: '#F0EAE0',
+  yellow: '#FDE79B',
+  yellowLight: '#FEF4D2',
+  green: '#E8F8E8',
+  greenInk: '#387154',
+  pink: '#FFE6E6',
+  rose: '#B94E52',
+  blue: '#E6F2FF',
+  blueInk: '#497398',
+  disabled: '#EEEAE3',
+} as const;

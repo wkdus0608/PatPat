@@ -1,0 +1,16 @@
+node_modules/
+.pnpm-store/
+.expo/
+dist/
+web-build/
+coverage/
+android/
+ios/
+recordings/
+*.m4a
+*.wav
+*.webm
+*.pending
+*.log
+.env
+.env.*
