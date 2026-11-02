@@ -1,4 +1,4 @@
-# BE 공통 기반과 인증 계약
+# BE 공통 기반과 기능 계약
 
 ## 현재 구성
 
@@ -13,7 +13,7 @@ BE-00은 FastAPI 실행 기반과 공통 HTTP 계약을 제공한다. BE-01은 �
 - `app/core/errors.py`, `exception_handlers.py`: 공통 오류 형식과 HTTP 변환
 - `app/core/jobs.py`: 비동기 작업 상태 값
 - `app/schemas/`: 공통 API 입출력 모델
-- `app/auth/`: 로그인·내 계정 API, 인증 서비스/저장소 인터페이스와 현재 교사 의존성. 상세는 [AUTH.md](AUTH.md)를 따른다.
+- `app/auth/`: 로그인·내 계정 API, 인증 서비스/저장소 인터페이스와 현재 교사 의존성. 상세는 [SPEC 인증 계약](../../docs/SPEC.md)를 따른다.
 
 ## API 계약
 
@@ -26,7 +26,7 @@ BE-00은 FastAPI 실행 기반과 공통 HTTP 계약을 제공한다. BE-01은 �
   "error": {
     "code": "NOT_IMPLEMENTED",
     "message": "이 기능은 아직 구현되지 않았습니다.",
-    "details": {"path": "/api/v1/children"}
+    "details": {"path": "/api/v1/future-feature"}
   }
 }
 ```
@@ -45,8 +45,20 @@ BE-00은 FastAPI 실행 기반과 공통 HTTP 계약을 제공한다. BE-01은 �
 
 ## 상태 값
 
-공통 비동기 작업 상태는 `queued`, `running`, `completed`, `failed`다. 녹음 처리와 일지 상태는 각 기능 작업에서 별도로 정한다.
+공통 비동기 작업 상태는 `queued`, `running`, `completed`, `failed`다. 녹음은 `대기`, `전사중`, `완료`, `실패`로 구분하며 매핑은 [TRANSCRIPTIONS.md](TRANSCRIPTIONS.md)를 따른다.
 
 ## 현재 범위
 
 계정 검증·토큰 발급/검증·DB·파일 저장·STT·관찰 추출·일지 생성 기능은 연결되어 있지 않다. 인증 API와 접근 경계는 서비스 주입으로 연결할 수 있는 계약까지 제공한다. 구체적인 업무 경로는 기능별 작업에서 추가한다. 설정은 `.env` 파일을 직접 읽지 않으며, 키나 실제 아동·기관 정보를 저장소에 넣지 않는다.
+
+## BE-02~04 통합
+
+- `app/children/`: 명단과 고정 아동 ID, 비활성화 계약.
+- `app/recordings/`: 원음 업로드/재생/삭제 계약과 `RecordingReference`.
+- `app/transcriptions/`: 전사 요청·작업/결과 조회와 STT 클라이언트 경계.
+
+세 라우터는 `api_v1_router`에 등록한다. 모든 경로는 현재 교사 인증을
+사용하며 기본 업무 서비스는 501이다. 실제 DB·파일 저장·외부 STT 연결은
+추가되지 않았다. 기능별 서비스는 교사 컨텍스트를 받고 저장소 인터페이스의
+조회/쓰기에는 교사 ID를 필수로 전달한다. 신규 업무 경로 등록으로 BE-00의
+미구현 응답 예시/테스트 경로는 `/api/v1/future-feature`로 옮긴다.

@@ -20,20 +20,20 @@ def test_health_returns_ok(client: TestClient) -> None:
 
 
 def test_unimplemented_get_returns_common_501_error(client: TestClient) -> None:
-    response = client.get("/api/v1/children")
+    response = client.get("/api/v1/future-feature")
 
     assert response.status_code == 501
     assert response.json() == {
         "error": {
             "code": "NOT_IMPLEMENTED",
             "message": "이 기능은 아직 구현되지 않았습니다.",
-            "details": {"path": "/api/v1/children"},
+            "details": {"path": "/api/v1/future-feature"},
         }
     }
 
 
 def test_unimplemented_post_returns_common_501_error(client: TestClient) -> None:
-    response = client.post("/api/v1/recordings", json={"example": "request"})
+    response = client.post("/api/v1/future-feature", json={"example": "request"})
 
     assert response.status_code == 501
     assert response.json()["error"]["code"] == "NOT_IMPLEMENTED"

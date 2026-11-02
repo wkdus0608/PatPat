@@ -2,7 +2,7 @@
 
 FastAPI backend contracts for the PatPat MVP. This package provides the health
 endpoint, shared error responses, background job status values, OpenAPI, and
-the BE-01 test-account authentication contract.
+the BE-01 authentication and BE-02~04 roster, recordings, and STT contracts.
 
 ## Run locally
 
@@ -33,7 +33,7 @@ The server has no database, file storage, password verification, token issuance,
 speech-to-text, or AI integration yet. Normal responses and service failure
 mapping are contracts for the later implementation.
 
-See [the authentication contract](docs/AUTH.md) for request/response examples,
+See [the authentication contract](../docs/SPEC.md) for request/response examples,
 service/repository interfaces, and the teacher access boundary. Examples use
 fictional credentials and tokens.
 
@@ -48,3 +48,18 @@ python -m pytest
 
 Authentication success/failure contract tests inject a stub service into a fresh
 app instance. They do not verify real passwords, token expiry, or database access.
+
+## Roster, recordings, and transcription (BE-02~04)
+
+- [Children](docs/CHILDREN.md): roster list/create/rename/deactivate with stable IDs.
+- [Recordings](docs/RECORDINGS.md): multipart upload, list/detail, private audio, delete.
+- [Transcriptions](docs/TRANSCRIPTIONS.md): asynchronous request/retry and job/result lookup.
+
+All business routes require `CurrentTeacher`. Default authentication and business
+services return 501 until concrete implementations are connected. Tests inject
+fictional services; no external STT or production storage is exercised.
+Multipart parsing uses `python-multipart` as required by the
+[FastAPI file upload documentation](https://fastapi.tiangolo.com/tutorial/request-files/).
+
+On 2026-11-02 the combined contract suite passed 100 tests. BE-00 fallback tests
+now target an unknown future route because children/recordings are registered.
