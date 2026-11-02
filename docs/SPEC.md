@@ -24,6 +24,18 @@
 - `GET /health` — `{status: "ok"}` (예정)
 - 값: `record_type` = 알림장 | 관찰일지 / `scope` = common | individual | joint | unresolved / `status` = 작성중 | 검토중 | 완료 / `content_kind` = 관찰 | 배움 읽기 | 놀이 지원 | 지원 계획(관찰일지만) / `special_notes`는 알림장만. 아동은 가명 코드 `child_id`(C01 등)로 다루고 실명 매핑은 로컬에만 둔다.
 
+**5-1. MVP 테스트 계정 인증 계약 (BE-01)**
+
+BE 작업 계획의 테스트 계정 로그인·교사별 접근 경계를 구체화한다. 아래 필드는 인증을 위한 서버 설계이며 관찰·일지 입력 필드를 변경하지 않는다. 이번 작업은 API 규격과 서비스·저장소 인터페이스까지이며, 계정 DB·비밀번호 검증·토큰 발급은 연결하지 않는다.
+
+- `POST /api/v1/auth/login` — JSON `{login_id, password}` → `{access_token, token_type: "bearer", expires_in, teacher: {teacher_id, display_name}}`. `expires_in`은 초 단위의 양수다. 두 입력값은 비어 있지 않은 문자열이며, `teacher_id` 등 추가 필드는 거부한다. 사전에 준비한 테스트 계정만 허용하고 회원가입 API는 제공하지 않는다.
+- `GET /api/v1/auth/me` — `Authorization: Bearer <access_token>` → `{teacher_id, display_name}`. 업무 API의 소유자는 요청 본문이나 쿼리가 아닌 검증된 인증 컨텍스트의 `teacher_id`로 결정한다.
+- 로그인 실패는 `401 INVALID_CREDENTIALS`, 인증 누락·잘못된 인증 방식은 `401 UNAUTHENTICATED`, 만료·변조 등 토큰 검증 실패는 `401 INVALID_TOKEN`으로 정의한다. 인증 오류에는 `WWW-Authenticate: Bearer`를 보존한다. 응답은 BE의 공통 오류 형식을 따른다.
+- 다른 교사의 리소스는 `404 NOT_FOUND`로 처리한다. 후속 기능은 인증된 교사 ID로 저장소 조회·쓰기를 제한하고, 소유권 검사도 적용한다.
+- 기본 실행에서는 로그인과 토큰 확인 서비스가 `501 NOT_IMPLEMENTED`를 반환한다. 인증 헤더의 누락·형식과 요청 모델 검증은 실행하며, 테스트에서는 가짜 서비스를 주입해 정상·실패 계약을 확인한다. 이 결과는 실제 계정·토큰 검증 완료를 뜻하지 않는다.
+- 비밀번호는 저장소 인터페이스에서 해시로만 표현하고, 비밀번호·토큰은 오류 응답에 복사하지 않는다. 상세 계약과 연결 지점은 `BE/docs/AUTH.md`를 따른다.
+
+
 **6. 수용 기준 (테스트로 검증 — Definition of Done)**
 
 각 AC는 EARS 문형 “[조건]일 때, PatPat은 [동작]한다”로 쓰고, 조건 자리의 유형을 [ ]에 표시한다.
