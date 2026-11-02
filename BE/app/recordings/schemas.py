@@ -1,6 +1,7 @@
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from app.recordings.models import RecordingStatus
+from app.schemas.common import ListQuery, PageMetadata
 
 
 class RecordingResponse(BaseModel):
@@ -16,7 +17,7 @@ class RecordingResponse(BaseModel):
     created_at: AwareDatetime
 
 
-class RecordingListResponse(BaseModel):
+class RecordingListResponse(PageMetadata):
     model_config = ConfigDict(extra="forbid")
 
     items: list[RecordingResponse]

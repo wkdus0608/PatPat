@@ -12,7 +12,7 @@ from app.auth.models import TeacherContext
 from app.core.errors import ApiError
 from app.core.exception_handlers import api_error_handler, validation_error_handler
 from app.recordings.dependencies import get_recording_service
-from app.recordings.models import Recording, RecordingAudio, RecordingStatus, RecordingUpload
+from app.recordings.models import Recording, RecordingAudio, RecordingPage, RecordingStatus, RecordingUpload
 from app.recordings.router import recordings_router
 
 
@@ -41,9 +41,9 @@ class StubRecordingService:
         self.uploaded_bytes = upload.stream.read()
         return record()
 
-    async def list(self, *, teacher: TeacherContext) -> list[Recording]:
+    async def list(self, *, teacher: TeacherContext, query) -> RecordingPage:
         self.calls.append(("list", teacher.teacher_id))
-        return [record("other-teacher" if self.other_owner else teacher.teacher_id)]
+        return RecordingPage((record("other-teacher" if self.other_owner else teacher.teacher_id),), 1)
 
     async def get(self, *, teacher: TeacherContext, recording_id: str) -> Recording:
         self.calls.append(("get", teacher.teacher_id))
@@ -204,9 +204,9 @@ def test_duplicate_form_values_are_rejected(client: TestClient, stub: StubRecord
 
 
 def test_empty_recording_list_is_valid(client: TestClient, stub: StubRecordingService) -> None:
-    async def empty_list(*, teacher: TeacherContext):
-        return []
+    async def empty_list(*, teacher: TeacherContext, query):
+        return RecordingPage((), 0)
     stub.list = empty_list
     response = client.get("/api/v1/recordings")
     assert response.status_code == 200
-    assert response.json() == {"items": []}
+    assert response.json() == {"items": [], "total": 0, "limit": 20, "offset": 0}

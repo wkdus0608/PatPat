@@ -63,7 +63,7 @@
 
 ## BE-06 직접 수정·저장·확정
 
-상세 응답에는 `record_id`, `draft_id`, `child_id`, `version`, `status`, `edited_text`, 최초 생성의 `generated`, `confirmed_at`을 제공한다. 작업 상태와 달리 일지 상태는 작성중·검토중·완료다. `generated`와 원래 근거 스냅샷은 변경하지 않고 교사 본문·과거 이력과 구분한다.
+상세 응답에는 `record_id`, `draft_id`, `child_id`, `version`, `status`, `edited_text`, 최초 생성의 `generated`, `created_at`, `confirmed_at`, `can_share`, `share_text`를 제공한다. created_at은 서버가 최초 생성 시 부여하고 이후 쓰기에 보존한다. 공유 필드는 완료 상태에서만 true/확정문이며 그 외에는 false/null이다. 목록/공유 확장은 [API_CONTRACT.md](API_CONTRACT.md)를 따른다. 작업 상태와 달리 일지 상태는 작성중·검토중·완료다. `generated`와 원래 근거 스냅샷은 변경하지 않고 교사 본문·과거 이력과 구분한다.
 
 ```json
 {"edited_text":"  교사가 직접 쓴 글\n줄바꿈도 그대로  ","expected_version":1}

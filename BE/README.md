@@ -1,5 +1,8 @@
 # PatPat Backend
 
+BE-00~10 API contracts are complete. Latest validation: **187 contract tests passed**
+on 2026-11-02. Concrete business services remain unconnected (501).
+
 FastAPI backend contracts for the PatPat MVP. This package provides the health
 endpoint, shared error responses, background job status values, OpenAPI, and
 the BE-01 authentication and BE-02~04 roster, recordings, and STT contracts.
@@ -74,3 +77,15 @@ now target an unknown future route because children/recordings are registered.
   return 501. Database, job queue, and external diary AI are not connected.
 - Combined contract tests: 161 passed on 2026-11-02. This does not evaluate AI
   factual quality or claim semantic golden-case success.
+
+## Previous records, sharing, and integrated contract (BE-08~10)
+
+Read [API_CONTRACT.md](docs/API_CONTRACT.md) for the complete endpoint index,
+calendar-date filters, pagination, state/ID relationships, and unimplemented work.
+List services now receive a query object and return a page with a filtered total.
+Record detail exposes read-only `can_share`/`share_text`; only confirmed text can
+be copied/shared by the app. No public share or delivery endpoint is added.
+
+BE-00~10 describes completed API contracts and validation structure. A working
+MVP still needs concrete authentication, persistence, private audio, queue, STT,
+and diary AI implementations. See the integrated contract for validation limits.

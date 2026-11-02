@@ -48,3 +48,9 @@ class RecordingAudio:
     content_type: str
     size_bytes: int
     chunks: AsyncIterator[bytes] = field(repr=False)
+
+
+@dataclass(frozen=True)
+class RecordingPage:
+    items: tuple[Recording, ...]
+    total: int

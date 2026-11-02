@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import AwareDatetime
 
@@ -9,6 +9,7 @@ from app.auth.dependencies import CurrentTeacher, require_teacher_ownership
 from app.core.errors import ApiError
 from app.recordings.dependencies import RecordingServiceDependency
 from app.recordings.models import RecordingUpload
+from app.schemas.common import ListQuery
 from app.recordings.schemas import RecordingListResponse, RecordingResponse
 
 
@@ -58,12 +59,15 @@ async def upload_recording(
 
 @recordings_router.get("", response_model=RecordingListResponse, summary="내 녹음 목록 계약")
 async def list_recordings(
-    teacher: CurrentTeacher, service: RecordingServiceDependency
+    teacher: CurrentTeacher, service: RecordingServiceDependency,
+    query: Annotated[ListQuery, Query()], response: Response,
 ) -> RecordingListResponse:
-    recordings = await service.list(teacher=teacher)
-    for recording in recordings:
+    page = await service.list(teacher=teacher, query=query)
+    for recording in page.items:
         require_teacher_ownership(owner_teacher_id=recording.teacher_id, teacher=teacher)
-    return RecordingListResponse(items=[RecordingResponse.model_validate(item) for item in recordings])
+    response.headers["Cache-Control"] = "no-store"
+    return RecordingListResponse(items=[RecordingResponse.model_validate(item) for item in page.items],
+                                 total=page.total, limit=query.limit, offset=query.offset)
 
 
 @recordings_router.get("/{recording_id}", response_model=RecordingResponse, summary="내 녹음 상세 계약")

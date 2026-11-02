@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Response
+from typing import Annotated
+from fastapi import APIRouter, Query, Response
 from app.api.common_responses import COMMON_ERROR_RESPONSES
 from app.auth.dependencies import CurrentTeacher, require_teacher_ownership
 from app.auth.models import TeacherContext
 from app.core.errors import ApiError
 from app.records.dependencies import RecordServiceDependency
-from app.records.schemas import HistoryEntry, HistoryResponse, RecordEditRequest, RecordResponse
+from app.records.schemas import HistoryEntry, HistoryResponse, RecordEditRequest, RecordResponse, RecordListQuery, RecordListResponse, RecordSummary
 from app.writing.models import JournalRecord
 
 
@@ -18,6 +19,17 @@ def record_response(record: JournalRecord, teacher: TeacherContext, record_id: s
     if record.record_id != record_id:
         raise ApiError(status_code=404,code="NOT_FOUND",message="일지를 찾을 수 없습니다.")
     return RecordResponse.model_validate(record)
+
+
+@records_router.get("", response_model=RecordListResponse, summary="이전 관찰일지 목록·필터")
+async def list_records(teacher: CurrentTeacher, service: RecordServiceDependency,
+                       query: Annotated[RecordListQuery, Query()], response: Response) -> RecordListResponse:
+    page = await service.list(teacher=teacher, query=query)
+    for record in page.items:
+        require_teacher_ownership(owner_teacher_id=record.teacher_id, teacher=teacher)
+    response.headers["Cache-Control"] = "no-store"
+    return RecordListResponse(items=[RecordSummary.model_validate(item) for item in page.items],
+                              total=page.total, limit=query.limit, offset=query.offset)
 
 
 @records_router.get("/{record_id}",response_model=RecordResponse,summary="관찰일지 상세")

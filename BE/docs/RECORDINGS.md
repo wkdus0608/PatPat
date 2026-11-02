@@ -7,7 +7,7 @@
 | 경로 | 정상 응답 계약 | 설명 |
 |---|---|---|
 | `POST /api/v1/recordings` | `201 RecordingResponse` | multipart 원음 업로드 |
-| `GET /api/v1/recordings` | `200 {items: [...]}` | 내 녹음 목록, 빈 경우 `items: []` |
+| `GET /api/v1/recordings` | `200 {items: [...], total, limit, offset}` | 내 녹음 목록, 빈 경우 `items: []` |
 | `GET /api/v1/recordings/{recording_id}` | `200 RecordingResponse` | 내 녹음 상세 |
 | `GET /api/v1/recordings/{recording_id}/audio` | 인증된 오디오 스트림 | 공개 URL·서버 파일 경로 없음 |
 | `DELETE /api/v1/recordings/{recording_id}` | `204`, 본문 없음 | 원음·재생 접근 제거, 이전 일지 보존 |
@@ -31,7 +31,7 @@
 }
 ```
 
-`size_bytes`와 `created_at`은 저장 서비스가 정하며 요청으로 받지 않는다. 녹음 상태는 `대기`, `전사중`, `완료`, `실패`다. 작업 상태(`queued/running/completed/failed`)와 구분한다. 상세·목록에는 원음 바이트·공개 URL·서버 경로·저장 키·교사 ID를 노출하지 않는다. 목록의 날짜 필터·정렬·페이지 조회는 BE-08에서 확장한다.
+`size_bytes`와 `created_at`은 저장 서비스가 정하며 요청으로 받지 않는다. 녹음 상태는 `대기`, `전사중`, `완료`, `실패`다. 작업 상태(`queued/running/completed/failed`)와 구분한다. 상세·목록에는 원음 바이트·공개 URL·서버 경로·저장 키·교사 ID를 노출하지 않는다. 목록은 BE-08에서 date_from/date_to, limit/offset/order 쿼리와 total/limit/offset 응답을 추가했다. 날짜는 Asia/Seoul의 recorded_at 기준이다. 상세는 [API_CONTRACT.md](API_CONTRACT.md)를 따른다.
 
 ## 서비스와 저장소 연결
 

@@ -1,7 +1,8 @@
 from collections.abc import AsyncIterator
 from typing import BinaryIO, Protocol
+from app.schemas.common import ListQuery
 
-from app.recordings.models import Recording, RecordingReference
+from app.recordings.models import Recording, RecordingPage, RecordingReference
 
 
 class RecordingRepository(Protocol):
@@ -10,7 +11,10 @@ class RecordingRepository(Protocol):
     async def create(self, *, teacher_id: str, recording: Recording) -> Recording:
         ...
 
-    async def list(self, *, teacher_id: str) -> list[Recording]:
+    async def list(self, *, teacher_id: str, query: ListQuery) -> RecordingPage:
+        """Exclude deleted + other owners, filter recorded_at by inclusive Seoul
+        dates, order (recorded_at, recording_id), then page. total is before page.
+        """
         ...
 
     async def get(self, *, teacher_id: str, recording_id: str) -> Recording | None:

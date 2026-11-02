@@ -1,5 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, computed_field
+from app.schemas.common import ListQuery, PageMetadata
 from app.writing.models import ChildContent, NonBlank, RecordStatus
 
 
@@ -12,16 +13,40 @@ class RecordEditRequest(VersionRequest):
     edited_text: NonBlank = Field(repr=False)
 
 
-class RecordResponse(BaseModel):
+class RecordListQuery(ListQuery):
+    child_id: NonBlank | None = None
+    status: RecordStatus | None = None
+
+
+class RecordSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
+
     record_id: NonBlank
     draft_id: NonBlank
     child_id: NonBlank
-    version: int
+    version: int = Field(ge=1)
     status: RecordStatus
+    created_at: AwareDatetime
+    confirmed_at: AwareDatetime | None
+
+    @computed_field
+    @property
+    def can_share(self) -> bool:
+        return self.status == RecordStatus.COMPLETED
+
+
+class RecordResponse(RecordSummary):
     edited_text: str = Field(repr=False)
     generated: ChildContent
-    confirmed_at: datetime | None
+
+    @computed_field
+    @property
+    def share_text(self) -> str | None:
+        return self.edited_text if self.can_share else None
+
+
+class RecordListResponse(PageMetadata):
+    items: list[RecordSummary]
 
 
 class HistoryEntry(BaseModel):

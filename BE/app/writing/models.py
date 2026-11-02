@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.core.jobs import JobStatus
 
@@ -130,6 +130,7 @@ class DraftJob(FrozenModel):
 
 
 class JournalRecord(FrozenModel):
+    created_at: AwareDatetime
     record_id: NonBlank
     draft_id: NonBlank
     teacher_id: NonBlank
@@ -154,6 +155,11 @@ class JournalRecord(FrozenModel):
         if self.status == RecordStatus.COMPLETED and not self.edited_text.strip():
             raise ValueError("빈 일지를 확정할 수 없습니다.")
         return self
+
+
+class RecordPage(FrozenModel):
+    items: tuple[JournalRecord, ...]
+    total: int = Field(ge=0)
 
 
 class RecordHistory(FrozenModel):

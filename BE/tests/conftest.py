@@ -47,7 +47,7 @@ def writing_result():
 @pytest.fixture
 def writing_record(writing_snapshot, writing_result):
     content=ChildContent.model_validate(writing_result.records[0].model_dump(exclude={"record_id"}))
-    return JournalRecord(record_id="J1",draft_id="D1",teacher_id="T1",child_id="C01",version=1,
+    return JournalRecord(created_at=datetime(2026,11,2,tzinfo=timezone.utc),record_id="J1",draft_id="D1",teacher_id="T1",child_id="C01",version=1,
         status=RecordStatus.REVIEW,edited_text="최초 가상 초안",generated=content,snapshot=writing_snapshot)
 
 

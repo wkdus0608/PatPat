@@ -1,15 +1,16 @@
 from typing import NoReturn, Protocol
+from app.schemas.common import ListQuery
 
 from app.auth.models import TeacherContext
 from app.core.errors import ApiError
-from app.recordings.models import Recording, RecordingAudio, RecordingUpload
+from app.recordings.models import Recording, RecordingAudio, RecordingPage, RecordingUpload
 
 
 class RecordingService(Protocol):
     async def upload(self, *, teacher: TeacherContext, upload: RecordingUpload) -> Recording:
         ...
 
-    async def list(self, *, teacher: TeacherContext) -> list[Recording]:
+    async def list(self, *, teacher: TeacherContext, query: ListQuery) -> RecordingPage:
         ...
 
     async def get(self, *, teacher: TeacherContext, recording_id: str) -> Recording:
@@ -29,7 +30,7 @@ class UnimplementedRecordingService:
     async def upload(self, *, teacher: TeacherContext, upload: RecordingUpload) -> Recording:
         self._unimplemented("upload")
 
-    async def list(self, *, teacher: TeacherContext) -> list[Recording]:
+    async def list(self, *, teacher: TeacherContext, query: ListQuery) -> RecordingPage:
         self._unimplemented("list")
 
     async def get(self, *, teacher: TeacherContext, recording_id: str) -> Recording:

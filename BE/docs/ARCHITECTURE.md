@@ -72,3 +72,11 @@ BE-00은 FastAPI 실행 기반과 공통 HTTP 계약을 제공한다. BE-01은 �
 요구한다. 후보는 요청 당시 본문/버전/해당 아동 근거를 고정한다.
 원자적 저장·작업 큐·외부 AI는 인터페이스만 제공한다. 자세한 입출력과
 미검증 범위는 [WRITING.md](WRITING.md)에 기록한다.
+
+## BE-08~10 목록·공유·통합 계약
+
+기존 recordings/records의 목록을 날짜·정렬·페이지·일지 아동/상태 필터로
+확장한다. 공통 ListQuery/PageMetadata는 기존 schemas/common.py에 둔다.
+별도 목록/공유 기능 폴더는 추가하지 않는다. 일지 상세에서 완료 상태에만
+can_share/share_text를 계산하며, 공유/발송 API는 만들지 않는다.
+전체 경로·관계·상태·범위와 남은 실구현은 [API_CONTRACT.md](API_CONTRACT.md)를 따른다.
