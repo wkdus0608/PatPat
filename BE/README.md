@@ -63,3 +63,14 @@ Multipart parsing uses `python-multipart` as required by the
 
 On 2026-11-02 the combined contract suite passed 100 tests. BE-00 fallback tests
 now target an unknown future route because children/recordings are registered.
+
+## Journal writing (BE-05~07)
+
+- [Writing contracts](docs/WRITING.md): selected-recording drafts, exact teacher
+  edits/confirmation, separate AI candidates and explicit adoption.
+- Modules: `app/drafts`, `app/records`, `app/revisions`, shared `app/writing`.
+- Immutable snapshots, evidence/child ID checks, expected-version conflicts, and
+  pure edit/adoption transitions are implemented. Default business services still
+  return 501. Database, job queue, and external diary AI are not connected.
+- Combined contract tests: 161 passed on 2026-11-02. This does not evaluate AI
+  factual quality or claim semantic golden-case success.
