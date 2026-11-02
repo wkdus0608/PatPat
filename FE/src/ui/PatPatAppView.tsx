@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import {
-  ActivityIndicator, BackHandler, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, BackHandler, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from './theme';
 import { LibraryScreen, type LibraryHandle } from '../library/LibraryScreen';
+import { WritingScreen, type WritingHandle } from '../writing/WritingScreen';
+import type { WritingServices } from '../writing/types';
 
 export interface RecorderViewProps {
   phase: 'idle' | 'preparing' | 'recording' | 'saving' | 'saved' | 'error';
@@ -28,18 +30,6 @@ const tabs: { key: Tab; label: string; icon: IconName; activeIcon: IconName }[] 
   { key: 'write', label: '관찰일지 작성', icon: 'create-outline', activeIcon: 'create' },
   { key: 'library', label: '보관함', icon: 'folder-open-outline', activeIcon: 'folder-open' },
 ];
-
-function Flower({ small = false }: { small?: boolean }) {
-  return (
-    <View accessible={false} importantForAccessibility="no-hide-descendants" style={[styles.flower, small && styles.smallFlower]}>
-      <View style={[styles.petal, styles.petalTop]} />
-      <View style={[styles.petal, styles.petalRight]} />
-      <View style={[styles.petal, styles.petalBottom]} />
-      <View style={[styles.petal, styles.petalLeft]} />
-      <View style={styles.flowerCenter} />
-    </View>
-  );
-}
 
 function formatDuration(durationMillis: number) {
   const total = Math.max(0, Math.floor(durationMillis / 1000));
@@ -142,45 +132,12 @@ function RecordingScreen(props: RecorderViewProps) {
   );
 }
 
-function PlaceholderScreen() {
-  return (
-    <>
-      <View style={styles.introduction}>
-        <View style={styles.eyebrowRow}>
-          <View style={[styles.eyebrowDot, { backgroundColor: '#9DC5A8' }]} />
-          <Text style={styles.eyebrow}>관찰일지 작성</Text>
-        </View>
-        <Text accessibilityRole="header" style={styles.screenTitle}>
-          {'차곡차곡 쌓인 관찰을\n하나의 기록으로.'}
-        </Text>
-        <Text style={styles.screenDescription}>
-          선생님의 관찰이 기록으로 이어지는 공간이에요.
-        </Text>
-      </View>
-      <View style={styles.placeholderCard}>
-        <View style={[styles.placeholderIllustration, { backgroundColor: colors.green }]}>
-          <Ionicons name="create-outline" size={54} color={colors.greenInk} />
-        </View>
-        <View style={styles.preparingBadge}><Text style={styles.preparingBadgeText}>준비 중</Text></View>
-        <Text style={styles.placeholderTitle}>
-          {'관찰일지 작성 공간을\n준비하고 있어요.'}
-        </Text>
-        <Text style={styles.placeholderDescription}>
-          {'지금은 녹음 탭에서\n기억해 둘 순간을 남겨 주세요.'}
-        </Text>
-      </View>
-      <View style={styles.bottomNote}>
-        <Flower small /><Text style={styles.bottomNoteText}>선생님의 관찰을 소중하게.</Text>
-      </View>
-    </>
-  );
-}
-
-export function PatPatAppView(props: RecorderViewProps) {
+export function PatPatAppView(props: RecorderViewProps & { writingServices?: WritingServices }) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('record');
   const [tabNotice, setTabNotice] = useState<string | null>(null);
   const libraryRef = useRef<LibraryHandle | null>(null);
+  const writingRef = useRef<WritingHandle | null>(null);
   const switching = useRef(false);
   const blockNavigation = props.phase === 'recording' || props.phase === 'preparing'
     || props.phase === 'saving' || props.canRetry;
@@ -189,8 +146,9 @@ export function PatPatAppView(props: RecorderViewProps) {
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (tab !== 'library') return false;
-      libraryRef.current?.back();
+      if (tab === 'library') libraryRef.current?.back();
+      else if (tab === 'write') writingRef.current?.back();
+      else return false;
       return true;
     });
     return () => subscription.remove();
@@ -210,6 +168,8 @@ export function PatPatAppView(props: RecorderViewProps) {
         setTabNotice('처리 중인 작업을 마치거나 삭제 확인창을 닫은 뒤 이동해 주세요.');
         return;
       }
+      if (tab === 'write' && await writingRef.current?.leave() === false) return;
+      Keyboard.dismiss();
       setTabNotice(null);
       setTab(nextTab);
     } finally { switching.current = false; }
@@ -235,13 +195,17 @@ export function PatPatAppView(props: RecorderViewProps) {
             <Text style={styles.dateText}>{props.dateLabel}</Text>
           </View>
         </View>
+        <View style={[styles.writingContainer, tab !== 'write' && styles.hiddenScreen]}
+          accessibilityElementsHidden={tab !== 'write'} importantForAccessibility={tab !== 'write' ? 'no-hide-descendants' : 'auto'}>
+          <WritingScreen ref={writingRef} services={props.writingServices} onGoToRecording={() => { void selectTab('record'); }} />
+        </View>
         {tab === 'library' ? (
-          <LibraryScreen ref={libraryRef} onGoToRecording={() => { void selectTab('record'); }} />
-        ) : (
+          <LibraryScreen ref={libraryRef} journalSource={props.writingServices?.journals} onGoToRecording={() => { void selectTab('record'); }} />
+        ) : tab === 'record' ? (
           <ScrollView key={tab} contentContainerStyle={[styles.scrollContent, tab === 'record' && styles.recordingScrollContent]} showsVerticalScrollIndicator={false} style={styles.scrollView}>
-            {tab === 'record' ? <RecordingScreen {...props} /> : <PlaceholderScreen />}
+            <RecordingScreen {...props} />
           </ScrollView>
-        )}
+        ) : null}
         {tabNotice && (
           <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.tabNotice}>
             <Ionicons name="information-circle-outline" size={17} color={colors.ink} />
@@ -282,20 +246,9 @@ const styles = StyleSheet.create({
   brandName: { fontSize: 27, fontWeight: '900', color: colors.ink, letterSpacing: -1.2, flexShrink: 1 },
   dateBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 },
   dateText: { fontSize: 11, color: colors.muted, fontWeight: '500', flexShrink: 1 },
-  flower: { width: 29, height: 29, position: 'relative' },
-  smallFlower: { transform: [{ scale: 0.58 }], marginRight: -5, marginLeft: -5 },
-  petal: { position: 'absolute', width: 15, height: 15, borderRadius: 8, backgroundColor: '#F8CF63' },
-  petalTop: { top: 0, left: 7 }, petalRight: { top: 7, left: 14 },
-  petalBottom: { top: 14, left: 7 }, petalLeft: { top: 7, left: 0 },
-  flowerCenter: { position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: colors.background, left: 9.5, top: 9.5 },
+  writingContainer: { flex: 1 }, hiddenScreen: { display: 'none' },
   scrollView: { flex: 1 }, scrollContent: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20 },
   recordingScrollContent: { flexGrow: 1, justifyContent: 'center', paddingTop: 24, paddingBottom: 32 },
-  introduction: { paddingTop: 9, marginBottom: 25 },
-  eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 11 },
-  eyebrowDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E4B64F' },
-  eyebrow: { color: colors.muted, fontSize: 12, fontWeight: '600' },
-  screenTitle: { color: colors.ink, fontSize: 29, lineHeight: 39, letterSpacing: -1.2, fontWeight: '800' },
-  screenDescription: { color: colors.muted, fontSize: 13, lineHeight: 22, marginTop: 10, letterSpacing: -0.25 },
   recorderCard: { backgroundColor: colors.white, borderRadius: 28, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 18, borderWidth: 1, borderColor: '#F3EDE2', shadowColor: '#6C4F20', shadowOpacity: 0.035, shadowOffset: { width: 0, height: 6 }, shadowRadius: 15, elevation: 1 },
   cardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
   cardTitle: { color: colors.ink, fontWeight: '700', fontSize: 14 },
@@ -323,14 +276,6 @@ const styles = StyleSheet.create({
   noticeText: { color: colors.greenInk, fontSize: 12, lineHeight: 20, flex: 1 },
   errorNoticeText: { color: '#984542' },
   subtlePressed: { opacity: 0.6 },
-  bottomNote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, marginTop: 20, marginBottom: 1 },
-  bottomNoteText: { color: colors.muted, fontSize: 10, letterSpacing: -0.1 },
-  placeholderCard: { backgroundColor: colors.white, borderRadius: 28, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center' },
-  placeholderIllustration: { width: 115, height: 115, borderRadius: 38, alignItems: 'center', justifyContent: 'center', marginBottom: 23, transform: [{ rotate: '-5deg' }] },
-  preparingBadge: { backgroundColor: colors.yellowLight, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, marginBottom: 15 },
-  preparingBadgeText: { color: colors.ink, fontSize: 11, fontWeight: '700' },
-  placeholderTitle: { color: colors.ink, textAlign: 'center', fontSize: 21, lineHeight: 31, letterSpacing: -0.7, fontWeight: '700' },
-  placeholderDescription: { color: colors.muted, textAlign: 'center', fontSize: 12, lineHeight: 22, marginTop: 13 },
   tabNotice: { marginHorizontal: 16, marginBottom: 8, paddingVertical: 11, paddingHorizontal: 13, borderRadius: 14, backgroundColor: colors.yellowLight, flexDirection: 'row', gap: 7, alignItems: 'flex-start' },
   tabNoticeText: { color: colors.ink, fontSize: 11, lineHeight: 18, flex: 1 },
   tabBar: { flexDirection: 'row', backgroundColor: colors.white, paddingTop: 11, borderTopWidth: 1, borderTopColor: colors.line, paddingHorizontal: 14 },
