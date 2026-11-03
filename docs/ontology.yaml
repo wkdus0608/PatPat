@@ -3,7 +3,9 @@
 # Guardian·WritingSession의 업무 배경은 조사 문서에서 설명한다.
 # 근거의 종류는 별도 EvidenceSource 클래스 대신 Observation.source_type으로 설명한다.
 # source_type·대상일·기간은 도메인 설명이며, 현재 API에 임의로 추가하는 필드가 아니다.
-version: 4
+# MVP API/서버 데이터 관계는 SPEC 5-1~5-4 및 BE/docs/API_CONTRACT.md를 따른다.
+# DailyNote는 후속 범위. 기존 생성 규칙과 의미 판정 조건은 유지한다.
+version: 5
 classes:
   Teacher:
     description: 관찰을 입력하고 기록 초안을 검토·확정하는 어린이집 담임 교사
@@ -22,7 +24,9 @@ classes:
     description: 확인된 관찰과 기록의 대상 아동
     evidence: [로그 4, 로그 6, 로그 9]
     attributes:
-      child_id: {type: string, key: true, note: 가명 코드이며 실명 매핑은 로컬에만 보관하는 팀 설계}
+      child_id: {type: string, key: true, note: 사용자 MVP 결정에 따라 서버 실명 명단과 연결하는 고정 ID이며 가명 코드가 아님}
+      name: {type: string, note: 서버 명단 관리용 이름; SPEC 5-2절}
+      is_active: {type: boolean, note: 비활성화해도 과거 일지 ID와 근거를 보존; SPEC 5-2절}
     relations:
       - participates_in: Activity
         evidence: [로그 4, 로그 7, 로그 9]
@@ -80,6 +84,8 @@ classes:
     attributes:
       record_id: {type: string, key: true, note: 기록 식별 설계}
       target_period: {type: string, note: 교사의 관찰 선택 기준이며 현재 API 필드가 아님}
+      created_at: {type: string, note: 서버가 최초 생성 시 부여하는 시간대 포함 시각; 이전 일지 날짜 필터 기준; SPEC 5-4절}
+      version: {type: integer, note: 1부터 시작하며 쓰기 충돌을 막고 변경 이력을 연결; SPEC 5-3절}
       common_text: {type: string, note: 공통 활동을 개별 관찰과 구분하는 팀 설계}
       individual_sentences: {type: list, note: 선택한 근거 관찰 ID를 문장별로 연결하는 팀 설계}
       content_kind: {type: enum, values: [관찰, 배움 읽기, 놀이 지원, 지원 계획], note: 교사가 입력한 항목만 분류하며 없는 단계의 내용은 생성하지 않음, evidence: [관찰 2]}
