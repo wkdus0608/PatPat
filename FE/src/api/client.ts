@@ -1,3 +1,4 @@
+import type { ServerRecording } from '../library/sync';
 export interface Teacher { teacher_id: string; display_name: string }
 export interface Child { child_id: string; name: string; is_active: boolean }
 export interface Login { access_token: string; token_type: 'bearer'; expires_in: number; teacher: Teacher }
@@ -24,6 +25,19 @@ function child(value: unknown): Child {
   return { child_id: text(row.child_id), name: text(row.name), is_active: row.is_active };
 }
 
+
+export function serverRecording(value: unknown): ServerRecording {
+  const row = record(value);
+  for (const field of ['duration_seconds', 'size_bytes']) {
+    if (typeof row[field] !== 'number' || !Number.isFinite(row[field]) || (row[field] as number) <= 0) throw new Error('Invalid recording');
+  }
+  for (const field of ['recorded_at', 'created_at']) if (!Number.isFinite(Date.parse(text(row[field])))) throw new Error('Invalid date');
+  if (!['대기', '전사중', '완료', '실패'].includes(text(row.status))) throw new Error('Invalid recording status');
+  return { recording_id: text(row.recording_id), title: text(row.title), recorded_at: text(row.recorded_at),
+    created_at: text(row.created_at), duration_seconds: row.duration_seconds as number, size_bytes: row.size_bytes as number,
+    content_type: text(row.content_type), status: text(row.status) };
+}
+
 export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
   const base = baseUrl.trim().replace(/\/+$/, '');
   async function request(path: string, token: string | null, method = 'GET', body?: unknown): Promise<unknown> {
@@ -42,7 +56,7 @@ export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
         try { code = text(record(record(await response.json()).error).code); } catch { /* Safe generic error below. */ }
         const message = response.status === 401
           ? (path === '/auth/login' ? '계정 ID 또는 비밀번호를 확인해 주세요.' : '로그인이 만료됐어요. 다시 로그인해 주세요.')
-          : response.status === 404 ? '아동을 찾을 수 없어요. 명단을 새로고침해 주세요.'
+          : response.status === 404 ? '자료를 찾을 수 없어요. 목록을 새로고침해 주세요.'
             : response.status === 422 ? '입력한 내용을 확인해 주세요.' : '요청을 처리하지 못했어요. 다시 시도해 주세요.';
         throw new ApiError(response.status, code, message);
       }
@@ -53,6 +67,14 @@ export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
     } finally { clearTimeout(timer); }
   }
   return {
+    baseUrl: base,
+    async listRecordings(token: string, offset = 0) {
+      const row = record(await request('/recordings?limit=100&offset=' + offset, token));
+      if (!Array.isArray(row.items) || !Number.isInteger(row.total) || (row.total as number) < 0) throw new Error('Invalid page');
+      return { items: row.items.map(serverRecording), total: row.total as number };
+    },
+    async getRecording(token: string, id: string) { return serverRecording(await request('/recordings/' + encodeURIComponent(id), token)); },
+    async deleteRecording(token: string, id: string) { await request('/recordings/' + encodeURIComponent(id), token, 'DELETE'); },
     async login(login_id: string, password: string): Promise<Login> {
       const row = record(await request('/auth/login', null, 'POST', { login_id, password }));
       if (row.token_type !== 'bearer' || typeof row.expires_in !== 'number' || row.expires_in <= 0) throw new Error('Invalid response');

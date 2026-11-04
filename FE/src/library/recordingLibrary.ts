@@ -1,4 +1,4 @@
-import { isDateFolder, joinFileUri, parseRecordingFileName } from '../recording/files';
+import { compareRecordings, isDateFolder, joinFileUri, parseRecordingFileName, trimTrailingSlashes } from '../recording/files';
 import type { RecordingFilePort, SavedRecording } from '../recording/storage';
 import type { RecordingLibrary } from './types';
 
@@ -76,7 +76,8 @@ export function createRecordingLibrary(port: RecordingFilePort): RecordingLibrar
       for (const folder of await port.list(rootUri)) {
         if (!folder.isDirectory || !isDateFolder(folder.name)) continue;
         const folderUri = joinFileUri(rootUri, folder.name);
-        if (folder.uri !== folderUri) continue;
+        // expo-file-system reports directory URIs with a trailing slash.
+        if (trimTrailingSlashes(folder.uri) !== folderUri) continue;
         for (const file of await port.list(folderUri)) {
           if (file.isDirectory || !Number.isFinite(file.size) || file.size <= 0) continue;
           const name = parseRecordingFileName(file.name, folder.name);
@@ -90,7 +91,7 @@ export function createRecordingLibrary(port: RecordingFilePort): RecordingLibrar
           recordings.push(recording);
         }
       }
-      return recordings.sort((a, b) => b.fileName.localeCompare(a.fileName));
+      return recordings.sort(compareRecordings);
     } catch (error) {
       throw preserveLibraryError(error, '저장된 녹음 목록을 불러오지 못했어요. 다시 시도해 주세요.');
     }

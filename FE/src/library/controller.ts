@@ -1,7 +1,7 @@
 import { loadJournalDetail, loadJournalList } from './journals';
 import type { SavedRecording } from '../recording/storage';
 import type {
-  JournalListItem, JournalSource, LibraryPlayer, LibraryState, PlayerFactory,
+  DeleteTarget, JournalListItem, JournalSource, LibraryPlayer, LibraryState, PlayerFactory,
   PlayerState, RecordingLibrary,
 } from './types';
 
@@ -35,13 +35,15 @@ export function createLibraryController(
     listeners.forEach((listener) => listener());
   };
   const current = (version: number) => !disposed && version === generation;
-  const busy = () => disposed || state.navigationBusy || state.deleting;
+  const busy = () => disposed || state.navigationBusy || state.deleting || state.syncing;
 
   async function closePlayer() {
-    if (!player) return;
-    const previous = player;
-    await previous.release();
-    if (player === previous) player = null;
+    if (player) {
+      const previous = player;
+      await previous.release();
+      if (player === previous) player = null;
+    }
+    await recordings.releasePlayback?.();
   }
 
   async function navigate(route: LibraryState['route'], patch: Partial<LibraryState> = {}) {
@@ -94,7 +96,9 @@ export function createLibraryController(
     try {
       await recordings.validate(recording);
       if (!current(version) || suspended) return;
-      player = createPlayer(recording.uri);
+      const uri = recordings.playbackUri ? await recordings.playbackUri(recording) : recording.uri;
+      if (!current(version) || suspended) return;
+      player = createPlayer(uri);
       loadedAt = now();
       poll();
     } catch {
@@ -182,14 +186,14 @@ export function createLibraryController(
     if (!player && state.selectedRecording) void retryPlayback();
   }
 
-  async function confirmDelete() {
+  async function confirmDelete(target?: DeleteTarget) {
     if (busy() || !state.deletePrompt || !state.selectedRecording) return;
     const selected = state.selectedRecording;
     ++generation;
     update({ deleting: true, notice: null });
     try {
       await closePlayer();
-      await recordings.remove(selected);
+      await recordings.remove(selected, target);
       update({ route: 'recordings', selectedRecording: null, deleting: false, deletePrompt: false,
         player: initialPlayer(), notice: '녹음 파일을 삭제했어요.' });
       await refreshRecordings();
@@ -234,7 +238,15 @@ export function createLibraryController(
 
   async function refresh() {
     if (busy() || state.deletePrompt) return;
-    if (state.route === 'recordings') await refreshRecordings();
+    if (state.route === 'recordings') {
+      if (recordings.synchronize) {
+        update({ syncing: true, notice: '미전송 녹음을 서버에 저장하고 목록을 새로고침하고 있어요.' });
+        try { update({ notice: await recordings.synchronize() }); }
+        catch { update({ notice: '새로고침을 마치지 못했어요. 기기 녹음은 보존돼요.' }); }
+        finally { update({ syncing: false }); }
+      }
+      await refreshRecordings();
+    }
     else if (state.route === 'recording') await retryPlayback();
     else if (state.route === 'journals') await showJournals();
     else if (state.route === 'journal' && state.selectedJournal) await openJournal(state.selectedJournal);
@@ -242,7 +254,8 @@ export function createLibraryController(
 
   async function resume() {
     suspended = false;
-    await refresh();
+    if (state.route === 'recordings') await refreshRecordings();
+    else if (!state.syncing) await refresh();
   }
 
   return {

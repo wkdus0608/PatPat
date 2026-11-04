@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { createLibraryController } from './controller';
 import { createLibraryPlatform } from './platform';
 import { LibraryView } from './LibraryView';
+import type { Account } from '../auth/controller';
 import type { JournalSource, LibraryActions } from './types';
 
 export interface LibraryHandle {
@@ -13,11 +14,12 @@ export interface LibraryHandle {
 export const LibraryScreen = forwardRef<LibraryHandle, {
   onGoToRecording(): void;
   journalSource?: JournalSource;
-}>(function LibraryScreen({ onGoToRecording, journalSource }, ref) {
+  account?: Account;
+}>(function LibraryScreen({ onGoToRecording, journalSource, account }, ref) {
   const controller = useMemo(() => {
-    const platform = createLibraryPlatform();
+    const platform = createLibraryPlatform(account);
     return createLibraryController(platform.recordings, platform.createPlayer, journalSource);
-  }, [journalSource]);
+  }, [journalSource, account?.api, account?.session.token]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   useImperativeHandle(ref, () => ({
     back() { if (controller.getSnapshot().route === 'home') onGoToRecording(); else void controller.back(); },
@@ -40,7 +42,7 @@ export const LibraryScreen = forwardRef<LibraryHandle, {
     togglePlay() { void controller.togglePlay(); }, restart() { void controller.restart(); },
     retryPlayback() { void controller.retryPlayback(); },
     requestDelete() { void controller.requestDelete(); }, cancelDelete: controller.cancelDelete,
-    confirmDelete() { void controller.confirmDelete(); },
+    confirmDelete(target) { void controller.confirmDelete(target); },
   };
   return <LibraryView state={state} actions={actions} onGoToRecording={onGoToRecording} />;
 });

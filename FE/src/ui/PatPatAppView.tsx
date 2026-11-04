@@ -226,7 +226,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
           <WritingScreen ref={writingRef} services={props.writingServices} onGoToRecording={() => { void selectTab('record'); }} />
         </View>
         {tab === 'library' ? (
-          <LibraryScreen ref={libraryRef} journalSource={props.writingServices?.journals} onGoToRecording={() => { void selectTab('record'); }} />
+          <LibraryScreen account={props.account} ref={libraryRef} journalSource={props.writingServices?.journals} onGoToRecording={() => { void selectTab('record'); }} />
         ) : tab === 'record' ? (
           <ScrollView key={tab} contentContainerStyle={[styles.scrollContent, tab === 'record' && styles.recordingScrollContent]} showsVerticalScrollIndicator={false} style={styles.scrollView}>
             <RecordingScreen {...props} />

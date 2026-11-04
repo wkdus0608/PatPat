@@ -27,11 +27,16 @@ export interface JournalSource {
   get(recordId: string): Promise<unknown>;
 }
 
+export type DeleteTarget = 'device' | 'server' | 'both';
+
 export interface RecordingLibrary {
   available: boolean;
   list(): Promise<SavedRecording[]>;
   validate(recording: SavedRecording): Promise<void>;
-  remove(recording: SavedRecording): Promise<void>;
+  remove(recording: SavedRecording, target?: DeleteTarget): Promise<void>;
+  synchronize?(): Promise<string>;
+  playbackUri?(recording: SavedRecording): Promise<string>;
+  releasePlayback?(): Promise<void>;
 }
 
 export interface PlaybackStatus {
@@ -71,6 +76,7 @@ export interface LibraryState {
   deletePrompt: boolean;
   deleting: boolean;
   navigationBusy: boolean;
+  syncing?: boolean;
   notice: string | null;
 }
 
@@ -86,7 +92,7 @@ export interface LibraryActions {
   retryPlayback(): void;
   requestDelete(): void;
   cancelDelete(): void;
-  confirmDelete(): void;
+  confirmDelete(target?: DeleteTarget): void;
 }
 
 export interface LibraryViewProps {

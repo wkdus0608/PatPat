@@ -188,8 +188,12 @@ def test_history_default_auth_and_service_are_not_fake_success(path):
         assert client.get(f"/api/v1/{path}").status_code==401
         app.dependency_overrides[get_current_teacher]=lambda:TeacherContext("T1","가상 교사")
         response=client.get(f"/api/v1/{path}")
-        assert response.status_code==501
-        assert response.json()["error"]["code"]=="NOT_IMPLEMENTED"
+        if path == "recordings":
+            assert response.status_code == 200
+            assert response.json() == {"items": [], "total": 0, "limit": 20, "offset": 0}
+        else:
+            assert response.status_code==501
+            assert response.json()["error"]["code"]=="NOT_IMPLEMENTED"
 
 
 def test_integrated_index_matches_live_operations_and_feature_links(writing_setup):

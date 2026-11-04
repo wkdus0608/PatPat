@@ -22,7 +22,7 @@ class Database:
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("BEGIN IMMEDIATE")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1):
+                if version not in (0, 1, 2):
                     raise RuntimeError("지원하지 않는 DB 스키마 버전입니다.")
                 if version == 0:
                     schema = """
@@ -51,6 +51,16 @@ class Database:
                     for statement in schema.split(";"):
                         if statement.strip():
                             connection.execute(statement)
+                if version < 2:
+                    connection.execute("""CREATE TABLE recordings (
+                        recording_id TEXT PRIMARY KEY, teacher_id TEXT NOT NULL REFERENCES teachers(teacher_id),
+                        title TEXT NOT NULL, recorded_at TEXT NOT NULL, duration_seconds REAL NOT NULL,
+                        size_bytes INTEGER NOT NULL, content_type TEXT NOT NULL, status TEXT NOT NULL,
+                        created_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+                        upload_key TEXT, digest TEXT NOT NULL,
+                        UNIQUE(teacher_id, upload_key))""")
+                    connection.execute("CREATE INDEX recordings_teacher ON recordings(teacher_id, recorded_at)")
+                    connection.execute("PRAGMA user_version=2")
                 connection.commit()
                 self._ready = True
             finally:

@@ -25,9 +25,9 @@ recordings_router = APIRouter(
 
 @recordings_router.post(
     "", status_code=201, response_model=RecordingResponse,
-    summary="녹음 파일 업로드 계약",
-    description="현재 저장 서비스 미연결로 501. MIME 검사는 선언값만 확인하며 실제 파일 검증은 후속 저장 서비스가 수행합니다.",
-    responses={415: {"model": COMMON_ERROR_RESPONSES[422]["model"], "description": "지원하지 않는 오디오 형식"}},
+    summary="녹음 파일 업로드",
+    description="원음을 검증해 비공개 저장소와 SQLite에 저장합니다. Idempotency-Key로 재전송 중복을 방지합니다.",
+    responses={code: {"model": COMMON_ERROR_RESPONSES[422]["model"], "description": description} for code, description in ((409, "업로드 키 충돌"), (413, "파일 크기 초과"), (415, "지원하지 않거나 손상된 오디오"), (503, "오디오 검증 도구 미준비"))},
 )
 async def upload_recording(
     request: Request,
@@ -46,11 +46,15 @@ async def upload_recording(
         raise ApiError(status_code=422, code="VALIDATION_ERROR", message="녹음 제목을 입력해 주세요.")
     if file.content_type not in AUDIO_CONTENT_TYPES:
         raise ApiError(status_code=415, code="UNSUPPORTED_AUDIO_TYPE", message="지원하지 않는 오디오 형식입니다.")
+    upload_key = request.headers.get("Idempotency-Key")
+    if upload_key is not None and (not upload_key.strip() or len(upload_key) > 128):
+        raise ApiError(status_code=422, code="VALIDATION_ERROR", message="업로드 키를 확인해 주세요.")
     recording = await service.upload(
         teacher=teacher,
         upload=RecordingUpload(
             title=title, recorded_at=recorded_at, duration_seconds=duration_seconds,
             content_type=file.content_type, stream=file.file,
+            upload_key=upload_key,
         ),
     )
     require_teacher_ownership(owner_teacher_id=recording.teacher_id, teacher=teacher)

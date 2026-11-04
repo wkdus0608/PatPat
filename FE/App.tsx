@@ -6,7 +6,7 @@ import { AuthGate } from './src/auth/AuthGate';
 import type { Account } from './src/auth/controller';
 
 function RecordingApp({ account }: { account: Account }) {
-  const recording = useRecording();
+  const recording = useRecording(account);
   return <PatPatAppView {...recording} account={account} />;
 }
 

@@ -15,6 +15,7 @@ from app.auth.repository import SQLiteAuthRepository
 from app.auth.service import SQLiteAuthService
 from app.children.repository import SQLiteChildrenRepository
 from app.children.service import SQLiteChildrenService
+from app.recordings.storage import SQLiteRecordingService
 from app.core.exception_handlers import (
     api_error_handler,
     http_error_handler,
@@ -45,9 +46,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.database = database
     application.state.auth_service = SQLiteAuthService(SQLiteAuthRepository(database), settings.session_ttl_seconds)
     application.state.children_service = SQLiteChildrenService(SQLiteChildrenRepository(database))
+    application.state.recording_service = SQLiteRecordingService(database, settings)
     application.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                                allow_methods=["GET", "POST", "PATCH", "DELETE"],
-                               allow_headers=["Authorization", "Content-Type"])
+                               allow_headers=["Authorization", "Content-Type", "Idempotency-Key"])
 
     application.add_exception_handler(ApiError, api_error_handler)
     application.add_exception_handler(StarletteHTTPException, http_error_handler)

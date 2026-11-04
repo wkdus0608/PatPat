@@ -15,6 +15,8 @@ class LibraryFiles implements RecordingFilePort {
   fakeRemoveSuccess = false;
   beforeStat: ((uri: string) => void) | null = null;
   extraEntries: FileEntry[] = [];
+  /** expo-file-system reports directory URIs with a trailing slash; files never have one. */
+  nativeDirectoryUris = false;
 
   async stat(uri: string): Promise<FileStat> {
     if (this.failStat) throw new Error('device read failure');
@@ -32,7 +34,7 @@ class LibraryFiles implements RecordingFilePort {
     return [...this.directories, ...this.files.keys()]
       .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
       .map((path) => ({
-        uri: path,
+        uri: this.nativeDirectoryUris && this.directories.has(path) ? `${path}/` : path,
         name: path.slice(prefix.length),
         isDirectory: this.directories.has(path),
         size: this.files.get(path)?.length ?? 0,
@@ -72,6 +74,28 @@ test('lists dates and times newest first, retaining independent recordings', asy
   const library = createRecordingLibrary(files);
   assert.equal(library.available, true);
   assert.deepEqual(await library.list(), [latest, earlierToday, laterSameDay, oldest]);
+});
+
+// Regression: on a real device the library showed no recordings because every date folder
+// came back as `.../2026-11-04/` and never matched the slash-less path built from the root.
+test('lists recordings when directory URIs end with a slash, as expo-file-system reports them', async () => {
+  const files = new LibraryFiles();
+  files.nativeDirectoryUris = true;
+  const a = files.add(1, 9, 10);
+  const b = files.add(3, 8, 0);
+  const library = createRecordingLibrary(files);
+  assert.deepEqual(await library.list(), [b, a]);
+  await library.validate(a);
+});
+
+test('keeps several takes from the same minute as separate recordings', async () => {
+  const files = new LibraryFiles();
+  const first = files.add(1, 9, 10);
+  const name = describeRecording(new Date(2026, 10, 1, 9, 10), 2);
+  const second = { ...name, uri: `${files.rootUri}/${name.dateKey}/${name.fileName}` };
+  files.files.set(second.uri, 'second-take');
+  const listed = await createRecordingLibrary(files).list();
+  assert.deepEqual(listed, [second, first]);
 });
 
 test('excludes pending, empty, wrong-date, malformed and directory entries', async () => {
