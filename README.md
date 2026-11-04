@@ -127,3 +127,30 @@ PatPat의 목표는 교사의 관찰과 판단을 대신하는 것이 아니라,
 |---|---|
 | 손세희 | 팀장 |
 | 전성민 | 팀원 |
+
+## 로컬 테스트 — 터미널 2개로 실행
+
+휴대전화와 컴퓨터 같은 Wi-Fi에 연결.
+
+### 터미널 1 — 서버
+
+```bash
+cd BE
+source .venv/bin/activate
+python -m app.manage create-teacher --login-id teacher-demo --display-name "가상 교사"
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### 터미널 2 — Expo Go
+
+```bash
+cd FE
+PATPAT_HOST_IP="$(ipconfig getifaddr en0)"
+EXPO_PUBLIC_API_BASE_URL="http://${PATPAT_HOST_IP}:8000" pnpm exec expo start --clear --port 8081
+```
+
+IP를 가져오지 못하면 Wi-Fi 설정에서 IP 주소를 확인해 `PATPAT_HOST_IP`에 직접 넣는다. PC 브라우저에서 테스트할 때는 마지막 명령 대신 아래를 실행한다.
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 pnpm exec expo start --web --clear --port 8081
+```
