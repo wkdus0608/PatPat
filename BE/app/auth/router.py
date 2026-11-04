@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Response, Depends
+from typing import Annotated
+from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.common_responses import COMMON_ERROR_RESPONSES
 from app.auth.dependencies import (
     AuthServiceDependency,
     CurrentTeacher,
     authentication_error,
+    teacher_bearer,
 )
 from app.auth.models import LoginCredentials
 from app.auth.schemas import LoginRequest, LoginResponse, TeacherResponse
@@ -20,7 +23,7 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
     summary="테스트 계정 로그인",
     description=(
         "사전 준비된 테스트 계정의 로그인 계약입니다. "
-        "현재 계정 검증·토큰 발급 서비스가 연결되지 않아 501을 반환합니다."
+        "등록된 계정의 비밀번호를 검증하고 접근 토큰을 발급합니다."
     ),
     responses={
         status: COMMON_ERROR_RESPONSES[status] for status in (401, 422, 500, 501)
@@ -55,10 +58,22 @@ async def login(
     summary="내 교사 계정 조회",
     description=(
         "검증된 Bearer 토큰의 교사 정보를 반환합니다. "
-        "현재 토큰 확인 서비스가 연결되지 않아 토큰 제출 시 501을 반환합니다."
+        "만료·폐기·비활성 계정의 토큰은 거부합니다."
     ),
     responses={status: COMMON_ERROR_RESPONSES[status] for status in (401, 500, 501)},
 )
 async def get_me(teacher: CurrentTeacher, response: Response) -> TeacherResponse:
     response.headers["Cache-Control"] = "no-store"
     return TeacherResponse.model_validate(teacher)
+
+
+@auth_router.post("/logout", status_code=204, response_class=Response,
+                  summary="현재 기기 로그아웃", responses={status: COMMON_ERROR_RESPONSES[status] for status in (401, 500, 501)})
+async def logout(
+    teacher: CurrentTeacher,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(teacher_bearer)],
+    service: AuthServiceDependency,
+) -> Response:
+    assert credentials is not None  # CurrentTeacher validated the same Bearer token.
+    await service.logout(credentials.credentials)
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})

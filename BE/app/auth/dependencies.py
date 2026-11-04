@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.models import TeacherContext
@@ -19,8 +19,8 @@ teacher_bearer = HTTPBearer(
 )
 
 
-def get_auth_service() -> AuthService:
-    return UnimplementedAuthService()
+def get_auth_service(request: Request) -> AuthService:
+    return getattr(request.app.state, "auth_service", UnimplementedAuthService())
 
 
 AuthServiceDependency = Annotated[AuthService, Depends(get_auth_service)]

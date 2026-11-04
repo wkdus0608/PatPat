@@ -11,6 +11,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
+    "test:integration": "tsx scripts/check-server-connection.ts",
     "export": "expo export --platform all",
     "export:web": "expo export --platform web",
     "export:android": "expo export --platform android"
@@ -21,6 +22,7 @@
     "expo-audio": "~58.0.11",
     "expo-file-system": "~58.0.13",
     "expo-font": "~58.0.11",
+    "expo-secure-store": "~58.0.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",

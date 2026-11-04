@@ -1,91 +1,44 @@
 # PatPat Backend
 
-BE-00~10 API contracts are complete. Latest validation: **187 contract tests passed**
-on 2026-11-02. Concrete business services remain unconnected (501).
+Python/FastAPI 서버다. 테스트 계정 인증·세션·아동 명단은 SQLite에 저장한다. 녹음·전사·일지 업무는 계약 단계이며 기본 서비스는 501이다.
 
-FastAPI backend contracts for the PatPat MVP. This package provides the health
-endpoint, shared error responses, background job status values, OpenAPI, and
-the BE-01 authentication and BE-02~04 roster, recordings, and STT contracts.
+## 실행
 
-## Run locally
+`BE/`에서 Python 3.11 이상을 사용한다.
 
 ```sh
 python -m venv .venv
-# macOS / Linux
 source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install -e .
-uvicorn app.main:app --reload
+python -m pip install -e ".[test]"
+python -m app.manage create-teacher --login-id teacher-demo --display-name "가상 교사"
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-OpenAPI UI is available at `/docs`; the OpenAPI JSON document is available at
-`/openapi.json`. `GET /health` returns `{"status":"ok"}`. Requests to unbuilt
-`/api/v1` endpoints return the common `NOT_IMPLEMENTED` error response.
+Windows에서는 가상 환경 활성화에 `.venv\Scripts\activate`를 사용한다. 계정 생성 시 비밀번호를 두 번 입력하며, 기본 계정·비밀번호는 자동 생성하지 않는다. 재등록은 기존 계정을 덮어쓰지 않는다.
 
-## Test-account authentication (BE-01)
+- 기본 DB: `BE/data/patpat.sqlite3`. 서버 재시작 후에도 계정·세션·명단을 유지한다.
+- `PATPAT_DATABASE_PATH`: DB 파일 위치. 상대 경로는 실행 디렉터리 기준이다.
+- `PATPAT_SESSION_TTL_SECONDS`: 세션 유효기간, 기본 604800초(7일).
+- `PATPAT_CORS_ORIGINS`: 웹 접근을 허용할 origin의 쉼표 목록. 기본은 `http://localhost:8081,http://127.0.0.1:8081`이다.
+- 설정은 환경변수에서 읽는다. `.env` 파일은 자동으로 읽지 않는다.
 
-- `POST /api/v1/auth/login` accepts JSON `login_id` and `password`.
-- `GET /api/v1/auth/me` requires `Authorization: Bearer <access_token>`.
-- Future business routes use `CurrentTeacher` and the authenticated
-  `teacher_id` for ownership. Other teachers' resources return `404`.
+앱의 `EXPO_PUBLIC_API_BASE_URL`을 이 서버 주소에 맞춘다. 휴대전화에서는 `localhost` 대신 같은 네트워크에 있는 개발 PC의 주소를 사용한다. `/health`, `/docs`, `/openapi.json`으로 상태와 계약을 확인한다.
 
-The default authentication service returns `501 NOT_IMPLEMENTED` for login and
-token verification. Missing or malformed Bearer headers return `401`; invalid
-login request bodies return `422`. No working account or token is bundled.
-The server has no database, file storage, password verification, token issuance,
-speech-to-text, or AI integration yet. Normal responses and service failure
-mapping are contracts for the later implementation.
+## 인증·명단
 
-See [the authentication contract](../docs/SPEC.md) for request/response examples,
-service/repository interfaces, and the teacher access boundary. Examples use
-fictional credentials and tokens.
+로그인·내 계정·현재 세션 로그아웃과 아동 목록·등록·이름 수정·비활성화를 제공한다. 회원가입·아동 삭제·재활성화 API는 없다. 다른 교사의 자료는 404이며 비활성화 후에도 아동 ID를 보존한다.
 
-## Contract tests
+비밀번호는 Argon2id 해시, 접근 토큰은 SHA-256 해시만 DB에 저장한다. 토큰은 7일 후 만료하며 자동 갱신하지 않는다. 실제 정보·DB·비밀번호·토큰은 저장소와 테스트에 넣지 않는다.
 
-Install the optional test dependencies and run the focused API contract suite:
+## 검사
 
 ```sh
-python -m pip install -e ".[test]"
-python -m pytest
+python -m pytest -q
+python -m compileall -q app
 ```
 
-Authentication success/failure contract tests inject a stub service into a fresh
-app instance. They do not verify real passwords, token expiry, or database access.
+계약 테스트는 대체 서비스를, `tests/test_database_integration.py`는 임시 SQLite와 실제 인증·명단 서비스를 사용한다. 후자는 재시작·만료·로그아웃·교사 분리·고정 ID·동시 등록을 확인한다. 외부 AI와 실기기 검증은 포함하지 않는다.
 
-## Roster, recordings, and transcription (BE-02~04)
+앱과 실제 서버 사이의 통합 검사는 FE에서 `pnpm test:integration`을 실행한다. BE 가상 환경이 필요하며 `PATPAT_TEST_PYTHON`으로 실행할 Python 경로를 바꿀 수 있다. 가상 계정과 임시 DB로 검사한 뒤 서버와 파일을 정리한다.
 
-- [Children](docs/CHILDREN.md): roster list/create/rename/deactivate with stable IDs.
-- [Recordings](docs/RECORDINGS.md): multipart upload, list/detail, private audio, delete.
-- [Transcriptions](docs/TRANSCRIPTIONS.md): asynchronous request/retry and job/result lookup.
-
-All business routes require `CurrentTeacher`. Default authentication and business
-services return 501 until concrete implementations are connected. Tests inject
-fictional services; no external STT or production storage is exercised.
-Multipart parsing uses `python-multipart` as required by the
-[FastAPI file upload documentation](https://fastapi.tiangolo.com/tutorial/request-files/).
-
-On 2026-11-02 the combined contract suite passed 100 tests. BE-00 fallback tests
-now target an unknown future route because children/recordings are registered.
-
-## Journal writing (BE-05~07)
-
-- [Writing contracts](docs/WRITING.md): selected-recording drafts, exact teacher
-  edits/confirmation, separate AI candidates and explicit adoption.
-- Modules: `app/drafts`, `app/records`, `app/revisions`, shared `app/writing`.
-- Immutable snapshots, evidence/child ID checks, expected-version conflicts, and
-  pure edit/adoption transitions are implemented. Default business services still
-  return 501. Database, job queue, and external diary AI are not connected.
-- Combined contract tests: 161 passed on 2026-11-02. This does not evaluate AI
-  factual quality or claim semantic golden-case success.
-
-## Previous records, sharing, and integrated contract (BE-08~10)
-
-Read [API_CONTRACT.md](docs/API_CONTRACT.md) for the complete endpoint index,
-calendar-date filters, pagination, state/ID relationships, and unimplemented work.
-List services now receive a query object and return a page with a filtered total.
-Record detail exposes read-only `can_share`/`share_text`; only confirmed text can
-be copied/shared by the app. No public share or delivery endpoint is added.
-
-BE-00~10 describes completed API contracts and validation structure. A working
-MVP still needs concrete authentication, persistence, private audio, queue, STT,
-and diary AI implementations. See the integrated contract for validation limits.
+전체 API는 [API_CONTRACT.md](docs/API_CONTRACT.md), 명단은 [CHILDREN.md](docs/CHILDREN.md)를 따른다.

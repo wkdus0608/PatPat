@@ -21,6 +21,14 @@ from app.writing.models import (
 from app.writing.validation import apply_manual_text, adopt_revision, build_revision_context, check_version
 
 
+@pytest.fixture(autouse=True)
+def isolated_database(tmp_path, monkeypatch):
+    """Default-service tests also use a disposable DB, never development data."""
+    monkeypatch.setenv("PATPAT_DATABASE_PATH", str(tmp_path / "test.sqlite3"))
+    from app.main import app
+    app.state._state.update(create_app().state._state)
+
+
 @pytest.fixture
 def writing_snapshot():
     return GenerationSnapshot(

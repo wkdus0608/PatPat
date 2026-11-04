@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends, Response
 from typing import Annotated
 
 from app.api.common_responses import COMMON_ERROR_RESPONSES
@@ -14,9 +14,14 @@ from app.children.schemas import (
 )
 
 
+def private_response(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
 children_router = APIRouter(
     prefix="/children",
     tags=["children"],
+    dependencies=[Depends(private_response)],
     responses={status: COMMON_ERROR_RESPONSES[status] for status in (401, 404, 422, 500, 501)},
 )
 
@@ -30,7 +35,7 @@ def _response(child: Child, teacher: TeacherContext) -> ChildResponse:
     "",
     response_model=ChildListResponse,
     summary="내 아동 명단 조회",
-    description="기본값은 활성 아동만 조회합니다. 현재 명단 저장소는 연결되지 않아 501을 반환합니다.",
+    description="인증 교사의 명단을 등록 순서로 조회합니다. 기본값은 활성 아동만 포함합니다.",
 )
 async def list_children(
     teacher: CurrentTeacher,
@@ -46,7 +51,7 @@ async def list_children(
     status_code=201,
     response_model=ChildResponse,
     summary="아동 등록",
-    description="소유자는 인증된 교사로 결정합니다. 현재 저장 서비스는 연결되지 않아 501을 반환합니다.",
+    description="소유자는 인증된 교사로 결정합니다. 동명이인도 별도의 고정 ID로 등록합니다.",
 )
 async def create_child(
     body: ChildCreateRequest,
@@ -60,7 +65,7 @@ async def create_child(
     "/{child_id}",
     response_model=ChildResponse,
     summary="아동 이름 수정",
-    description="고정 아동 ID와 과거 기록을 유지합니다. 현재 저장 서비스는 연결되지 않아 501을 반환합니다.",
+    description="고정 아동 ID를 유지하고 소유 교사의 아동 이름만 수정합니다.",
 )
 async def rename_child(
     child_id: str,
@@ -76,7 +81,7 @@ async def rename_child(
     "/{child_id}/deactivate",
     response_model=ChildResponse,
     summary="아동 비활성화",
-    description="아동을 삭제하지 않고 비활성화합니다. 현재 저장 서비스는 연결되지 않아 501을 반환합니다.",
+    description="아동을 삭제하지 않고 비활성화합니다. 반복 요청에도 같은 ID를 유지합니다.",
 )
 async def deactivate_child(
     child_id: str, teacher: CurrentTeacher, service: ChildrenServiceDependency

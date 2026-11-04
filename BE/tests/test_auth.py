@@ -62,20 +62,17 @@ def client(application: FastAPI, stub: StubAuthService) -> Iterator[TestClient]:
         yield test_client
 
 
-def test_default_service_keeps_login_and_token_verification_unimplemented() -> None:
+def test_default_service_rejects_unknown_account_and_token() -> None:
     with TestClient(create_app()) as client:
         login = client.post("/api/v1/auth/login", json=LOGIN_DATA)
         me = client.get(
             "/api/v1/auth/me", headers={"Authorization": "Bearer arbitrary-token"}
         )
 
-    for response, operation in [(login, "login"), (me, "authenticate")]:
-        assert response.status_code == 501
-        assert response.json()["error"] == {
-            "code": "NOT_IMPLEMENTED",
-            "message": "테스트 계정 인증 서비스가 아직 연결되지 않았습니다.",
-            "details": {"feature": "BE-01", "operation": operation},
-        }
+    for response, code in [(login, "INVALID_CREDENTIALS"), (me, "INVALID_TOKEN")]:
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == code
+        assert response.headers["www-authenticate"] == "Bearer"
         assert response.headers["cache-control"] == "no-store"
         assert LOGIN_DATA["password"] not in response.text
         assert "arbitrary-token" not in response.text

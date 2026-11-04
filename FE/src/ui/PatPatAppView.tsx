@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import {
-  ActivityIndicator, BackHandler, Image, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, BackHandler, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,6 +9,8 @@ import { colors } from './theme';
 import { LibraryScreen, type LibraryHandle } from '../library/LibraryScreen';
 import { WritingScreen, type WritingHandle } from '../writing/WritingScreen';
 import type { WritingServices } from '../writing/types';
+import type { Account } from '../auth/controller';
+import { SettingsScreen } from '../roster/SettingsScreen';
 
 export interface RecorderViewProps {
   phase: 'idle' | 'preparing' | 'recording' | 'saving' | 'saved' | 'error';
@@ -132,10 +134,12 @@ function RecordingScreen(props: RecorderViewProps) {
   );
 }
 
-export function PatPatAppView(props: RecorderViewProps & { writingServices?: WritingServices }) {
+export function PatPatAppView(props: RecorderViewProps & { writingServices?: WritingServices; account?: Account }) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('record');
   const [tabNotice, setTabNotice] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsSaving = useRef(false);
   const libraryRef = useRef<LibraryHandle | null>(null);
   const writingRef = useRef<WritingHandle | null>(null);
   const switching = useRef(false);
@@ -175,6 +179,21 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
     } finally { switching.current = false; }
   }
 
+  async function openSettings() {
+    if (switching.current) return;
+    if (blockNavigation) {
+      setTabNotice('현재 녹음을 마치고 저장한 뒤 설정을 열어 주세요.');
+      return;
+    }
+    switching.current = true;
+    try {
+      if (tab === 'library' && await libraryRef.current?.leave() === false) return;
+      if (tab === 'write' && await writingRef.current?.leave() === false) return;
+      Keyboard.dismiss();
+      setSettingsOpen(true);
+    } finally { switching.current = false; }
+  }
+
   return (
     <View style={styles.appBackground}>
       <View style={[styles.appFrame, { paddingTop: insets.top }]}>
@@ -194,7 +213,14 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
             <Ionicons name="calendar-outline" size={13} color={colors.muted} />
             <Text style={styles.dateText}>{props.dateLabel}</Text>
           </View>
+          {props.account && <Pressable accessibilityRole="button" accessibilityLabel="설정 열기"
+            style={{ padding: 10 }} onPress={() => { void openSettings(); }}>
+            <Ionicons name="settings-outline" size={23} color={colors.ink} />
+          </Pressable>}
         </View>
+        {props.account && settingsOpen && <Modal animationType="slide" onRequestClose={() => { if (!props.account?.busy && !settingsSaving.current) setSettingsOpen(false); }}>
+          <SettingsScreen account={props.account} onClose={() => setSettingsOpen(false)} onSavingChange={saving => { settingsSaving.current = saving; }} />
+        </Modal>}
         <View style={[styles.writingContainer, tab !== 'write' && styles.hiddenScreen]}
           accessibilityElementsHidden={tab !== 'write'} importantForAccessibility={tab !== 'write' ? 'no-hide-descendants' : 'auto'}>
           <WritingScreen ref={writingRef} services={props.writingServices} onGoToRecording={() => { void selectTab('record'); }} />

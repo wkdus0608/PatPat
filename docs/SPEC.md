@@ -25,16 +25,16 @@ MVP 단계에선 로컬 전사와 가명처리는 제외된다. 외부 API에서
 - `GET /health` — `{status: "ok"}` (예정)
 - 값: `record_type` = 알림장 | 관찰일지 / `scope` = common | individual | joint | unresolved / `status` = 작성중 | 검토중 | 완료 / `content_kind` = 관찰 | 배움 읽기 | 놀이 지원 | 지원 계획(관찰일지만) / `special_notes`는 알림장만. 아동은 가명 코드 `child_id`(C01 등)로 다루고 실명 매핑은 로컬에만 둔다.
 
-**5-1. MVP 테스트 계정 인증 계약 (BE-01)**
+**5-1. MVP 로그인·명단·DB (BE-01~02)**
 
-BE 작업 계획의 테스트 계정 로그인·교사별 접근 경계를 구체화한다. 아래 필드는 인증을 위한 서버 설계이며 관찰·일지 입력 필드를 변경하지 않는다. 이번 작업은 API 규격과 서비스·저장소 인터페이스까지이며, 계정 DB·비밀번호 검증·토큰 발급은 연결하지 않는다.
+현재 MVP는 외부 STT 기반 관찰일지를 대상으로 한다. 아래 로그인·명단은 실제 구현 계약이며, 녹음·일지 서버 계약은 `BE/docs/API_CONTRACT.md`를 따른다. 5절의 초기 관찰 기반 인터페이스와 구분한다.
 
-- `POST /api/v1/auth/login` — JSON `{login_id, password}` → `{access_token, token_type: "bearer", expires_in, teacher: {teacher_id, display_name}}`. `expires_in`은 초 단위의 양수다. 두 입력값은 비어 있지 않은 문자열이며, `teacher_id` 등 추가 필드는 거부한다. 사전에 준비한 테스트 계정만 허용하고 회원가입 API는 제공하지 않는다.
-- `GET /api/v1/auth/me` — `Authorization: Bearer <access_token>` → `{teacher_id, display_name}`. 업무 API의 소유자는 요청 본문이나 쿼리가 아닌 검증된 인증 컨텍스트의 `teacher_id`로 결정한다.
-- 로그인 실패는 `401 INVALID_CREDENTIALS`, 인증 누락·잘못된 인증 방식은 `401 UNAUTHENTICATED`, 만료·변조 등 토큰 검증 실패는 `401 INVALID_TOKEN`으로 정의한다. 인증 오류에는 `WWW-Authenticate: Bearer`를 보존한다. 응답은 BE의 공통 오류 형식을 따른다.
-- 다른 교사의 리소스는 `404 NOT_FOUND`로 처리한다. 후속 기능은 인증된 교사 ID로 저장소 조회·쓰기를 제한하고, 소유권 검사도 적용한다.
-- 기본 실행에서는 로그인과 토큰 확인 서비스가 `501 NOT_IMPLEMENTED`를 반환한다. 인증 헤더의 누락·형식과 요청 모델 검증은 실행하며, 테스트에서는 가짜 서비스를 주입해 정상·실패 계약을 확인한다. 이 결과는 실제 계정·토큰 검증 완료를 뜻하지 않는다.
-- 비밀번호는 저장소 인터페이스에서 해시로만 표현하고, 비밀번호·토큰은 오류 응답에 복사하지 않는다. 상세 계약과 연결 지점은 `BE/docs/AUTH.md`를 따른다.
+- 사전에 준비한 테스트 계정만 사용한다. `POST /api/v1/auth/login`의 `{login_id, password}` → `{access_token, token_type: "bearer", expires_in, teacher: {teacher_id, display_name}}`, `GET /api/v1/auth/me` → `{teacher_id, display_name}`. `POST /api/v1/auth/logout`은 현재 세션을 폐기하고 204를 반환한다.
+- 계정·세션·명단은 서버 SQLite에 저장한다. 비밀번호는 Argon2id 해시, 토큰은 SHA-256 해시로만 보관한다. 세션은 기본 7일이며 자동 갱신하지 않는다. 계정은 서버 관리 명령으로 생성하고 회원가입 API는 두지 않는다.
+- 업무 소유자는 Bearer 인증의 `teacher_id`로만 결정한다. 로그인 실패는 `401 INVALID_CREDENTIALS`, 인증 누락은 `401 UNAUTHENTICATED`, 만료·변조·폐기는 `401 INVALID_TOKEN`, 다른 교사 자료는 404다. 인증 오류는 `WWW-Authenticate: Bearer`를 유지한다.
+- 명단은 `GET /api/v1/children?include_inactive=false`, `POST /api/v1/children`의 `{name}`, `PATCH /api/v1/children/{child_id}`의 `{name}`, `POST /api/v1/children/{child_id}/deactivate`를 사용한다. 응답은 `{child_id, name, is_active}`, 목록은 `{items: [...]}`다. 서버 고정 ID를 쓰며 동명이인을 허용하고 비활성화해도 ID를 보존한다.
+- 앱은 상단 설정에서 명단과 로그아웃을 제공한다. Android·iOS는 기기 보안 저장소로 로그인 유지, 웹 미리보기는 실행 중에만 유지한다. 통신 실패 시 토큰을 보존하고, 401이면 지운 뒤 다시 로그인한다.
+- 실제 DB 검증은 가상 계정·가상 아동으로 수행한다. 녹음 업로드·STT·일지 생성은 아직 미연결이다.
 
 
 **6. 수용 기준 (테스트로 검증 — Definition of Done)**

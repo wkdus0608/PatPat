@@ -1,4 +1,7 @@
 from fastapi import FastAPI
+from asyncio import to_thread
+from contextlib import asynccontextmanager
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -7,6 +10,11 @@ from app.api.v1.not_implemented import not_implemented_router
 from app.api.v1.router import api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.errors import ApiError
+from app.core.database import Database
+from app.auth.repository import SQLiteAuthRepository
+from app.auth.service import SQLiteAuthService
+from app.children.repository import SQLiteChildrenRepository
+from app.children.service import SQLiteChildrenService
 from app.core.exception_handlers import (
     api_error_handler,
     http_error_handler,
@@ -17,15 +25,29 @@ from app.core.exception_handlers import (
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        await to_thread(application.state.database.initialize)
+        yield
+
     application = FastAPI(
         title=settings.app_name,
         version=settings.api_version,
         description=(
             "쓰담쓰담 MVP 백엔드 API입니다. "
-            "계정·토큰 서비스와 미구현 업무 API는 NOT_IMPLEMENTED 오류를 반환합니다."
+            "인증·아동 명단은 SQLite에 저장하며 후속 업무 API는 아직 미연결입니다."
         ),
         debug=settings.debug,
+        lifespan=lifespan,
     )
+    database = Database(settings.database_path)
+    application.state.database = database
+    application.state.auth_service = SQLiteAuthService(SQLiteAuthRepository(database), settings.session_ttl_seconds)
+    application.state.children_service = SQLiteChildrenService(SQLiteChildrenRepository(database))
+    application.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
+                               allow_methods=["GET", "POST", "PATCH", "DELETE"],
+                               allow_headers=["Authorization", "Content-Type"])
 
     application.add_exception_handler(ApiError, api_error_handler)
     application.add_exception_handler(StarletteHTTPException, http_error_handler)

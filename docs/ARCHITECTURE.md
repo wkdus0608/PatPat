@@ -1,8 +1,8 @@
 # PatPat 아키텍처
 
-관찰일지 MVP의 설계다. 범위와 입출력은 [SPEC](SPEC.md) 4·5-1~5-4절, 도메인은 [온톨로지](ontology.yaml), 판정은 [골든 케이스](golden_cases.yaml)를 따른다. 외부 STT를 사용하고 가명 처리는 생략한다.
+관찰일지 MVP의 설계다. 범위는 [SPEC](SPEC.md), 현재 MVP 입출력은 [API 계약](../BE/docs/API_CONTRACT.md), 도메인은 [온톨로지](ontology.yaml), 판정은 [골든 케이스](golden_cases.yaml)를 따른다. 외부 STT를 사용하고 가명 처리는 생략한다.
 
-현재 FE는 녹음·작성·보관함 화면과 제어 코드, BE는 API 계약·인터페이스·순수 검증 단계다. 실제 인증·DB·서버 원음 저장·작업자·외부 AI는 미연결이다. 아래 저장·실행 구조는 구현할 설계다.
+로그인·세션 유지·아동 명단은 FE와 실제 SQLite 저장소를 연결했다. 녹음·일지의 서버 저장·작업자·외부 AI는 미연결이며 해당 구조는 구현할 설계다.
 
 ## 1. 데이터 흐름
 
@@ -17,7 +17,8 @@
 | `FE/src/recording/controller.ts`, `FE/src/recording/storage.ts` | 녹음 제어·기기 파일 보존 | 코드 있음, 실기기 검증 필요 |
 | `FE/src/writing/controller.ts`, `FE/src/writing/types.ts` | 선택·편집·후보 검토·확정 | 서버 계약 연결 필요 |
 | `FE/src/library/controller.ts`, `FE/src/library/journals.ts` | 녹음·일지 조회 | 서버 조회 연결 필요 |
-| `BE/app/auth/service.py`, `BE/app/children/service.py` | 인증 교사·아동 명단 | 인터페이스 |
+| `BE/app/auth/service.py`, `BE/app/children/service.py` | 인증 교사·아동 명단 | SQLite 실구현 |
+| `BE/app/core/database.py` | 계정·세션·명단 스키마와 트랜잭션 | 구현 |
 | `BE/app/recordings/service.py`, `BE/app/recordings/repository.py` | 업로드·비공개 재생·삭제 | 인터페이스 |
 | `BE/app/transcriptions/client.py`, `BE/app/transcriptions/service.py` | 외부 STT·전사 작업 | 인터페이스 |
 | `BE/app/writing/client.py`, `BE/app/writing/models.py` | 관찰 추출·초안·수정 후보, 불변 스냅샷 | AI 인터페이스·모델 |
