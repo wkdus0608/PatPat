@@ -81,7 +81,7 @@ export interface WritingDraft {
 }
 
 export interface WritingState {
-  route: 'editor' | 'picker';
+  route: 'picker' | 'review' | 'edit' | 'revision' | 'complete';
   recordings: LoadState<readonly SavedRecording[]>;
   selected: readonly SavedRecording[];
   checked: readonly string[];
@@ -103,6 +103,10 @@ export interface WritingCapabilities {
 }
 
 export interface WritingActions {
+  next(): void;
+  openEditor(): void;
+  openRevision(): void;
+  back(): void;
   openPicker(): void;
   refreshRecordings(): void;
   toggleRecording(uri: string): void;

@@ -223,7 +223,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
         </Modal>}
         <View style={[styles.writingContainer, tab !== 'write' && styles.hiddenScreen]}
           accessibilityElementsHidden={tab !== 'write'} importantForAccessibility={tab !== 'write' ? 'no-hide-descendants' : 'auto'}>
-          <WritingScreen ref={writingRef} services={props.writingServices} onGoToRecording={() => { void selectTab('record'); }} />
+          <WritingScreen ref={writingRef} active={tab === 'write'} services={props.writingServices} onGoToRecording={() => { void selectTab('record'); }} />
         </View>
         {tab === 'library' ? (
           <LibraryScreen ref={libraryRef} journalSource={props.writingServices?.journals} onGoToRecording={() => { void selectTab('record'); }} />

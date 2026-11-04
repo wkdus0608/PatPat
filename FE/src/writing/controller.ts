@@ -6,12 +6,14 @@ import { nonblank, readCandidate, readDraft, readPrepared, requireConfirmed, Wri
 
 export function createWritingController(files: RecordingLibrary, services: WritingServices = {}) {
   let state: WritingState = {
-    route: 'editor', recordings: { status: 'idle' }, selected: [], checked: [], draft: null,
+    route: 'picker', recordings: { status: 'idle' }, selected: [], checked: [], draft: null,
     activeRecordId: null, phase: 'idle', notice: null, guard: null,
   };
   let disposed = false;
   let operation = 0;
   let listVersion = 0;
+  let initialized = false;
+  let navigatingBack = false;
   let abort: AbortController | null = null;
   let guardedAction: (() => void) | null = null;
   let leaveAnswer: ((answer: boolean) => void) | null = null;
@@ -64,11 +66,11 @@ export function createWritingController(files: RecordingLibrary, services: Writi
   }
   function applySelection(selected: readonly SavedRecording[]) {
     set({ selected: selected.map((row) => ({ ...row })), checked: selected.map((row) => row.uri),
-      draft: null, activeRecordId: null, route: 'editor', notice: null });
+      draft: null, activeRecordId: null, route: 'picker', notice: null });
   }
   function changeSelection(selected: readonly SavedRecording[]) {
     const same = state.selected.length === selected.length && state.selected.every((row) => selected.some((next) => next.uri === row.uri));
-    if (same) { set({ route: 'editor', notice: null }); return; }
+    if (same) { set({ route: state.draft ? 'review' : 'picker', notice: null }); return; }
     if (state.draft) guard('selection', () => applySelection(selected));
     else applySelection(selected);
   }
@@ -87,6 +89,11 @@ export function createWritingController(files: RecordingLibrary, services: Writi
       if (!disposed && version === listVersion) set({ recordings: { status: 'error', message: errorMessage(error, '녹음 목록을 불러오지 못했어요. 다시 시도해 주세요.') } });
     }
   }
+  async function initialize() {
+    if (initialized || disposed) return;
+    initialized = true;
+    await refreshRecordings();
+  }
   async function openPicker() {
     if (disposed || busy() || state.guard) return;
     set({ route: 'picker', checked: state.selected.map((row) => row.uri), notice: null });
@@ -95,7 +102,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
   function cancelPicker() {
     if (busy() || state.guard) return;
     listVersion++;
-    set({ route: 'editor', checked: state.selected.map((row) => row.uri), notice: null });
+    set({ route: state.draft ? 'review' : 'picker', checked: state.selected.map((row) => row.uri), notice: null });
   }
   function toggleRecording(uri: string) {
     if (busy() || state.guard || state.route !== 'picker') return;
@@ -119,7 +126,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
     } finally { finish(ticket); }
   }
   function removeRecording(uri: string) {
-    if (busy() || state.guard || state.route !== 'editor') return;
+    if (busy() || state.guard) return;
     changeSelection(state.selected.filter((row) => row.uri !== uri));
   }
   async function runGeneration() {
@@ -143,7 +150,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
         observation_ids: context.observations.map((row) => row.observation_id) }, signal);
       if (!current(ticket)) return;
       const draft = readDraft(response, context);
-      set({ draft, activeRecordId: draft.records[0]?.recordId ?? null, notice: '초안을 확인하고 선생님의 기록으로 다듬어 주세요.' });
+      set({ draft, route: 'review', activeRecordId: draft.records[0]?.recordId ?? null, notice: '초안을 확인하고 선생님의 기록으로 다듬어 주세요.' });
     } catch (error) {
       if (current(ticket)) set({ notice: errorMessage(error, '초안을 작성하지 못했어요. 기존 내용은 유지돼요. 다시 시도해 주세요.') });
     } finally { finish(ticket); }
@@ -153,11 +160,56 @@ export function createWritingController(files: RecordingLibrary, services: Writi
     if (state.draft && capabilities.generation) guard('regenerate', () => { void runGeneration(); });
     else void runGeneration();
   }
+  async function next() {
+    if (disposed || busy() || state.guard || state.route !== 'picker') return;
+    if (!capabilities.generation) {
+      set({ notice: '초안 작성 기능은 연결 준비 중이에요.' }); return;
+    }
+    if (state.checked.length === 0 || state.recordings.status !== 'ready') return;
+    const { ticket } = begin('validating');
+    try {
+      const known = [...state.recordings.data, ...state.selected];
+      const selected = state.checked.map((uri) => known.find((row) => row.uri === uri));
+      if (selected.some((row) => !row)) throw new WritingInputError('선택한 녹음 목록을 다시 확인해 주세요.');
+      const checked = selected as SavedRecording[];
+      await Promise.all(checked.map((row) => files.validate(row)));
+      if (!current(ticket)) return;
+      finish(ticket);
+      const same = state.selected.length === checked.length && state.selected.every((row) => checked.some((next) => next.uri === row.uri));
+      // Returning from the draft must not issue another model request.
+      if (same && state.draft) { set({ route: 'review', notice: null }); return; }
+      const proceed = () => { applySelection(checked); return runGeneration(); };
+      if (state.draft) guard('selection', () => { void proceed(); });
+      else await proceed();
+    } catch (error) {
+      if (current(ticket)) set({ notice: errorMessage(error, '선택한 녹음을 확인하지 못했어요. 목록을 다시 확인해 주세요.') });
+    } finally { finish(ticket); }
+  }
+  function openEditor() {
+    if (disposed || busy() || state.guard || state.route !== 'review' || !active() || active()?.candidate) return;
+    set({ route: 'edit', notice: null });
+  }
+  function openRevision() {
+    if (disposed || busy() || state.guard || state.route !== 'review' || !active() || active()?.candidate) return;
+    set({ route: 'revision', notice: null });
+  }
+  async function back(): Promise<boolean> {
+    if (disposed || state.guard || navigatingBack) return false;
+    const from = state.route;
+    navigatingBack = true;
+    try {
+      if (!await leave() || disposed) return false;
+      if (from === 'picker') return true;
+      if (from === 'review') await openPicker();
+      else set({ route: 'review', notice: null });
+      return false;
+    } finally { navigatingBack = false; }
+  }
   function selectRecord(recordId: string) {
     if (disposed || state.guard || state.phase === 'confirming' || state.phase === 'sharing' || state.phase === 'generating') return;
     if (!state.draft?.records.some((row) => row.recordId === recordId)) return;
     if (state.phase === 'revising') cancelOperation();
-    set({ activeRecordId: recordId, notice: null });
+    set({ activeRecordId: recordId, route: 'review', notice: null });
   }
   function editText(text: string) {
     if (disposed || state.guard || (busy() && state.phase !== 'revising')) return;
@@ -166,7 +218,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
     if (state.phase === 'revising') cancelOperation();
     updateRecord(row.recordId, (record) => ({ ...record, editedText: text, version: record.version + 1,
       candidate: null, confirmedText: null }));
-    set({ notice: null });
+    set({ notice: null, ...(state.route === 'complete' ? { route: 'review' as const } : {}) });
   }
   function editPrompt(prompt: string) {
     if (disposed || state.guard || (busy() && state.phase !== 'revising')) return;
@@ -179,6 +231,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
     if (disposed || busy() || state.guard) return;
     const row = active();
     if (!row) return;
+    if (row.candidate) { set({ notice: '수정 제안을 적용하거나 취소한 뒤 다시 요청해 주세요.' }); return; }
     if (!services.workflow?.revise) { set({ notice: '수정 요청 기능을 연결하고 있어요. 본문은 직접 수정할 수 있어요.' }); return; }
     if (!row.prompt.trim() || !row.editedText.trim()) { set({ notice: '본문과 수정 요청을 먼저 작성해 주세요.' }); return; }
     const { ticket, signal } = begin('revising');
@@ -190,7 +243,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
       const latest = active();
       if (latest?.recordId !== row.recordId || latest.version !== row.version || latest.prompt !== row.prompt) return;
       updateRecord(row.recordId, (record) => ({ ...record, candidate: { text, baseVersion: row.version } }));
-      set({ notice: '수정 제안을 확인한 뒤 적용해 주세요. 아직 본문에는 반영하지 않았어요.' });
+      set({ route: 'review', notice: '수정 제안을 확인한 뒤 적용해 주세요. 아직 본문에는 반영하지 않았어요.' });
     } catch (error) {
       if (current(ticket)) set({ notice: errorMessage(error, '수정 제안을 받지 못했어요. 본문과 요청 내용은 유지돼요.') });
     } finally { finish(ticket); }
@@ -215,7 +268,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
     if (!services.confirmation) { set({ notice: '관찰일지 저장 기능을 연결하고 있어요. 아직 확정되지 않았어요.' }); return; }
     if (!row.editedText.trim()) { set({ notice: '확정할 본문을 작성해 주세요.' }); return; }
     if (row.candidate) { set({ notice: '수정 제안을 적용하거나 취소한 뒤 확정해 주세요.' }); return; }
-    if (row.confirmedText === row.editedText) return;
+    if (row.confirmedText === row.editedText) { set({ route: 'complete', notice: null }); return; }
     const { ticket } = begin('confirming');
     try {
       // This path never invokes prepare/generate/revise. Exact teacher text is authoritative.
@@ -223,7 +276,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
       if (!current(ticket)) return;
       updateRecord(row.recordId, (record) => record.version === row.version && record.editedText === row.editedText
         ? { ...record, confirmedText: row.editedText } : record);
-      set({ notice: '최종 본문을 확정해 저장했어요. 이제 공유할 수 있어요.' });
+      set({ route: 'complete', notice: '최종 본문을 확정해 저장했어요. 이제 공유할 수 있어요.' });
     } catch (error) {
       if (current(ticket)) set({ notice: errorMessage(error, '저장하지 못했어요. 본문은 유지돼요. 다시 확정해 주세요.') });
     } finally { finish(ticket); }
@@ -260,8 +313,15 @@ export function createWritingController(files: RecordingLibrary, services: Writi
       set({ notice: '저장이나 공유 처리를 마친 뒤 이동해 주세요.' }); return Promise.resolve(false);
     }
     return new Promise((resolve) => {
+      const preserved = { route: state.route, draft: state.draft, activeRecordId: state.activeRecordId };
       leaveAnswer = resolve;
-      guard('leave', () => { cancelOperation(); leaveAnswer?.(true); leaveAnswer = null; });
+      guard('leave', () => {
+        cancelOperation();
+        // A request may finish while its cancellation dialog is open.
+        // Accepting cancellation must also discard that unpublished result.
+        set(preserved);
+        leaveAnswer?.(true); leaveAnswer = null;
+      });
     });
   }
   function dispose() {
@@ -270,6 +330,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
   return {
     getSnapshot: () => state, capabilities,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    initialize, next, openEditor, openRevision, back,
     openPicker, refreshRecordings, cancelPicker, toggleRecording, importRecordings, removeRecording,
     generate, selectRecord, editText, editPrompt, revise, dismissCandidate, applyCandidate, confirm, share,
     resolveGuard, leave, dispose,
