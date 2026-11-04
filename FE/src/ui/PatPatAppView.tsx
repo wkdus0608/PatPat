@@ -10,7 +10,7 @@ import { LibraryScreen, type LibraryHandle } from '../library/LibraryScreen';
 import { WritingScreen, type WritingHandle } from '../writing/WritingScreen';
 import type { WritingServices } from '../writing/types';
 import type { Account } from '../auth/controller';
-import { SettingsScreen } from '../roster/SettingsScreen';
+import { SettingsScreen, type SettingsHandle } from '../roster/SettingsScreen';
 
 export interface RecorderViewProps {
   phase: 'idle' | 'preparing' | 'recording' | 'saving' | 'saved' | 'error';
@@ -140,6 +140,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
   const [tabNotice, setTabNotice] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsSaving = useRef(false);
+  const settingsRef = useRef<SettingsHandle | null>(null);
   const libraryRef = useRef<LibraryHandle | null>(null);
   const writingRef = useRef<WritingHandle | null>(null);
   const switching = useRef(false);
@@ -218,8 +219,8 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
             <Ionicons name="settings-outline" size={23} color={colors.ink} />
           </Pressable>}
         </View>
-        {props.account && settingsOpen && <Modal animationType="slide" onRequestClose={() => { if (!props.account?.busy && !settingsSaving.current) setSettingsOpen(false); }}>
-          <SettingsScreen account={props.account} onClose={() => setSettingsOpen(false)} onSavingChange={saving => { settingsSaving.current = saving; }} />
+        {props.account && settingsOpen && <Modal animationType="slide" onRequestClose={() => { if (!props.account?.busy && !settingsSaving.current) settingsRef.current?.back(); }}>
+          <SettingsScreen ref={settingsRef} account={props.account} onClose={() => setSettingsOpen(false)} onSavingChange={saving => { settingsSaving.current = saving; }} />
         </Modal>}
         <View style={[styles.writingContainer, tab !== 'write' && styles.hiddenScreen]}
           accessibilityElementsHidden={tab !== 'write'} importantForAccessibility={tab !== 'write' ? 'no-hide-descendants' : 'auto'}>

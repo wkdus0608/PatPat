@@ -19,7 +19,8 @@ function memory(initial: string | null = null) {
 function api(overrides: Partial<Api> = {}): Api {
   return { async login() { return login; }, async me() { return teacher; }, async logout() {},
     async listChildren() { return []; }, async createChild() { throw new Error('unused'); },
-    async renameChild() { throw new Error('unused'); }, async deactivateChild() { throw new Error('unused'); }, ...overrides };
+    async renameChild() { throw new Error('unused'); }, async deactivateChild() { throw new Error('unused'); },
+    async deleteChild() { throw new Error('unused'); }, ...overrides };
 }
 
 test('login persists the token and a new controller verifies the restored session', async () => {
@@ -87,16 +88,19 @@ test('duplicate login taps issue one request; disposed controllers cannot persis
   assert.equal(await store.read(), null);
 });
 
-test('roster keeps duplicate names by ID and deactivation removes only the selected active row', async () => {
+test('roster keeps duplicate names by ID and deletion removes only the selected child', async () => {
   const a: Child = { child_id: 'A', name: '같은 가상 이름', is_active: true };
   const b: Child = { ...a, child_id: 'B' };
   const controller = createRosterController(api({ async listChildren() { return [a]; },
     async createChild() { return b; }, async renameChild(_, id, name) { return { ...b, child_id: id, name }; },
-    async deactivateChild(_, id) { return { ...a, child_id: id, is_active: false }; } }), 'token', () => {});
+    async deleteChild() {} }), 'token', () => {});
   await controller.refresh();
   assert.equal(await controller.create(b.name), true);
   assert.equal(await controller.rename('B', '새 가상 이름'), true);
-  assert.equal(await controller.deactivate('A'), true);
+  controller.beginSelection();
+  controller.toggleSelection('A');
+  controller.requestDelete();
+  assert.equal(await controller.deleteSelected(), true);
   assert.deepEqual(controller.getSnapshot().items, [{ ...b, name: '새 가상 이름' }]);
 });
 
@@ -109,7 +113,7 @@ test('roster failure preserves rows; a closed settings screen ignores a delayed 
   await controller.refresh();
   assert.equal(await controller.rename('A', '바꿀 이름'), false);
   assert.deepEqual(controller.getSnapshot().items, [item]);
-  const pending = controller.refresh(true);
+  const pending = controller.refresh();
   controller.dispose();
   wait.resolve([]);
   await pending;

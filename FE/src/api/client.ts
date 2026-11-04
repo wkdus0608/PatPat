@@ -60,8 +60,9 @@ export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
     },
     async me(token: string) { return teacher(await request('/auth/me', token)); },
     async logout(token: string) { await request('/auth/logout', token, 'POST'); },
-    async listChildren(token: string, includeInactive: boolean): Promise<Child[]> {
-      const row = record(await request('/children?include_inactive=' + includeInactive, token));
+    async listChildren(token: string, includeInactive?: boolean): Promise<Child[]> {
+      const path = includeInactive === undefined ? '/children' : '/children?include_inactive=' + includeInactive;
+      const row = record(await request(path, token));
       if (!Array.isArray(row.items)) throw new Error('Invalid response');
       const items = row.items.map(child);
       if (new Set(items.map(item => item.child_id)).size !== items.length) throw new Error('Invalid response');
@@ -72,6 +73,11 @@ export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
       const result = child(await request('/children/' + encodeURIComponent(id), token, 'PATCH', { name }));
       if (result.child_id !== id) throw new Error('Invalid response');
       return result;
+    },
+    async deleteChild(_token: string, _id: string): Promise<void> {
+      // The current BE contract has no deletion endpoint. Keep the FE port
+      // explicit until that contract exists; never substitute deactivation.
+      throw new ApiError(501, 'NOT_IMPLEMENTED', '아동 삭제 기능은 서버 연결 준비 중이에요.');
     },
     async deactivateChild(token: string, id: string) {
       const result = child(await request('/children/' + encodeURIComponent(id) + '/deactivate', token, 'POST'));

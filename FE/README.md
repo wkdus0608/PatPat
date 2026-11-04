@@ -4,9 +4,11 @@ React Native + Expo 프론트엔드다. 로그인·아동 명단은 실제 서�
 
 ## 로그인·명단 연결
 
-[BE 실행 안내](../BE/README.md)에 따라 서버와 테스트 계정을 준비한다. `.env.example`을 `.env`로 복사하고 `EXPO_PUBLIC_API_BASE_URL`을 서버 주소로 설정한 뒤 앱을 시작한다. 휴대전화에서는 같은 네트워크의 개발 PC 주소를 사용한다.
+[로컬 실행 안내](../README.md)에 따라 서버와 테스트 계정을 준비한다. `.env.example`을 `.env`로 복사하고 `EXPO_PUBLIC_API_BASE_URL`을 서버 주소로 설정한 뒤 앱을 시작한다. 휴대전화에서는 같은 네트워크의 개발 PC 주소를 사용한다.
 
-로그인 후 상단 설정에서 아동 등록·이름 수정·비활성화·로그아웃을 한다. Android·iOS는 SecureStore로 로그인을 유지하고 만료 시 다시 로그인한다. 웹은 토큰을 메모리에만 보관해 새로고침하면 재로그인한다. 서버 연결 실패는 로그인 만료와 구분한다.
+로그인 후 상단 설정에서 교사 정보·로그아웃과 아동 추가·명단을 제공한다. 명단은 서버 응답을 이름순으로 표시하며 한 행에 이름을 한 번만 보여 준다. ‘선택’으로 여러 아동을 체크해 삭제 대상을 확인하고 취소할 수 있다. 현재 BE에는 아동 삭제 API가 없어 실제 삭제 요청은 ‘서버 연결 준비 중’으로 실패 처리하며 명단을 지우지 않는다. 비활성화 API를 삭제로 대신 호출하지 않는다.
+
+Android·iOS는 SecureStore로 로그인을 유지하고 만료 시 다시 로그인한다. 웹은 토큰을 메모리에만 보관해 새로고침하면 재로그인한다. 서버 연결 실패는 로그인 만료와 구분한다.
 
 `pnpm test:integration`은 FE 클라이언트를 실제 FastAPI·임시 SQLite에 연결해 로그인·명단 변경·교사 분리·서버 재시작·로그아웃을 확인한다. BE 가상 환경이 필요하다. 실기기 SecureStore 동작은 별도 확인 대상이다.
 
@@ -117,4 +119,4 @@ pnpm export
 
 `pnpm export`는 Android·iOS·웹의 코드 묶음을 생성한다. APK·IPA 설치 빌드나 실제 마이크 녹음 검증을 의미하지 않는다. 결과와 남은 기기 확인 항목은 [TEST_RESULTS.md](TEST_RESULTS.md)에 기록했다.
 
-기능별 계획: [녹음](plans/FE-01-recording.md), [보관함](plans/FE-02-library.md), [관찰일지 작성](plans/FE-03-journal-writing.md). Git 커밋은 자동으로 실행하지 않았다.
+기능별 계획: [녹음](plans/FE-01-recording.md), [보관함](plans/FE-02-library.md), [관찰일지 작성](plans/FE-03-journal-writing.md), [설정·아동 명단](plans/FE-04-settings-child.md). Git 커밋은 자동으로 실행하지 않았다.
