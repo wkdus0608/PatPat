@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Child } from '../api/client';
 import type { Account } from '../auth/controller';
@@ -13,15 +13,24 @@ export interface SettingsViewProps {
   onNameChange(name: string): void;
   onBack(): void; onAdd(): void; onRefresh(): void; onSelect(): void; onCancelSelection(): void;
   onToggle(id: string): void; onRequestDelete(): void; onCancelDelete(): void; onDelete(): void; onLogout(): void;
+  onOpenCharacteristics(id: string): void; onCharacteristicsChange(id: string, text: string): void;
 }
 
-function ChildRow({ child, selecting, selected, disabled, onToggle }: {
-  child: Child; selecting: boolean; selected: boolean; disabled: boolean; onToggle(): void;
+function ChildRow({ child, selecting, selected, disabled, onToggle, onOpenCharacteristics }: {
+  child: Child; selecting: boolean; selected: boolean; disabled: boolean;
+  onToggle(): void; onOpenCharacteristics(): void;
 }) {
   const content = <>
     <View style={styles.avatar}><Ionicons name="person-outline" size={22} color={colors.ink} /></View>
     <Text style={styles.childName} testID={'settings-child-name-' + child.child_id}>{child.name}</Text>
-    {selecting && <Ionicons name={selected ? 'checkbox' : 'square-outline'} size={24} color={selected ? colors.ink : colors.muted} />}
+    {selecting ? <Ionicons name={selected ? 'checkbox' : 'square-outline'} size={24} color={selected ? colors.ink : colors.muted} />
+      : <Pressable accessibilityRole="button" accessibilityLabel={child.name + ' 특성 작성'}
+        accessibilityState={{ disabled }} disabled={disabled} onPress={onOpenCharacteristics}
+        style={({ pressed }) => [styles.characteristicsAction, disabled && styles.disabled, pressed && styles.pressed]}
+        testID={'settings-child-characteristics-' + child.child_id}>
+        <Text style={styles.characteristicsActionText}>특성 작성</Text>
+        <Ionicons name="chevron-forward" size={16} color={colors.ink} />
+      </Pressable>}
   </>;
   return selecting ? <Pressable accessibilityRole="checkbox" accessibilityLabel={child.name + ' 선택'}
     accessibilityState={{ checked: selected, disabled }} aria-checked={selected} disabled={disabled} onPress={onToggle}
@@ -34,6 +43,33 @@ function ChildRow({ child, selecting, selected, disabled, onToggle }: {
 export function SettingsView(props: SettingsViewProps) {
   const { account, state } = props;
   const busy = state.saving || state.loading || account.busy;
+  const characteristicsChild = state.items.find(child => child.child_id === state.characteristicsChildId);
+  if (characteristicsChild) return <>
+    <View style={[styles.header, styles.characteristicsHeader]}>
+      <Pressable accessibilityRole="button" accessibilityLabel="아동 명단으로 돌아가기" disabled={state.saving || account.busy}
+        accessibilityState={{ disabled: state.saving || account.busy }} onPress={props.onBack}
+        style={({ pressed }) => [styles.backButton, pressed && styles.pressed]} testID="settings-characteristics-back">
+        <Ionicons name="chevron-back" size={20} color={colors.ink} />
+        <Text style={styles.label}>뒤로</Text>
+      </Pressable>
+      <Text style={[styles.title, styles.characteristicsTitle]}>아동 특성</Text>
+    </View>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Text style={styles.subtitle} testID="settings-characteristics-child-name">{characteristicsChild.name}</Text>
+      <View style={styles.card} testID="settings-characteristics-card">
+        <Text style={styles.subtitle}>아동에 대해 알려주세요.</Text>
+        <Text style={styles.hint}>좋아하는 놀이, 평소 표현 방식, 도움이 필요한 상황을 자유롭게 적어주세요.</Text>
+        <TextInput key={characteristicsChild.child_id} accessibilityLabel="아동 특성"
+          accessibilityState={{ disabled: busy }} aria-disabled={busy} placeholder="아동의 특성을 자유롭게 적어주세요."
+          placeholderTextColor={colors.muted} multiline textAlignVertical="top" editable={!busy}
+          value={state.characteristicsDrafts.get(characteristicsChild.child_id) ?? ''}
+          onChangeText={text => props.onCharacteristicsChange(characteristicsChild.child_id, text)}
+          style={[styles.input, styles.characteristicsInput]}
+          testID="settings-characteristics-input" />
+        <Text style={styles.hint}>입력한 내용은 명단으로 돌아와도 유지되지만, 설정을 닫으면 사라져요.</Text>
+      </View>
+    </ScrollView>
+  </>;
   const sorted = [...state.items].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   const selected = new Set(state.selectedIds);
   const selectedChildren = sorted.filter(child => selected.has(child.child_id));
@@ -84,7 +120,8 @@ export function SettingsView(props: SettingsViewProps) {
           {selectedChildren.map(child => <Text key={child.child_id} style={styles.label}>{child.name}</Text>)}
           <Text style={styles.hint}>기존 관찰일지는 유지돼요.</Text>
         </View> : sorted.map(child => <ChildRow key={child.child_id} child={child} selecting={state.selecting}
-          selected={selected.has(child.child_id)} disabled={busy} onToggle={() => props.onToggle(child.child_id)} />)}
+          selected={selected.has(child.child_id)} disabled={busy || !state.loaded} onToggle={() => props.onToggle(child.child_id)}
+          onOpenCharacteristics={() => props.onOpenCharacteristics(child.child_id)} />)}
       </View>
     </ScrollView>
     {state.selecting && <View style={styles.footer} testID="settings-delete-actions">
@@ -112,13 +149,17 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
   account: Account; onClose(): void; onSavingChange(saving: boolean): void;
 }>(function SettingsScreen({ account, onClose, onSavingChange }, ref) {
   const controller = useMemo(() => createRosterController(account.api, account.session.token, account.unauthorized),
-    [account.api, account.session.token]);
+    [account.api, account.session.token, account.session.teacher.teacher_id]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [name, setName] = useState('');
   const insets = useSafeAreaInsets();
   useEffect(() => { void controller.refresh(); return () => controller.dispose(); }, [controller]);
   useEffect(() => { onSavingChange(state.saving); return () => onSavingChange(false); }, [state.saving, onSavingChange]);
-  function back() { if (!account.busy && controller.back()) onClose(); }
+  function back() {
+    if (account.busy) return;
+    Keyboard.dismiss();
+    if (controller.back()) onClose();
+  }
   useImperativeHandle(ref, () => ({ back }), [controller, account.busy, onClose]);
   return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
     style={[styles.page, { paddingTop: insets.top + 12, paddingBottom: insets.bottom }]}>
@@ -128,6 +169,8 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
       onCancelSelection={controller.cancelSelection} onToggle={controller.toggleSelection}
       onRequestDelete={controller.requestDelete} onCancelDelete={controller.cancelDelete}
       onDelete={() => { void controller.deleteSelected(); }}
+      onOpenCharacteristics={id => { if (!account.busy) { Keyboard.dismiss(); controller.openCharacteristics(id); } }}
+      onCharacteristicsChange={(id, text) => { if (!account.busy) controller.changeCharacteristics(id, text); }}
       onLogout={() => { if (!controller.getSnapshot().saving) void account.logout(); }} />
   </KeyboardAvoidingView>;
 });
@@ -148,10 +191,16 @@ const styles = StyleSheet.create({
   button: { backgroundColor: colors.yellow, padding: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 12, minHeight: 48 },
   smallButton: { padding: 12, minHeight: 44, justifyContent: 'center' }, disabled: { opacity: 0.45 },
   child: { borderTopWidth: 1, borderColor: colors.line, paddingVertical: 14, flexDirection: 'row', gap: 12, alignItems: 'center', minHeight: 64 },
-  childName: { flex: 1, color: colors.ink, fontWeight: '600', fontSize: 15, lineHeight: 23 },
+  childName: { flex: 1, minWidth: 0, color: colors.ink, fontWeight: '600', fontSize: 15, lineHeight: 23 },
   avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.yellowLight, alignItems: 'center', justifyContent: 'center' },
   selectedChild: { backgroundColor: '#FFF9E8' }, pressed: { opacity: 0.6 },
   confirm: { backgroundColor: colors.yellowLight, padding: 16, borderRadius: 12, gap: 12 },
   footer: { width: '100%', maxWidth: 540, alignSelf: 'center', padding: 20, gap: 10, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.white },
   deleteButton: { flex: 1 },
+  characteristicsAction: { minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: colors.yellowLight, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, flexShrink: 0 },
+  characteristicsActionText: { color: colors.ink, fontWeight: '600', fontSize: 13 },
+  characteristicsHeader: { justifyContent: 'flex-start', gap: 16 },
+  characteristicsTitle: { flexShrink: 1 },
+  backButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 2 },
+  characteristicsInput: { minHeight: 240, fontSize: 15, lineHeight: 24 },
 });

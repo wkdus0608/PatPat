@@ -48,16 +48,17 @@ const state: RosterState = {
   items: [{ child_id: 'Z', name: '하늘가상', is_active: true },
     { child_id: 'A', name: '가람가상', is_active: true }, { child_id: 'B', name: '가람가상', is_active: false }],
   loading: false, saving: false, loaded: true, notice: null, selecting: false, selectedIds: [], confirming: false,
+  characteristicsChildId: null, characteristicsDrafts: new Map(),
 };
 const account = {
   session: { token: 'fictional-token', teacher: { teacher_id: 'teacher-demo', display_name: '가상 교사' } },
   busy: false, notice: null,
 } as Account;
-function render(patch: Partial<RosterState> = {}, name = '새 가상 아동') {
+function render(patch: Partial<RosterState> = {}, name = '새 가상 아동', accountPatch: Partial<Account> = {}) {
   return renderToStaticMarkup(React.createElement(SettingsView, {
-    state: { ...state, ...patch }, account, name, onNameChange: noop, onBack: noop, onAdd: noop,
+    state: { ...state, ...patch }, account: { ...account, ...accountPatch }, name, onNameChange: noop, onBack: noop, onAdd: noop,
     onRefresh: noop, onSelect: noop, onCancelSelection: noop, onToggle: noop, onRequestDelete: noop,
-    onCancelDelete: noop, onDelete: noop, onLogout: noop,
+    onCancelDelete: noop, onDelete: noop, onLogout: noop, onOpenCharacteristics: noop, onCharacteristicsChange: noop,
   }));
 }
 function tag(html: string, id: string) {
@@ -112,4 +113,61 @@ test('failed load differs from empty roster and blank new names cannot submit', 
   assert.ok(disabled(failed, 'settings-child-add'));
   assert.ok(render({ items: [] }).includes('등록된 아동이 없어요.'));
   assert.ok(disabled(render({}, ' \n'), 'settings-child-add'));
+});
+
+test('each normal child row has a characteristics action hidden during deletion selection', () => {
+  const html = render();
+  for (const id of ['A', 'B', 'Z']) {
+    assert.equal(disabled(html, 'settings-child-characteristics-' + id), false);
+  }
+  assert.ok(tag(html, 'settings-child-characteristics-A').includes('aria-label="가람가상 특성 작성"'));
+  assert.ok(!render({ selecting: true, selectedIds: ['A'] }).includes('settings-child-characteristics-'));
+  assert.ok(!render({ selecting: true, selectedIds: ['A'], confirming: true }).includes('settings-child-characteristics-'));
+  for (const patch of [{ loading: true }, { saving: true }, { loaded: false }]) {
+    assert.ok(disabled(render(patch), 'settings-child-characteristics-A'));
+  }
+  assert.ok(disabled(render({}, '', { busy: true }), 'settings-child-characteristics-A'));
+});
+
+test('characteristics screen shows only the named child and its exact multiline draft with temporary lifetime', () => {
+  const draft = '  가상 아동의 블록 놀이 메모\n도움이 필요하면 이야기해요.  ';
+  const html = render({ characteristicsChildId: 'B', characteristicsDrafts: new Map([
+    ['A', '다른 아동만의 가상 메모'], ['B', draft],
+  ]) });
+  tag(html, 'settings-characteristics-back');
+  tag(html, 'settings-characteristics-child-name');
+  assert.ok(html.includes('아동 특성') && html.includes('가람가상'));
+  assert.ok(html.includes('아동에 대해 알려주세요.'));
+  assert.ok(html.includes('좋아하는 놀이, 평소 표현 방식, 도움이 필요한 상황을 자유롭게 적어주세요.'));
+  assert.ok(html.includes('입력한 내용은 명단으로 돌아와도 유지되지만, 설정을 닫으면 사라져요.'));
+  const input = tag(html, 'settings-characteristics-input');
+  assert.ok(input.startsWith('<textarea'));
+  assert.ok(input.includes('aria-label="아동 특성"'));
+  assert.ok(input.includes('placeholder="아동의 특성을 자유롭게 적어주세요."'));
+  assert.ok(html.includes(draft));
+  assert.ok(!html.includes('다른 아동만의 가상 메모'));
+  for (const control of ['settings-child-add', 'settings-child-select', 'settings-delete-actions', 'settings-close', 'settings-logout']) {
+    assert.ok(!html.includes(control));
+  }
+  assert.ok(!html.includes('저장') && !html.includes('settings-child-characteristics-'));
+});
+
+test('characteristics accepts an empty draft and displays a long child name without truncating its text', () => {
+  const name = '가상 아동의 아주 긴 이름'.repeat(4);
+  const html = render({ items: [{ child_id: 'LONG', name, is_active: true }], characteristicsChildId: 'LONG' });
+  assert.ok(html.includes(name));
+  assert.ok(html.includes('</textarea>'));
+  assert.ok(!/\brequired(?:=|\s|>)/.test(tag(html, 'settings-characteristics-input')));
+  assert.equal(disabled(html, 'settings-characteristics-input'), false);
+  assert.equal(disabled(html, 'settings-characteristics-back'), false);
+});
+
+test('characteristics editing is locked while loading, saving or logging out', () => {
+  for (const patch of [{ loading: true }, { saving: true }]) {
+    assert.ok(disabled(render({ ...patch, characteristicsChildId: 'A' }), 'settings-characteristics-input'));
+  }
+  const logout = render({ characteristicsChildId: 'A' }, '', { busy: true });
+  assert.ok(disabled(logout, 'settings-characteristics-input'));
+  assert.ok(disabled(logout, 'settings-characteristics-back'));
+  assert.ok(disabled(render({ characteristicsChildId: 'A', saving: true }), 'settings-characteristics-back'));
 });
