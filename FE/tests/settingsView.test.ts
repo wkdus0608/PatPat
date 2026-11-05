@@ -7,7 +7,7 @@ import { after, before, test } from 'node:test';
 import React from 'react';
 import type { Account } from '../src/auth/controller';
 import type { SettingsViewProps } from '../src/roster/SettingsScreen';
-import type { RosterState } from '../src/roster/controller';
+import type { CharacteristicsEntry, RosterState } from '../src/roster/controller';
 
 // Static markup validates fields/actions, not native layout, keyboard or touch.
 const require = createRequire(import.meta.url);
@@ -49,6 +49,7 @@ const state: RosterState = {
     { child_id: 'A', name: '가람가상', is_active: true }, { child_id: 'B', name: '가람가상', is_active: false }],
   loading: false, saving: false, loaded: true, notice: null, selecting: false, selectedIds: [], confirming: false,
   characteristicsChildId: null, characteristicsDrafts: new Map(),
+  characteristicsEntries: new Map(), dialog: null,
 };
 const account = {
   session: { token: 'fictional-token', teacher: { teacher_id: 'teacher-demo', display_name: '가상 교사' } },
@@ -59,6 +60,7 @@ function render(patch: Partial<RosterState> = {}, name = '새 가상 아동', ac
     state: { ...state, ...patch }, account: { ...account, ...accountPatch }, name, onNameChange: noop, onBack: noop, onAdd: noop,
     onRefresh: noop, onSelect: noop, onCancelSelection: noop, onToggle: noop, onRequestDelete: noop,
     onCancelDelete: noop, onDelete: noop, onLogout: noop, onOpenCharacteristics: noop, onCharacteristicsChange: noop,
+    onSaveCharacteristics: noop, onResolveDialog: noop,
   }));
 }
 function tag(html: string, id: string) {
@@ -66,6 +68,9 @@ function tag(html: string, id: string) {
   assert.ok(match, 'Missing control ' + id); return match[0];
 }
 function disabled(html: string, id: string) { return /aria-disabled="true"/.test(tag(html, id)); }
+function entry(patch: Partial<CharacteristicsEntry> = {}): CharacteristicsEntry {
+  return { savedText: null, loadState: 'ready', saveState: 'idle', ...patch };
+}
 
 test('all server children render once per row without inline editing or activity controls', () => {
   const html = render();
@@ -129,17 +134,20 @@ test('each normal child row has a characteristics action hidden during deletion 
   assert.ok(disabled(render({}, '', { busy: true }), 'settings-child-characteristics-A'));
 });
 
-test('characteristics screen shows only the named child and its exact multiline draft with temporary lifetime', () => {
+test('characteristics screen shows the named child, exact multiline draft, and explicit save action', () => {
   const draft = '  가상 아동의 블록 놀이 메모\n도움이 필요하면 이야기해요.  ';
   const html = render({ characteristicsChildId: 'B', characteristicsDrafts: new Map([
     ['A', '다른 아동만의 가상 메모'], ['B', draft],
-  ]) });
+  ]), characteristicsEntries: new Map([['B', entry()]]) });
   tag(html, 'settings-characteristics-back');
   tag(html, 'settings-characteristics-child-name');
   assert.ok(html.includes('아동 특성') && html.includes('가람가상'));
   assert.ok(html.includes('아동에 대해 알려주세요.'));
   assert.ok(html.includes('좋아하는 놀이, 평소 표현 방식, 도움이 필요한 상황을 자유롭게 적어주세요.'));
-  assert.ok(html.includes('입력한 내용은 명단으로 돌아와도 유지되지만, 설정을 닫으면 사라져요.'));
+  assert.ok(html.includes('작성한 뒤 저장하기를 눌러주세요.'));
+  assert.ok(html.includes('아직 저장하지 않은 내용이 있어요.'));
+  assert.equal(disabled(html, 'settings-characteristics-save'), false);
+  assert.ok(html.indexOf('settings-characteristics-input') < html.indexOf('settings-characteristics-save'));
   const input = tag(html, 'settings-characteristics-input');
   assert.ok(input.startsWith('<textarea'));
   assert.ok(input.includes('aria-label="아동 특성"'));
@@ -149,7 +157,8 @@ test('characteristics screen shows only the named child and its exact multiline 
   for (const control of ['settings-child-add', 'settings-child-select', 'settings-delete-actions', 'settings-close', 'settings-logout']) {
     assert.ok(!html.includes(control));
   }
-  assert.ok(!html.includes('저장') && !html.includes('settings-child-characteristics-'));
+  assert.ok(!html.includes('설정을 닫으면 사라져요.') && !html.includes('settings-child-characteristics-'));
+  assert.ok(!html.includes('저장됨') && !html.includes('settings-dialog'));
 });
 
 test('characteristics accepts an empty draft and displays a long child name without truncating its text', () => {
@@ -170,4 +179,76 @@ test('characteristics editing is locked while loading, saving or logging out', (
   assert.ok(disabled(logout, 'settings-characteristics-input'));
   assert.ok(disabled(logout, 'settings-characteristics-back'));
   assert.ok(disabled(render({ characteristicsChildId: 'A', saving: true }), 'settings-characteristics-back'));
+});
+
+test('saving shows progress and blocks editing, saving again, back and roster logout', () => {
+  const html = render({ characteristicsChildId: 'A', saving: true, characteristicsDrafts: new Map([['A', '가상 입력']]),
+    characteristicsEntries: new Map([['A', entry({ saveState: 'saving' })]]) });
+  assert.ok(html.includes('저장 중…'));
+  for (const id of ['settings-characteristics-input', 'settings-characteristics-save', 'settings-characteristics-back']) {
+    assert.ok(disabled(html, id));
+  }
+  assert.ok(disabled(render({ saving: true }), 'settings-logout'));
+});
+
+test('save enablement requires a changed draft and a checked or unavailable baseline', () => {
+  for (const loadState of ['idle', 'loading', 'error'] as const) {
+    const html = render({ characteristicsChildId: 'A', characteristicsDrafts: new Map([['A', '가상 변경']]),
+      characteristicsEntries: new Map([['A', entry({ loadState })]]) });
+    assert.ok(disabled(html, 'settings-characteristics-save'));
+    if (loadState === 'error') assert.ok(html.includes('저장한 특성을 불러오지 못했어요.'));
+  }
+  for (const loadState of ['ready', 'unavailable'] as const) {
+    assert.equal(disabled(render({ characteristicsChildId: 'A', characteristicsDrafts: new Map([['A', '가상 변경']]),
+      characteristicsEntries: new Map([['A', entry({ loadState })]]) }), 'settings-characteristics-save'), false);
+  }
+  assert.ok(disabled(render({ characteristicsChildId: 'A', characteristicsDrafts: new Map([['A', '기존 가상 입력']]),
+    characteristicsEntries: new Map([['A', entry({ savedText: '기존 가상 입력' })]]) }), 'settings-characteristics-save'));
+  assert.equal(disabled(render({ characteristicsChildId: 'A', characteristicsDrafts: new Map([['A', '']]),
+    characteristicsEntries: new Map([['A', entry({ savedText: '지울 가상 입력' })]]) }), 'settings-characteristics-save'), false);
+});
+
+test('confirmed success shows the saved status and acknowledgement while masking background controls', () => {
+  const html = render({ characteristicsChildId: 'A', characteristicsDrafts: new Map([['A', '저장된 가상 입력']]),
+    characteristicsEntries: new Map([['A', entry({ savedText: '저장된 가상 입력', saveState: 'saved' })]]),
+    dialog: { kind: 'saved', childId: 'A' } });
+  assert.ok(html.includes('아동 특성을 저장했어요.') && html.includes('저장됨'));
+  assert.ok(tag(html, 'settings-content').includes('aria-hidden="true"'));
+  assert.ok(tag(html, 'settings-dialog').includes('aria-modal="true"'));
+  assert.ok(disabled(html, 'settings-characteristics-input'));
+  assert.ok(disabled(html, 'settings-characteristics-back'));
+  assert.equal(disabled(html, 'settings-dialog-dismiss'), false);
+  assert.ok(!html.includes('settings-dialog-retry'));
+});
+
+test('failed save exposes retry and retains the exact input without claiming success', () => {
+  const draft = '  실패 후 남겨둘 가상 입력\n줄바꿈  ';
+  const html = render({ characteristicsChildId: 'A', characteristicsDrafts: new Map([['A', draft]]),
+    characteristicsEntries: new Map([['A', entry({ savedText: '이전 가상 저장본', saveState: 'error' })]]),
+    dialog: { kind: 'saveFailed', childId: 'A', unavailable: false } });
+  assert.ok(html.includes(draft));
+  assert.ok(html.includes('저장하지 못했어요. 입력한 내용은 유지돼요. 다시 시도해 주세요.'));
+  tag(html, 'settings-dialog-retry'); tag(html, 'settings-dialog-dismiss');
+  assert.ok(!html.includes('저장됨') && !html.includes('아동 특성을 저장했어요.'));
+});
+
+test('unconnected save has a clear acknowledgement without false success or automatic retry', () => {
+  const html = render({ characteristicsChildId: 'A', characteristicsDrafts: new Map([['A', '가상 입력']]),
+    characteristicsEntries: new Map([['A', entry({ loadState: 'unavailable', saveState: 'unavailable' })]]),
+    dialog: { kind: 'saveFailed', childId: 'A', unavailable: true } });
+  assert.ok(html.includes('아직 저장 기능이 연결되지 않았어요. 입력한 내용은 유지돼요.'));
+  assert.ok(html.includes('아직 저장되지 않았어요.'));
+  tag(html, 'settings-dialog-dismiss');
+  assert.ok(!html.includes('settings-dialog-retry') && !html.includes('저장됨'));
+});
+
+test('unsaved leave and logout dialogs offer explicit navigation or cancellation actions', () => {
+  const leave = render({ dialog: { kind: 'leave', childId: 'A', destination: 'close' } });
+  assert.ok(leave.includes('아직 저장하지 않은 내용이 있어요. 입력한 내용은 이번 로그인 동안 유지돼요.'));
+  tag(leave, 'settings-dialog-stay'); tag(leave, 'settings-dialog-leave');
+  assert.ok(disabled(leave, 'settings-close') && disabled(leave, 'settings-logout'));
+  assert.ok(tag(leave, 'settings-content').includes('aria-hidden="true"'));
+  const logout = render({ dialog: { kind: 'logout', childId: 'A' } });
+  assert.ok(logout.includes('로그아웃하면 저장하지 않은 아동 특성이 사라져요.'));
+  tag(logout, 'settings-dialog-stay'); tag(logout, 'settings-dialog-logout');
 });

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef, useState, type ComponentProps } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
   ActivityIndicator, BackHandler, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
@@ -11,6 +11,7 @@ import { WritingScreen, type WritingHandle } from '../writing/WritingScreen';
 import type { WritingServices } from '../writing/types';
 import type { Account } from '../auth/controller';
 import { SettingsScreen, type SettingsHandle } from '../roster/SettingsScreen';
+import { createRosterController } from '../roster/controller';
 
 export interface RecorderViewProps {
   phase: 'idle' | 'preparing' | 'recording' | 'saving' | 'saved' | 'error';
@@ -139,6 +140,11 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
   const [tab, setTab] = useState<Tab>('record');
   const [tabNotice, setTabNotice] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Keep unsaved characteristics for this authenticated app, across settings mounts.
+  const roster = useMemo(() => props.account ? createRosterController(
+    props.account.api, props.account.session.token, props.account.unauthorized,
+  ) : null, [props.account?.api, props.account?.session.token, props.account?.session.teacher.teacher_id]);
+  useEffect(() => () => roster?.dispose(), [roster]);
   const settingsSaving = useRef(false);
   const settingsRef = useRef<SettingsHandle | null>(null);
   const libraryRef = useRef<LibraryHandle | null>(null);
@@ -219,8 +225,8 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
             <Ionicons name="settings-outline" size={23} color={colors.ink} />
           </Pressable>}
         </View>
-        {props.account && settingsOpen && <Modal animationType="slide" onRequestClose={() => { if (!props.account?.busy && !settingsSaving.current) settingsRef.current?.back(); }}>
-          <SettingsScreen ref={settingsRef} account={props.account} onClose={() => setSettingsOpen(false)} onSavingChange={saving => { settingsSaving.current = saving; }} />
+        {props.account && roster && settingsOpen && <Modal animationType="slide" onRequestClose={() => { if (!props.account?.busy && !settingsSaving.current) settingsRef.current?.back(); }}>
+          <SettingsScreen ref={settingsRef} account={props.account} controller={roster} onClose={() => setSettingsOpen(false)} onSavingChange={saving => { settingsSaving.current = saving; }} />
         </Modal>}
         <View style={[styles.writingContainer, tab !== 'write' && styles.hiddenScreen]}
           accessibilityElementsHidden={tab !== 'write'} importantForAccessibility={tab !== 'write' ? 'no-hide-descendants' : 'auto'}>

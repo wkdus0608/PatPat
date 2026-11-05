@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState, useSyncExternalStore } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Child } from '../api/client';
 import type { Account } from '../auth/controller';
 import { colors } from '../ui/theme';
-import { createRosterController, type RosterState } from './controller';
+import { getCharacteristicsEntry, isCharacteristicsDirty, type DialogAction, type RosterController, type RosterState } from './controller';
 
 export interface SettingsHandle { back(): void }
 export interface SettingsViewProps {
@@ -14,6 +14,7 @@ export interface SettingsViewProps {
   onBack(): void; onAdd(): void; onRefresh(): void; onSelect(): void; onCancelSelection(): void;
   onToggle(id: string): void; onRequestDelete(): void; onCancelDelete(): void; onDelete(): void; onLogout(): void;
   onOpenCharacteristics(id: string): void; onCharacteristicsChange(id: string, text: string): void;
+  onSaveCharacteristics(): void; onResolveDialog(action: DialogAction): void;
 }
 
 function ChildRow({ child, selecting, selected, disabled, onToggle, onOpenCharacteristics }: {
@@ -41,13 +42,64 @@ function ChildRow({ child, selecting, selected, disabled, onToggle, onOpenCharac
 
 /** Display sorting never changes the controller's server roster order. */
 export function SettingsView(props: SettingsViewProps) {
+  const showingDialog = props.state.dialog !== null;
+  return <View style={styles.screen}>
+    <View style={styles.screen} pointerEvents={showingDialog ? 'none' : 'auto'}
+      accessibilityElementsHidden={showingDialog} importantForAccessibility={showingDialog ? 'no-hide-descendants' : 'auto'}
+      aria-hidden={showingDialog} testID="settings-content">
+      <SettingsContent {...props} />
+    </View>
+    {showingDialog && <SettingsDialogView {...props} />}
+  </View>;
+}
+
+function SettingsDialogView({ state, account, onResolveDialog }: SettingsViewProps) {
+  const dialog = state.dialog;
+  if (!dialog) return null;
+  const disabled = state.saving || account.busy;
+  const message = dialog.kind === 'saved' ? '아동 특성을 저장했어요.'
+    : dialog.kind === 'saveFailed' ? dialog.unavailable
+      ? '아직 저장 기능이 연결되지 않았어요. 입력한 내용은 유지돼요.'
+      : '저장하지 못했어요. 입력한 내용은 유지돼요. 다시 시도해 주세요.'
+    : dialog.kind === 'leave' ? '아직 저장하지 않은 내용이 있어요. 입력한 내용은 이번 로그인 동안 유지돼요.'
+      : '로그아웃하면 저장하지 않은 아동 특성이 사라져요.';
+  const actions: { action: DialogAction; label: string; primary?: boolean }[] = dialog.kind === 'saved'
+    || (dialog.kind === 'saveFailed' && dialog.unavailable) ? [{ action: 'dismiss', label: '확인', primary: true }]
+    : dialog.kind === 'saveFailed' ? [{ action: 'dismiss', label: '확인' }, { action: 'retry', label: '다시 시도', primary: true }]
+      : dialog.kind === 'leave' ? [{ action: 'stay', label: '계속 작성' }, { action: 'leave', label: '나가기', primary: true }]
+        : [{ action: 'stay', label: '취소' }, { action: 'logout', label: '로그아웃', primary: true }];
+  return <View style={styles.dialogOverlay} testID="settings-dialog-overlay">
+    <ScrollView style={styles.dialogScroll} contentContainerStyle={styles.dialogCard} keyboardShouldPersistTaps="handled"
+      accessibilityViewIsModal aria-modal accessibilityRole="alert" testID="settings-dialog">
+      <Text style={styles.subtitle}>{dialog.kind === 'saved' ? '저장 완료' : dialog.kind === 'saveFailed' ? '저장 확인' : '잠깐 확인해 주세요'}</Text>
+      <Text style={styles.dialogMessage}>{message}</Text>
+      <View style={styles.dialogActions}>
+        {actions.map(({ action, label, primary }) => <Pressable key={action} accessibilityRole="button" accessibilityLabel={label}
+          accessibilityState={{ disabled }} disabled={disabled} onPress={() => onResolveDialog(action)}
+          style={[styles.dialogButton, primary ? styles.button : styles.smallButton, disabled && styles.disabled]}
+          testID={'settings-dialog-' + action}><Text style={styles.label}>{label}</Text></Pressable>)}
+      </View>
+    </ScrollView>
+  </View>;
+}
+
+function SettingsContent(props: SettingsViewProps) {
   const { account, state } = props;
-  const busy = state.saving || state.loading || account.busy;
+  const busy = state.saving || state.loading || account.busy || state.dialog !== null;
+  const navigationBlocked = state.saving || account.busy || state.dialog !== null;
   const characteristicsChild = state.items.find(child => child.child_id === state.characteristicsChildId);
-  if (characteristicsChild) return <>
+  if (characteristicsChild) {
+    const entry = getCharacteristicsEntry(state, characteristicsChild.child_id);
+    const dirty = isCharacteristicsDirty(state, characteristicsChild.child_id);
+    const canSave = !busy && dirty && (entry.loadState === 'ready' || entry.loadState === 'unavailable');
+    const status = entry.saveState === 'error' ? '저장하지 못했어요.'
+      : entry.saveState === 'unavailable' ? '아직 저장되지 않았어요.'
+        : dirty ? '아직 저장하지 않은 내용이 있어요.'
+          : entry.loadState === 'ready' && entry.savedText !== null ? '저장됨' : null;
+    return <>
     <View style={[styles.header, styles.characteristicsHeader]}>
-      <Pressable accessibilityRole="button" accessibilityLabel="아동 명단으로 돌아가기" disabled={state.saving || account.busy}
-        accessibilityState={{ disabled: state.saving || account.busy }} onPress={props.onBack}
+      <Pressable accessibilityRole="button" accessibilityLabel="아동 명단으로 돌아가기" disabled={navigationBlocked}
+        accessibilityState={{ disabled: navigationBlocked }} onPress={props.onBack}
         style={({ pressed }) => [styles.backButton, pressed && styles.pressed]} testID="settings-characteristics-back">
         <Ionicons name="chevron-back" size={20} color={colors.ink} />
         <Text style={styles.label}>뒤로</Text>
@@ -62,14 +114,25 @@ export function SettingsView(props: SettingsViewProps) {
         <TextInput key={characteristicsChild.child_id} accessibilityLabel="아동 특성"
           accessibilityState={{ disabled: busy }} aria-disabled={busy} placeholder="아동의 특성을 자유롭게 적어주세요."
           placeholderTextColor={colors.muted} multiline textAlignVertical="top" editable={!busy}
-          value={state.characteristicsDrafts.get(characteristicsChild.child_id) ?? ''}
+          value={state.characteristicsDrafts.get(characteristicsChild.child_id) ?? entry.savedText ?? ''}
           onChangeText={text => props.onCharacteristicsChange(characteristicsChild.child_id, text)}
           style={[styles.input, styles.characteristicsInput]}
           testID="settings-characteristics-input" />
-        <Text style={styles.hint}>입력한 내용은 명단으로 돌아와도 유지되지만, 설정을 닫으면 사라져요.</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="아동 특성 저장하기" disabled={!canSave}
+          accessibilityState={{ disabled: !canSave, busy: entry.saveState === 'saving' }} onPress={props.onSaveCharacteristics}
+          style={[styles.button, !canSave && styles.disabled]} testID="settings-characteristics-save">
+          {entry.saveState === 'saving' && <ActivityIndicator color={colors.ink} />}
+          <Text style={styles.label}>{entry.saveState === 'saving' ? '저장 중…' : '저장하기'}</Text>
+        </Pressable>
+        <Text style={styles.hint}>작성한 뒤 저장하기를 눌러주세요.</Text>
+        {entry.loadState === 'loading' && <ActivityIndicator color={colors.ink} accessibilityLabel="아동 특성 불러오는 중" />}
+        {entry.loadState === 'error' && <Text accessibilityRole="alert" style={styles.danger}>저장한 특성을 불러오지 못했어요. 화면에 다시 들어와 확인해 주세요.</Text>}
+        {status && <Text accessibilityLiveRegion="polite" style={entry.saveState === 'error' ? styles.danger : styles.hint}
+          testID="settings-characteristics-status">{status}</Text>}
       </View>
     </ScrollView>
   </>;
+  }
   const sorted = [...state.items].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   const selected = new Set(state.selectedIds);
   const selectedChildren = sorted.filter(child => selected.has(child.child_id));
@@ -77,8 +140,8 @@ export function SettingsView(props: SettingsViewProps) {
   return <>
     <View style={styles.header}>
       <Text style={styles.title}>설정</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="설정 닫기" disabled={state.saving || account.busy}
-        accessibilityState={{ disabled: state.saving || account.busy }} style={styles.smallButton} onPress={props.onBack}
+      <Pressable accessibilityRole="button" accessibilityLabel="설정 닫기" disabled={navigationBlocked}
+        accessibilityState={{ disabled: navigationBlocked }} style={styles.smallButton} onPress={props.onBack}
         testID="settings-close"><Text style={styles.label}>닫기</Text></Pressable>
     </View>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -146,19 +209,24 @@ export function SettingsView(props: SettingsViewProps) {
 }
 
 export const SettingsScreen = forwardRef<SettingsHandle, {
-  account: Account; onClose(): void; onSavingChange(saving: boolean): void;
-}>(function SettingsScreen({ account, onClose, onSavingChange }, ref) {
-  const controller = useMemo(() => createRosterController(account.api, account.session.token, account.unauthorized),
-    [account.api, account.session.token, account.session.teacher.teacher_id]);
+  account: Account; controller: RosterController; onClose(): void; onSavingChange(saving: boolean): void;
+}>(function SettingsScreen({ account, controller, onClose, onSavingChange }, ref) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [name, setName] = useState('');
   const insets = useSafeAreaInsets();
-  useEffect(() => { void controller.refresh(); return () => controller.dispose(); }, [controller]);
+  useEffect(() => { void controller.refresh(); }, [controller]);
   useEffect(() => { onSavingChange(state.saving); return () => onSavingChange(false); }, [state.saving, onSavingChange]);
   function back() {
     if (account.busy) return;
     Keyboard.dismiss();
     if (controller.back()) onClose();
+  }
+  function resolveDialog(action: DialogAction) {
+    if (account.busy) return;
+    Keyboard.dismiss();
+    const destination = controller.resolveDialog(action);
+    if (destination === 'close') onClose();
+    else if (destination === 'logout') void account.logout();
   }
   useImperativeHandle(ref, () => ({ back }), [controller, account.busy, onClose]);
   return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
@@ -169,13 +237,16 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
       onCancelSelection={controller.cancelSelection} onToggle={controller.toggleSelection}
       onRequestDelete={controller.requestDelete} onCancelDelete={controller.cancelDelete}
       onDelete={() => { void controller.deleteSelected(); }}
-      onOpenCharacteristics={id => { if (!account.busy) { Keyboard.dismiss(); controller.openCharacteristics(id); } }}
+      onOpenCharacteristics={id => { if (!account.busy) { Keyboard.dismiss(); void controller.openCharacteristics(id); } }}
       onCharacteristicsChange={(id, text) => { if (!account.busy) controller.changeCharacteristics(id, text); }}
-      onLogout={() => { if (!controller.getSnapshot().saving) void account.logout(); }} />
+      onSaveCharacteristics={() => { if (!account.busy) { Keyboard.dismiss(); void controller.saveCharacteristics(); } }}
+      onResolveDialog={resolveDialog}
+      onLogout={() => { if (!account.busy && controller.requestLogout()) { Keyboard.dismiss(); void account.logout(); } }} />
   </KeyboardAvoidingView>;
 });
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   page: { flex: 1, backgroundColor: colors.background },
   header: { width: '100%', maxWidth: 540, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24 },
   scroll: { flex: 1, width: '100%', maxWidth: 540, alignSelf: 'center' },
@@ -203,4 +274,10 @@ const styles = StyleSheet.create({
   characteristicsTitle: { flexShrink: 1 },
   backButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 2 },
   characteristicsInput: { minHeight: 240, fontSize: 15, lineHeight: 24 },
+  dialogOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: '#49372C66', padding: 24, justifyContent: 'center', alignItems: 'center' },
+  dialogScroll: { width: '100%', maxWidth: 440, maxHeight: '90%', flexGrow: 0, borderRadius: 20, backgroundColor: colors.white },
+  dialogCard: { padding: 24, gap: 18 },
+  dialogMessage: { color: colors.ink, fontSize: 15, lineHeight: 24 },
+  dialogActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 10 },
+  dialogButton: { minWidth: 88 },
 });
