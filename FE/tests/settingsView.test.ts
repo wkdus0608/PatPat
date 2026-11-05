@@ -8,6 +8,7 @@ import React from 'react';
 import type { Account } from '../src/auth/controller';
 import type { SettingsViewProps } from '../src/roster/SettingsScreen';
 import type { CharacteristicsEntry, RosterState } from '../src/roster/controller';
+import type { TeacherDocumentKind } from '../src/roster/teacherDocuments';
 
 // Static markup validates fields/actions, not native layout, keyboard or touch.
 const require = createRequire(import.meta.url);
@@ -50,6 +51,7 @@ const state: RosterState = {
   loading: false, saving: false, loaded: true, notice: null, selecting: false, selectedIds: [], confirming: false,
   characteristicsChildId: null, characteristicsDrafts: new Map(),
   characteristicsEntries: new Map(), dialog: null,
+  teacherDocumentKind: null, teacherDocumentDrafts: new Map(), teacherDocumentEntries: new Map(),
 };
 const account = {
   session: { token: 'fictional-token', teacher: { teacher_id: 'teacher-demo', display_name: '가상 교사' } },
@@ -61,6 +63,7 @@ function render(patch: Partial<RosterState> = {}, name = '새 가상 아동', ac
     onRefresh: noop, onSelect: noop, onCancelSelection: noop, onToggle: noop, onRequestDelete: noop,
     onCancelDelete: noop, onDelete: noop, onLogout: noop, onOpenCharacteristics: noop, onCharacteristicsChange: noop,
     onSaveCharacteristics: noop, onResolveDialog: noop,
+    onOpenTeacherDocument: noop, onTeacherDocumentChange: noop, onSaveTeacherDocument: noop,
   }));
 }
 function tag(html: string, id: string) {
@@ -251,4 +254,110 @@ test('unsaved leave and logout dialogs offer explicit navigation or cancellation
   const logout = render({ dialog: { kind: 'logout', childId: 'A' } });
   assert.ok(logout.includes('로그아웃하면 저장하지 않은 아동 특성이 사라져요.'));
   tag(logout, 'settings-dialog-stay'); tag(logout, 'settings-dialog-logout');
+});
+
+test('teacher buttons follow the teacher name in order and remain usable without a loaded child roster', () => {
+  const html = render();
+  const ids = ['settings-teacher-name', 'settings-teacher-open-writing_examples', 'settings-teacher-open-record_format', 'settings-logout'];
+  for (let index = 0; index < ids.length - 1; index++) assert.ok(html.indexOf(ids[index]) < html.indexOf(ids[index + 1]));
+  assert.ok(html.includes('내 글쓰기 예시') && html.includes('우리 원 기록 양식'));
+  for (const patch of [{ items: [] }, { items: [], loaded: false, notice: '가상 명단 연결 실패' }]) {
+    for (const kind of ['writing_examples', 'record_format']) {
+      assert.equal(disabled(render(patch), 'settings-teacher-open-' + kind), false);
+    }
+  }
+  for (const patch of [{ loading: true }, { saving: true }, { selecting: true }]) {
+    assert.ok(disabled(render(patch), 'settings-teacher-open-writing_examples'));
+    assert.ok(disabled(render(patch), 'settings-teacher-open-record_format'));
+  }
+  assert.ok(disabled(render({}, '', { busy: true }), 'settings-teacher-open-writing_examples'));
+});
+
+const teacherScreens: { kind: TeacherDocumentKind; title: string; prompt: string; hint: string; placeholder: string; success: string }[] = [
+  { kind: 'writing_examples', title: '내 글쓰기 예시', prompt: '선생님이 작성한 글을 남겨주세요.',
+    hint: '이전에 작성한 관찰일지나 알림장 내용을 붙여 넣어주세요.', placeholder: '작성했던 글을 붙여 넣어주세요.', success: '글쓰기 예시를 저장했어요.' },
+  { kind: 'record_format', title: '우리 원 기록 양식', prompt: '우리 원에서는 어떻게 기록하나요?',
+    hint: '관찰일지나 알림장의 항목, 순서, 제목, 작성 규칙을 자유롭게 적어주세요.', placeholder: '우리 원의 기록 형식을 적어주세요.', success: '기록 양식을 저장했어요.' },
+];
+for (const screen of teacherScreens) {
+  test(screen.kind + ' uses its own dedicated text editor with the planned copy and preserved draft', () => {
+    const draft = '  가상 교사의 참고 자료\n공백과 줄바꿈 유지  ';
+    const otherKind: TeacherDocumentKind = screen.kind === 'writing_examples' ? 'record_format' : 'writing_examples';
+    const html = render({ teacherDocumentKind: screen.kind,
+      teacherDocumentDrafts: new Map([[screen.kind, draft], [otherKind, '다른 종류의 가상 자료']]),
+      teacherDocumentEntries: new Map([[screen.kind, entry()]]),
+      characteristicsDrafts: new Map([['A', '아동 전용 가상 특성']]),
+    });
+    const prefix = 'settings-teacher-' + screen.kind;
+    tag(html, prefix + '-back'); tag(html, prefix + '-card');
+    assert.ok(html.includes(screen.title) && html.includes(screen.prompt) && html.includes(screen.hint));
+    const input = tag(html, prefix + '-input');
+    assert.ok(input.startsWith('<textarea') && input.includes('aria-label="' + screen.title + '"'));
+    assert.ok(input.includes('placeholder="' + screen.placeholder + '"'));
+    assert.ok(html.includes(draft) && html.includes('아직 저장하지 않은 내용이 있어요.'));
+    assert.equal(disabled(html, prefix + '-save'), false);
+    assert.ok(html.indexOf(prefix + '-input') < html.indexOf(prefix + '-save'));
+    for (const absent of ['다른 종류의 가상 자료', '아동 전용 가상 특성', 'settings-child-add', 'settings-logout', 'settings-characteristics-input']) {
+      assert.ok(!html.includes(absent));
+    }
+  });
+
+  test(screen.kind + ' save success uses the matching acknowledgement and masks the editor', () => {
+    const html = render({ teacherDocumentKind: screen.kind, teacherDocumentDrafts: new Map([[screen.kind, '저장한 가상 자료']]),
+      teacherDocumentEntries: new Map([[screen.kind, entry({ savedText: '저장한 가상 자료', saveState: 'saved' })]]),
+      dialog: { kind: 'saved', teacherKind: screen.kind },
+    });
+    assert.ok(html.includes(screen.success) && html.includes('저장됨'));
+    assert.ok(!html.includes('아동 특성을 저장했어요.'));
+    assert.ok(tag(html, 'settings-content').includes('aria-hidden="true"'));
+    assert.ok(disabled(html, 'settings-teacher-' + screen.kind + '-input'));
+    assert.ok(disabled(html, 'settings-teacher-' + screen.kind + '-back'));
+    tag(html, 'settings-dialog-dismiss');
+  });
+}
+
+test('teacher save enablement and progress use the same baseline and duplicate action guards', () => {
+  const prefix = 'settings-teacher-writing_examples';
+  for (const loadState of ['idle', 'loading', 'error'] as const) {
+    const html = render({ teacherDocumentKind: 'writing_examples', teacherDocumentDrafts: new Map([['writing_examples', '가상 변경']]),
+      teacherDocumentEntries: new Map([['writing_examples', entry({ loadState })]]) });
+    assert.ok(disabled(html, prefix + '-save'));
+    if (loadState === 'error') assert.ok(html.includes('저장한 내용을 불러오지 못했어요.'));
+  }
+  assert.ok(disabled(render({ teacherDocumentKind: 'writing_examples' }), prefix + '-save'));
+  assert.equal(disabled(render({ teacherDocumentKind: 'writing_examples', teacherDocumentDrafts: new Map([['writing_examples', '']]),
+    teacherDocumentEntries: new Map([['writing_examples', entry({ savedText: '지울 가상 예시' })]]) }), prefix + '-save'), false);
+  const saving = render({ teacherDocumentKind: 'writing_examples', saving: true, teacherDocumentDrafts: new Map([['writing_examples', '가상 입력']]),
+    teacherDocumentEntries: new Map([['writing_examples', entry({ saveState: 'saving' })]]) });
+  assert.ok(saving.includes('저장 중…'));
+  for (const control of ['input', 'save', 'back']) assert.ok(disabled(saving, prefix + '-' + control));
+});
+
+test('teacher failed and unavailable saves retain input and show only the appropriate retry actions', () => {
+  const draft = '  가상 원의 양식\n항목 순서  ';
+  for (const unavailable of [false, true]) {
+    const html = render({ teacherDocumentKind: 'record_format', teacherDocumentDrafts: new Map([['record_format', draft]]),
+      teacherDocumentEntries: new Map([['record_format', entry({ loadState: unavailable ? 'unavailable' : 'ready', saveState: unavailable ? 'unavailable' : 'error' })]]),
+      dialog: { kind: 'saveFailed', teacherKind: 'record_format', unavailable },
+    });
+    assert.ok(html.includes(draft));
+    assert.ok(html.includes(unavailable ? '아직 저장 기능이 연결되지 않았어요.' : '저장하지 못했어요.'));
+    tag(html, 'settings-dialog-dismiss');
+    assert.equal(html.includes('settings-dialog-retry'), !unavailable);
+    assert.ok(!html.includes('저장됨') && !html.includes('기록 양식을 저장했어요.'));
+  }
+});
+
+test('teacher exit and logout confirmations cover reference data alongside child characteristics', () => {
+  const leave = render({ teacherDocumentKind: 'writing_examples', teacherDocumentDrafts: new Map([['writing_examples', '가상 예시']]),
+    teacherDocumentEntries: new Map([['writing_examples', entry()]]),
+    dialog: { kind: 'leave', teacherKind: 'writing_examples', destination: 'roster' },
+  });
+  tag(leave, 'settings-dialog-stay'); tag(leave, 'settings-dialog-leave');
+  assert.ok(disabled(leave, 'settings-teacher-writing_examples-back'));
+  const mixedLogout = render({ teacherDocumentDrafts: new Map([['record_format', '가상 양식']]),
+    characteristicsDrafts: new Map([['A', '가상 특성']]), dialog: { kind: 'logout', childId: 'A' } });
+  assert.ok(mixedLogout.includes('로그아웃하면 저장하지 않은 내용이 사라져요.'));
+  assert.ok(!mixedLogout.includes('로그아웃하면 저장하지 않은 아동 특성이 사라져요.'));
+  tag(mixedLogout, 'settings-dialog-stay'); tag(mixedLogout, 'settings-dialog-logout');
 });

@@ -5,7 +5,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Child } from '../api/client';
 import type { Account } from '../auth/controller';
 import { colors } from '../ui/theme';
-import { getCharacteristicsEntry, isCharacteristicsDirty, type DialogAction, type RosterController, type RosterState } from './controller';
+import {
+  getCharacteristicsEntry, getTeacherDocumentEntry, hasUnsavedTeacherDocuments,
+  isCharacteristicsDirty, isTeacherDocumentDirty,
+  type CharacteristicsEntry, type DialogAction, type RosterController, type RosterState,
+} from './controller';
+import { TEACHER_DOCUMENTS, type TeacherDocumentKind } from './teacherDocuments';
 
 export interface SettingsHandle { back(): void }
 export interface SettingsViewProps {
@@ -15,6 +20,9 @@ export interface SettingsViewProps {
   onToggle(id: string): void; onRequestDelete(): void; onCancelDelete(): void; onDelete(): void; onLogout(): void;
   onOpenCharacteristics(id: string): void; onCharacteristicsChange(id: string, text: string): void;
   onSaveCharacteristics(): void; onResolveDialog(action: DialogAction): void;
+  onOpenTeacherDocument(kind: TeacherDocumentKind): void;
+  onTeacherDocumentChange(kind: TeacherDocumentKind, text: string): void;
+  onSaveTeacherDocument(): void;
 }
 
 function ChildRow({ child, selecting, selected, disabled, onToggle, onOpenCharacteristics }: {
@@ -57,12 +65,16 @@ function SettingsDialogView({ state, account, onResolveDialog }: SettingsViewPro
   const dialog = state.dialog;
   if (!dialog) return null;
   const disabled = state.saving || account.busy;
-  const message = dialog.kind === 'saved' ? '아동 특성을 저장했어요.'
+  const teacherKind = 'teacherKind' in dialog ? dialog.teacherKind : undefined;
+  const teacherDataInvolved = teacherKind !== undefined || hasUnsavedTeacherDocuments(state);
+  const message = dialog.kind === 'saved' ? teacherKind !== undefined
+    ? TEACHER_DOCUMENTS[teacherKind].successMessage : '아동 특성을 저장했어요.'
     : dialog.kind === 'saveFailed' ? dialog.unavailable
       ? '아직 저장 기능이 연결되지 않았어요. 입력한 내용은 유지돼요.'
       : '저장하지 못했어요. 입력한 내용은 유지돼요. 다시 시도해 주세요.'
     : dialog.kind === 'leave' ? '아직 저장하지 않은 내용이 있어요. 입력한 내용은 이번 로그인 동안 유지돼요.'
-      : '로그아웃하면 저장하지 않은 아동 특성이 사라져요.';
+      : teacherDataInvolved ? '로그아웃하면 저장하지 않은 내용이 사라져요.'
+        : '로그아웃하면 저장하지 않은 아동 특성이 사라져요.';
   const actions: { action: DialogAction; label: string; primary?: boolean }[] = dialog.kind === 'saved'
     || (dialog.kind === 'saveFailed' && dialog.unavailable) ? [{ action: 'dismiss', label: '확인', primary: true }]
     : dialog.kind === 'saveFailed' ? [{ action: 'dismiss', label: '확인' }, { action: 'retry', label: '다시 시도', primary: true }]
@@ -83,55 +95,87 @@ function SettingsDialogView({ state, account, onResolveDialog }: SettingsViewPro
   </View>;
 }
 
-function SettingsContent(props: SettingsViewProps) {
-  const { account, state } = props;
-  const busy = state.saving || state.loading || account.busy || state.dialog !== null;
-  const navigationBlocked = state.saving || account.busy || state.dialog !== null;
-  const characteristicsChild = state.items.find(child => child.child_id === state.characteristicsChildId);
-  if (characteristicsChild) {
-    const entry = getCharacteristicsEntry(state, characteristicsChild.child_id);
-    const dirty = isCharacteristicsDirty(state, characteristicsChild.child_id);
-    const canSave = !busy && dirty && (entry.loadState === 'ready' || entry.loadState === 'unavailable');
-    const status = entry.saveState === 'error' ? '저장하지 못했어요.'
-      : entry.saveState === 'unavailable' ? '아직 저장되지 않았어요.'
-        : dirty ? '아직 저장하지 않은 내용이 있어요.'
-          : entry.loadState === 'ready' && entry.savedText !== null ? '저장됨' : null;
-    return <>
+interface ReferenceEditorProps {
+  title: string; prompt: string; hint: string; placeholder: string;
+  prefix: string; inputKey: string; subjectName?: string;
+  backLabel: string; loadingLabel: string; loadError: string;
+  entry: Readonly<CharacteristicsEntry>; text: string; dirty: boolean;
+  busy: boolean; navigationBlocked: boolean;
+  onBack(): void; onChange(text: string): void; onSave(): void;
+}
+
+function ReferenceEditor(props: ReferenceEditorProps) {
+  const { entry, prefix, dirty } = props;
+  const canSave = !props.busy && dirty && (entry.loadState === 'ready' || entry.loadState === 'unavailable');
+  const status = entry.saveState === 'error' ? '저장하지 못했어요.'
+    : entry.saveState === 'unavailable' ? '아직 저장되지 않았어요.'
+      : dirty ? '아직 저장하지 않은 내용이 있어요.'
+        : entry.loadState === 'ready' && entry.savedText !== null ? '저장됨' : null;
+  return <>
     <View style={[styles.header, styles.characteristicsHeader]}>
-      <Pressable accessibilityRole="button" accessibilityLabel="아동 명단으로 돌아가기" disabled={navigationBlocked}
-        accessibilityState={{ disabled: navigationBlocked }} onPress={props.onBack}
-        style={({ pressed }) => [styles.backButton, pressed && styles.pressed]} testID="settings-characteristics-back">
+      <Pressable accessibilityRole="button" accessibilityLabel={props.backLabel} disabled={props.navigationBlocked}
+        accessibilityState={{ disabled: props.navigationBlocked }} onPress={props.onBack}
+        style={({ pressed }) => [styles.backButton, pressed && styles.pressed]} testID={prefix + '-back'}>
         <Ionicons name="chevron-back" size={20} color={colors.ink} />
         <Text style={styles.label}>뒤로</Text>
       </Pressable>
-      <Text style={[styles.title, styles.characteristicsTitle]}>아동 특성</Text>
+      <Text style={[styles.title, styles.characteristicsTitle]}>{props.title}</Text>
     </View>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.subtitle} testID="settings-characteristics-child-name">{characteristicsChild.name}</Text>
-      <View style={styles.card} testID="settings-characteristics-card">
-        <Text style={styles.subtitle}>아동에 대해 알려주세요.</Text>
-        <Text style={styles.hint}>좋아하는 놀이, 평소 표현 방식, 도움이 필요한 상황을 자유롭게 적어주세요.</Text>
-        <TextInput key={characteristicsChild.child_id} accessibilityLabel="아동 특성"
-          accessibilityState={{ disabled: busy }} aria-disabled={busy} placeholder="아동의 특성을 자유롭게 적어주세요."
-          placeholderTextColor={colors.muted} multiline textAlignVertical="top" editable={!busy}
-          value={state.characteristicsDrafts.get(characteristicsChild.child_id) ?? entry.savedText ?? ''}
-          onChangeText={text => props.onCharacteristicsChange(characteristicsChild.child_id, text)}
-          style={[styles.input, styles.characteristicsInput]}
-          testID="settings-characteristics-input" />
-        <Pressable accessibilityRole="button" accessibilityLabel="아동 특성 저장하기" disabled={!canSave}
-          accessibilityState={{ disabled: !canSave, busy: entry.saveState === 'saving' }} onPress={props.onSaveCharacteristics}
-          style={[styles.button, !canSave && styles.disabled]} testID="settings-characteristics-save">
+      {props.subjectName !== undefined && <Text style={styles.subtitle} testID={prefix + '-child-name'}>{props.subjectName}</Text>}
+      <View style={styles.card} testID={prefix + '-card'}>
+        <Text style={styles.subtitle}>{props.prompt}</Text>
+        <Text style={styles.hint}>{props.hint}</Text>
+        <TextInput key={props.inputKey} accessibilityLabel={props.title}
+          accessibilityState={{ disabled: props.busy }} aria-disabled={props.busy} placeholder={props.placeholder}
+          placeholderTextColor={colors.muted} multiline textAlignVertical="top" editable={!props.busy}
+          value={props.text} onChangeText={props.onChange} style={[styles.input, styles.characteristicsInput]}
+          testID={prefix + '-input'} />
+        <Pressable accessibilityRole="button" accessibilityLabel={props.title + ' 저장하기'} disabled={!canSave}
+          accessibilityState={{ disabled: !canSave, busy: entry.saveState === 'saving' }} onPress={props.onSave}
+          style={[styles.button, !canSave && styles.disabled]} testID={prefix + '-save'}>
           {entry.saveState === 'saving' && <ActivityIndicator color={colors.ink} />}
           <Text style={styles.label}>{entry.saveState === 'saving' ? '저장 중…' : '저장하기'}</Text>
         </Pressable>
         <Text style={styles.hint}>작성한 뒤 저장하기를 눌러주세요.</Text>
-        {entry.loadState === 'loading' && <ActivityIndicator color={colors.ink} accessibilityLabel="아동 특성 불러오는 중" />}
-        {entry.loadState === 'error' && <Text accessibilityRole="alert" style={styles.danger}>저장한 특성을 불러오지 못했어요. 화면에 다시 들어와 확인해 주세요.</Text>}
+        {entry.loadState === 'loading' && <ActivityIndicator color={colors.ink} accessibilityLabel={props.loadingLabel} />}
+        {entry.loadState === 'error' && <Text accessibilityRole="alert" style={styles.danger}>{props.loadError}</Text>}
         {status && <Text accessibilityLiveRegion="polite" style={entry.saveState === 'error' ? styles.danger : styles.hint}
-          testID="settings-characteristics-status">{status}</Text>}
+          testID={prefix + '-status'}>{status}</Text>}
       </View>
     </ScrollView>
   </>;
+}
+
+function SettingsContent(props: SettingsViewProps) {
+  const { account, state } = props;
+  const busy = state.saving || state.loading || account.busy || state.dialog !== null;
+  const navigationBlocked = state.saving || account.busy || state.dialog !== null;
+  const teacherKind = state.teacherDocumentKind;
+  if (teacherKind !== null) {
+    const definition = TEACHER_DOCUMENTS[teacherKind];
+    const entry = getTeacherDocumentEntry(state, teacherKind);
+    return <ReferenceEditor {...definition} prefix={'settings-teacher-' + teacherKind} inputKey={'teacher-' + teacherKind}
+      backLabel="교사 설정으로 돌아가기" loadingLabel={definition.title + ' 불러오는 중'}
+      loadError="저장한 내용을 불러오지 못했어요. 화면에 다시 들어와 확인해 주세요."
+      entry={entry} text={state.teacherDocumentDrafts.get(teacherKind) ?? entry.savedText ?? ''}
+      dirty={isTeacherDocumentDirty(state, teacherKind)} busy={busy} navigationBlocked={navigationBlocked}
+      onBack={props.onBack} onChange={text => props.onTeacherDocumentChange(teacherKind, text)}
+      onSave={props.onSaveTeacherDocument} />;
+  }
+  const characteristicsChild = state.items.find(child => child.child_id === state.characteristicsChildId);
+  if (characteristicsChild) {
+    const entry = getCharacteristicsEntry(state, characteristicsChild.child_id);
+    return <ReferenceEditor title="아동 특성" prompt="아동에 대해 알려주세요."
+      hint="좋아하는 놀이, 평소 표현 방식, 도움이 필요한 상황을 자유롭게 적어주세요."
+      placeholder="아동의 특성을 자유롭게 적어주세요." prefix="settings-characteristics"
+      inputKey={'child-' + characteristicsChild.child_id} subjectName={characteristicsChild.name}
+      backLabel="아동 명단으로 돌아가기" loadingLabel="아동 특성 불러오는 중"
+      loadError="저장한 특성을 불러오지 못했어요. 화면에 다시 들어와 확인해 주세요."
+      entry={entry} text={state.characteristicsDrafts.get(characteristicsChild.child_id) ?? entry.savedText ?? ''}
+      dirty={isCharacteristicsDirty(state, characteristicsChild.child_id)} busy={busy} navigationBlocked={navigationBlocked}
+      onBack={props.onBack} onChange={text => props.onCharacteristicsChange(characteristicsChild.child_id, text)}
+      onSave={props.onSaveCharacteristics} />;
   }
   const sorted = [...state.items].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   const selected = new Set(state.selectedIds);
@@ -146,7 +190,16 @@ function SettingsContent(props: SettingsViewProps) {
     </View>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.card}>
-        <Text style={styles.label}>{account.session.teacher.display_name} 선생님</Text>
+        <Text style={styles.label} testID="settings-teacher-name">{account.session.teacher.display_name} 선생님</Text>
+        {(['writing_examples', 'record_format'] as const).map(kind => <Pressable key={kind}
+          accessibilityRole="button" accessibilityLabel={TEACHER_DOCUMENTS[kind].title}
+          accessibilityState={{ disabled: busy || state.selecting }} disabled={busy || state.selecting}
+          onPress={() => props.onOpenTeacherDocument(kind)}
+          style={({ pressed }) => [styles.teacherAction, (busy || state.selecting) && styles.disabled, pressed && styles.pressed]}
+          testID={'settings-teacher-open-' + kind}>
+          <Text style={[styles.label, styles.teacherActionLabel]}>{TEACHER_DOCUMENTS[kind].title}</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.ink} />
+        </Pressable>)}
         <Pressable accessibilityRole="button" accessibilityLabel="로그아웃" disabled={busy}
           accessibilityState={{ disabled: busy }} style={styles.smallButton} onPress={props.onLogout} testID="settings-logout">
           <Text style={styles.danger}>{account.busy ? '로그아웃 중…' : '로그아웃'}</Text>
@@ -240,6 +293,9 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
       onOpenCharacteristics={id => { if (!account.busy) { Keyboard.dismiss(); void controller.openCharacteristics(id); } }}
       onCharacteristicsChange={(id, text) => { if (!account.busy) controller.changeCharacteristics(id, text); }}
       onSaveCharacteristics={() => { if (!account.busy) { Keyboard.dismiss(); void controller.saveCharacteristics(); } }}
+      onOpenTeacherDocument={kind => { if (!account.busy) { Keyboard.dismiss(); void controller.openTeacherDocument(kind); } }}
+      onTeacherDocumentChange={(kind, text) => { if (!account.busy) controller.changeTeacherDocument(kind, text); }}
+      onSaveTeacherDocument={() => { if (!account.busy) { Keyboard.dismiss(); void controller.saveTeacherDocument(); } }}
       onResolveDialog={resolveDialog}
       onLogout={() => { if (!account.busy && controller.requestLogout()) { Keyboard.dismiss(); void account.logout(); } }} />
   </KeyboardAvoidingView>;
@@ -270,6 +326,8 @@ const styles = StyleSheet.create({
   deleteButton: { flex: 1 },
   characteristicsAction: { minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: colors.yellowLight, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, flexShrink: 0 },
   characteristicsActionText: { color: colors.ink, fontWeight: '600', fontSize: 13 },
+  teacherAction: { minHeight: 48, padding: 14, borderRadius: 12, backgroundColor: colors.yellowLight, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  teacherActionLabel: { flex: 1, flexShrink: 1 },
   characteristicsHeader: { justifyContent: 'flex-start', gap: 16 },
   characteristicsTitle: { flexShrink: 1 },
   backButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 2 },
