@@ -38,7 +38,7 @@ before(async () => {
         }));
         build.onResolve({ filter: /^@expo\/vector-icons$/ }, () => ({ path: 'icons', namespace: 'icon-stub' }));
         build.onLoad({ filter: /.*/, namespace: 'icon-stub' }, () => ({
-          contents: 'exports.Ionicons = function(){ return null; };', loader: 'js',
+          contents: 'const React = require("react"); exports.Ionicons = function(props){ return React.createElement("span", {"data-icon": props.name}); };', loader: 'js',
         }));
       },
     }],
@@ -58,6 +58,7 @@ after(async () => {
 const noop = () => {};
 const actions: WritingActions = {
   next: noop, openEditor: noop, openRevision: noop, back: noop,
+  selectRecordType: noop, editKeywords: noop,
   openPicker: noop, refreshRecordings: noop, toggleRecording: noop, cancelPicker: noop,
   importRecordings: noop, removeRecording: noop, generate: noop, selectRecord: noop,
   editText: noop, editPrompt: noop, revise: noop, dismissCandidate: noop,
@@ -77,7 +78,7 @@ const record: EditableJournal = {
 };
 function state(route: WritingState['route'], changed: Partial<EditableJournal> = {}): WritingState {
   return {
-    route, recordings: { status: 'ready', data: [file] }, selected: [file], checked: [file.uri],
+    route, recordType: '관찰일지', keywords: '', recordings: { status: 'ready', data: [file] }, selected: [file], checked: [file.uri],
     activeRecordId: 'J1', phase: 'idle', notice: null, guard: null,
     draft: {
       commonText: '가상 공통 활동', records: [{ ...record, ...changed }],
@@ -155,11 +156,11 @@ test('a pending AI candidate preserves original prose and blocks all three branc
   assert.equal(disabled(html, 'writing-candidate-cancel'), false);
 });
 
-test('empty or unavailable inputs and disconnected services cannot execute actions', () => {
-  assert.ok(disabled(render({ ...state('picker'), checked: [] }), 'writing-next'));
-  assert.ok(disabled(render({ ...state('picker'), recordings: { status: 'loading' } }), 'writing-next'));
+test('optional recordings and disconnected generation permit Next while later actions remain guarded', () => {
+  assert.equal(disabled(render({ ...state('picker'), checked: [] }), 'writing-next'), false);
+  assert.equal(disabled(render({ ...state('picker'), recordings: { status: 'loading' } }), 'writing-next'), false);
   const disconnected = render(state('picker'), { ...capabilities, generation: false });
-  assert.ok(disabled(disconnected, 'writing-next'));
+  assert.equal(disabled(disconnected, 'writing-next'), false);
   assert.ok(disconnected.includes('연결 준비 중'));
   assert.ok(disabled(render(state('revision', { prompt: ' \n' })), 'writing-revise'));
   assert.ok(disabled(render(state('revision'), { ...capabilities, revision: false }), 'writing-revise'));
@@ -174,4 +175,89 @@ test('processing disables navigation branches and duplicate submit or sharing', 
   assert.ok(disabled(render({ ...state('picker'), phase: 'generating' }), 'writing-next'));
   assert.ok(disabled(render({ ...state('revision'), phase: 'revising' }), 'writing-revise'));
   assert.ok(disabled(render({ ...state('complete', { confirmedText: record.editedText }), phase: 'sharing' }), 'writing-share'));
+});
+
+test('initial preparation requires an explicit record type and exposes two unselected choices', () => {
+  const html = render({ ...state('picker'), recordType: null, checked: [], selected: [], draft: null, activeRecordId: null });
+  assert.ok(html.includes('어떤 기록을 작성할까요?'));
+  assert.ok(html.includes('role="radiogroup"') && html.includes('aria-label="기록 유형"'));
+  for (const id of ['writing-type-journal', 'writing-type-notice']) {
+    assert.ok(tag(html, id).includes('role="radio"'));
+    assert.ok(tag(html, id).includes('aria-checked="false"'));
+    assert.equal(disabled(html, id), false);
+  }
+  assert.ok(disabled(html, 'writing-next'));
+});
+
+test('the first screen orders record type, recordings and the exact multiline keywords before Next', () => {
+  const text = '  가상 아동, 블록 놀이\n기찻길 만들기  ';
+  const html = render({ ...state('picker'), recordType: '알림장', keywords: text, draft: null, activeRecordId: null });
+  assert.ok(tag(html, 'writing-type-notice').includes('aria-checked="true"'));
+  assert.ok(tag(html, 'writing-type-journal').includes('aria-checked="false"'));
+  assert.ok(html.indexOf('data-testid="writing-record-type"') < html.indexOf(file.fileName));
+  assert.ok(html.indexOf(file.fileName) < html.indexOf('data-testid="writing-keywords-section"'));
+  assert.ok(html.indexOf('data-testid="writing-keywords-section"') < html.indexOf('data-testid="writing-next"'));
+  const input = tag(html, 'writing-keywords');
+  assert.ok(input.startsWith('<textarea'));
+  assert.ok(input.includes('aria-label="오늘의 키워드"'));
+  assert.ok(input.includes('placeholder="놀이, 아동의 말과 행동 등을 적어주세요."'));
+  assert.ok(html.includes(text));
+  assert.ok(html.includes('녹음이 없어도 오늘의 관찰을 키워드로 남길 수 있어요.'));
+  assert.equal(disabled(html, 'writing-next'), false);
+});
+
+test('keyword entry remains available for empty, loading, error and unavailable recording lists', () => {
+  const loads: WritingState['recordings'][] = [
+    { status: 'idle' }, { status: 'loading' }, { status: 'ready', data: [] },
+    { status: 'error', message: '가상 목록 읽기 실패' },
+    { status: 'unavailable', message: '가상 기기 미연결' },
+  ];
+  for (const recordings of loads) {
+    const html = render({ ...state('picker'), recordings, checked: [], selected: [], keywords: '가상 관찰 키워드', draft: null });
+    tag(html, 'writing-keywords');
+    assert.equal(disabled(html, 'writing-keywords'), false);
+    assert.equal(disabled(html, 'writing-next'), false);
+    assert.ok(html.includes('가상 관찰 키워드'));
+    assert.ok(!html.includes('녹음을 하나 이상 선택해 주세요.'));
+  }
+});
+
+test('Next uses the new label without a forward arrow and retains the separate back chevron', () => {
+  const html = render({ ...state('picker'), draft: null, activeRecordId: null });
+  assert.ok(tag(html, 'writing-next').includes('aria-label="다음"'));
+  assert.ok(html.includes('>다음</div>'));
+  assert.ok(!html.includes('다음하기') && !html.includes('data-icon="arrow-forward"'));
+  assert.ok(html.includes('data-icon="chevron-back"'));
+  const processing = render({ ...state('picker'), phase: 'generating' });
+  assert.ok(processing.includes('초안 준비 중…'));
+  assert.ok(tag(processing, 'writing-next').includes('aria-busy="true"'));
+});
+
+test('processing and input-change confirmation lock type and keywords without a false guard spinner', () => {
+  const guard: WritingState['guard'] = {
+    kind: 'selection', title: '가상 변경 확인', message: '가상 안내', confirmLabel: '바꾸기',
+  };
+  for (const patch of [{ phase: 'generating' as const }, { guard }]) {
+    const html = render({ ...state('picker'), ...patch });
+    for (const id of ['writing-type-journal', 'writing-type-notice', 'writing-keywords', 'writing-next']) {
+      assert.ok(disabled(html, id));
+    }
+    if ('guard' in patch) {
+      assert.ok(!html.includes('초안 준비 중…'));
+      assert.ok(!tag(html, 'writing-next').includes('aria-busy="true"'));
+    }
+  }
+});
+
+test('later screen titles and accessible input labels use the selected record type', () => {
+  const review = render({ ...state('review'), recordType: '알림장' });
+  assert.ok(review.includes('알림장 초안'));
+  assert.ok(tag(review, 'writing-child-C01').includes('aria-label="C01 알림장"'));
+  const editing = render({ ...state('edit'), recordType: '알림장' });
+  assert.ok(tag(editing, 'writing-body').includes('aria-label="C01 알림장 본문 수정"'));
+  const revision = render({ ...state('revision'), recordType: '알림장' });
+  assert.ok(tag(revision, 'writing-prompt').includes('aria-label="알림장 수정 요청 내용"'));
+  const complete = render({ ...state('complete', { confirmedText: record.editedText }), recordType: '알림장' });
+  assert.ok(complete.includes('완성된 알림장'));
+  for (const html of [review, editing, revision, complete]) assert.ok(!html.includes('관찰일지'));
 });

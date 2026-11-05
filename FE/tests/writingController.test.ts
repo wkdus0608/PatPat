@@ -57,6 +57,8 @@ function fixture(overrides: Partial<WritingServices> = {}) {
   };
   const services = { workflow, ...overrides };
   const controller = createWritingController(files, services);
+  // Existing recording-based cases explicitly complete the new required choice.
+  controller.selectRecordType('관찰일지');
   return { controller, files, services, workflow, missing, validated, requests,
     failList() { listError = true; }, get removed() { return removed; },
     get generated() { return generated; }, get prepared() { return prepared; } };

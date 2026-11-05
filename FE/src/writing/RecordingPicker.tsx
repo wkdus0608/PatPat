@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import {
-  ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View,
+  ActivityIndicator, Pressable, SectionList, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 
 import type { SavedRecording } from '../recording/storage';
@@ -17,6 +17,7 @@ function dateLabel(value: string) {
 
 export function RecordingPicker({ state, actions, capabilities }: WritingViewProps) {
   const busy = state.phase !== 'idle';
+  const blocked = busy || state.guard !== null;
   const load = state.recordings;
   const recordings = load.status === 'ready' ? load.data : emptyRecordings;
   const checked = useMemo(() => new Set(state.checked), [state.checked]);
@@ -33,7 +34,7 @@ export function RecordingPicker({ state, actions, capabilities }: WritingViewPro
       }));
   }, [recordings]);
   const loading = load.status === 'idle' || load.status === 'loading';
-  const canNext = load.status === 'ready' && state.checked.length > 0 && !busy && capabilities.generation;
+  const canNext = state.recordType !== null && !blocked;
 
   let emptyTitle = '선택할 녹음이 없어요';
   let emptyMessage = '녹음을 남기면 날짜별로 확인하고 선택할 수 있어요.';
@@ -60,21 +61,44 @@ export function RecordingPicker({ state, actions, capabilities }: WritingViewPro
       </View>
       <SectionList
         style={styles.fill} contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
         sections={sections} keyExtractor={(item) => item.uri}
         initialNumToRender={12} maxToRenderPerBatch={12} windowSize={7}
         stickySectionHeadersEnabled={false}
         ListHeaderComponent={
           <View>
+            <View style={styles.typeSection} testID="writing-record-type">
+              <View style={styles.headingRow}>
+                <Text accessibilityRole="header" style={styles.title}>어떤 기록을 작성할까요?</Text>
+                <Text style={styles.requirement}>필수</Text>
+              </View>
+              <View accessibilityRole="radiogroup" accessibilityLabel="기록 유형" style={styles.typeOptions}>
+                {(['관찰일지', '알림장'] as const).map(type => {
+                  const selected = state.recordType === type;
+                  return <Pressable key={type} accessibilityRole="radio" accessibilityLabel={type}
+                    accessibilityState={{ checked: selected, disabled: blocked }} aria-checked={selected}
+                    disabled={blocked} onPress={() => actions.selectRecordType(type)}
+                    style={({ pressed }) => [styles.typeOption, selected && styles.selectedType,
+                      blocked && styles.disabledOpacity, pressed && styles.pressed]}
+                    testID={type === '관찰일지' ? 'writing-type-journal' : 'writing-type-notice'}>
+                    <Text style={styles.typeLabel}>{type}</Text>
+                  </Pressable>;
+                })}
+              </View>
+            </View>
             <View style={styles.headingRow}>
-              <Text accessibilityRole="header" style={styles.title}>녹음 선택</Text>
+              <View style={styles.fieldHeading}>
+                <Text accessibilityRole="header" style={styles.fieldTitle}>녹음 선택</Text>
+                <Text style={styles.requirement}>선택</Text>
+              </View>
               <Pressable accessibilityRole="button" accessibilityLabel="녹음 목록 새로고침"
-                accessibilityState={{ disabled: busy || loading }} disabled={busy || loading}
+                accessibilityState={{ disabled: blocked || loading }} disabled={blocked || loading}
                 onPress={actions.refreshRecordings}
-                style={({ pressed }) => [styles.refreshButton, (busy || loading) && styles.disabledOpacity, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.refreshButton, (blocked || loading) && styles.disabledOpacity, pressed && styles.pressed]}
                 testID="writing-picker-refresh"
               ><Ionicons name="refresh-outline" size={20} color={colors.muted} /></Pressable>
             </View>
-            <Text style={styles.subtitle}>관찰일지를 작성할 녹음을 선택해 주세요.</Text>
+            <Text style={styles.subtitle}>사용할 녹음이 있다면 선택해 주세요.</Text>
             {state.notice && (
               <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.notice}>
                 <Ionicons name="information-circle-outline" size={18} color={colors.ink} />
@@ -93,11 +117,25 @@ export function RecordingPicker({ state, actions, capabilities }: WritingViewPro
             <Text style={styles.emptyMessage}>{emptyMessage}</Text>
             {load.status === 'error' && (
               <Pressable accessibilityRole="button" accessibilityLabel="녹음 다시 불러오기"
-                disabled={busy} accessibilityState={{ disabled: busy }} onPress={actions.refreshRecordings}
+                disabled={blocked} accessibilityState={{ disabled: blocked }} onPress={actions.refreshRecordings}
                 style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
                 testID="writing-picker-retry"
               ><Text style={styles.buttonText}>다시 불러오기</Text></Pressable>
             )}
+          </View>
+        }
+        ListFooterComponent={
+          <View style={styles.keywordsCard} testID="writing-keywords-section">
+            <View style={styles.fieldHeading}>
+              <Text accessibilityRole="header" style={styles.fieldTitle}>오늘의 키워드</Text>
+              <Text style={styles.requirement}>선택</Text>
+            </View>
+            <Text style={styles.subtitle}>녹음이 없어도 오늘의 관찰을 키워드로 남길 수 있어요.</Text>
+            <TextInput accessibilityLabel="오늘의 키워드" placeholder="놀이, 아동의 말과 행동 등을 적어주세요."
+              placeholderTextColor={colors.muted} multiline textAlignVertical="top" value={state.keywords}
+              accessibilityState={{ disabled: blocked }} aria-disabled={blocked} editable={!blocked}
+              onChangeText={actions.editKeywords} style={[styles.keywordsInput, blocked && styles.disabledOpacity]}
+              testID="writing-keywords" />
           </View>
         }
         renderSectionHeader={({ section }) => (
@@ -111,10 +149,10 @@ export function RecordingPicker({ state, actions, capabilities }: WritingViewPro
           return (
             <Pressable accessibilityRole="checkbox"
               accessibilityLabel={dateLabel(item.dateKey) + ' ' + item.startTime + ' 녹음'}
-              accessibilityState={{ checked: selected, disabled: busy }}
+              accessibilityState={{ checked: selected, disabled: blocked }}
               aria-checked={selected}
-              disabled={busy} onPress={() => actions.toggleRecording(item.uri)}
-              style={({ pressed }) => [styles.recordingRow, selected && styles.selectedRow, busy && styles.disabledOpacity, pressed && styles.pressed]}
+              disabled={blocked} onPress={() => actions.toggleRecording(item.uri)}
+              style={({ pressed }) => [styles.recordingRow, selected && styles.selectedRow, blocked && styles.disabledOpacity, pressed && styles.pressed]}
               testID={'writing-picker-file-' + item.fileName}
             >
               <View style={styles.microphoneIcon}><Ionicons name="mic-outline" size={22} color={colors.ink} /></View>
@@ -133,9 +171,9 @@ export function RecordingPicker({ state, actions, capabilities }: WritingViewPro
           <Text style={styles.countLabel}>선택한 녹음</Text>
           <View style={styles.countActions}>
             {state.checked.length > 0 && <Pressable accessibilityRole="button" accessibilityLabel="선택 모두 해제"
-              accessibilityState={{ disabled: busy }} disabled={busy}
+              accessibilityState={{ disabled: blocked }} disabled={blocked}
               onPress={() => [...state.checked].forEach(actions.toggleRecording)}
-              style={({ pressed }) => [styles.clearButton, busy && styles.disabledOpacity, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.clearButton, blocked && styles.disabledOpacity, pressed && styles.pressed]}
               testID="writing-picker-clear">
               <Text style={styles.clearLabel}>선택 모두 해제</Text>
             </Pressable>}
@@ -143,20 +181,21 @@ export function RecordingPicker({ state, actions, capabilities }: WritingViewPro
           </View>
         </View>
         <Pressable accessibilityRole="button"
-          accessibilityLabel="다음하기"
+          accessibilityLabel="다음"
           accessibilityState={{ disabled: !canNext, busy }} disabled={!canNext}
           aria-busy={busy}
           onPress={actions.next}
           style={({ pressed }) => [styles.importButton, !canNext && styles.disabledButton, pressed && canNext && styles.pressed]}
           testID="writing-next"
         >
-          {busy ? <ActivityIndicator color={colors.muted} /> : <Ionicons name="arrow-forward" size={20} color={canNext ? colors.ink : colors.muted} />}
-          <Text style={[styles.buttonText, !canNext && styles.disabledText]}>{busy ? '초안 준비 중…' : '다음하기'}</Text>
+          {busy && <ActivityIndicator color={colors.muted} />}
+          <Text style={[styles.buttonText, !canNext && styles.disabledText]}>{busy ? '초안 준비 중…' : '다음'}</Text>
         </Pressable>
         <Text accessibilityLiveRegion="polite" style={styles.footerHint}>
-          {busy ? state.phase === 'validating' ? '선택한 녹음을 확인하고 있어요.' : '관찰일지 초안을 준비하고 있어요.'
-            : !capabilities.generation ? '초안 작성 기능은 연결 준비 중이에요.'
-              : state.checked.length === 0 ? '녹음을 하나 이상 선택해 주세요.' : '다음하기를 누르면 선택한 녹음으로 초안을 작성해요.'}
+          {busy ? state.phase === 'validating' ? '선택한 녹음을 확인하고 있어요.' : (state.recordType ?? '기록') + ' 초안을 준비하고 있어요.'
+            : state.recordType === null ? '기록 유형을 선택해 주세요.'
+              : !capabilities.generation || state.recordType === '알림장' || !!state.keywords.trim() ? '초안 작성 기능은 연결 준비 중이에요.'
+                : state.checked.length === 0 ? '녹음과 키워드는 선택 사항이에요.' : '다음을 누르면 선택한 녹음으로 초안을 작성해요.'}
         </Text>
       </View>
     </View>
@@ -172,6 +211,14 @@ const styles = StyleSheet.create({
   progress: { color: colors.muted, fontSize: 11, fontWeight: '600' },
   headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   title: { color: colors.ink, fontSize: 25, fontWeight: '800', letterSpacing: -0.8, lineHeight: 36, flexShrink: 1 },
+  typeSection: { marginBottom: 24, gap: 14 },
+  typeOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  typeOption: { flex: 1, minWidth: 100, minHeight: 48, borderRadius: 15, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', padding: 12 },
+  selectedType: { backgroundColor: colors.yellowLight, borderColor: '#D9B960' },
+  typeLabel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+  fieldHeading: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  fieldTitle: { color: colors.ink, fontSize: 19, fontWeight: '700', lineHeight: 28, flexShrink: 1 },
+  requirement: { color: colors.muted, fontSize: 11 },
   refreshButton: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   subtitle: { color: colors.muted, fontSize: 13, lineHeight: 22, marginTop: 5, marginBottom: 19 },
   notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 14, backgroundColor: colors.yellowLight, borderRadius: 16, marginBottom: 15 },
@@ -180,6 +227,8 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 79, height: 79, borderRadius: 27, backgroundColor: colors.yellowLight, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   emptyTitle: { color: colors.ink, fontSize: 18, fontWeight: '700', lineHeight: 28, textAlign: 'center' },
   emptyMessage: { color: colors.muted, fontSize: 13, lineHeight: 22, textAlign: 'center', marginTop: 9 },
+  keywordsCard: { marginTop: 24, backgroundColor: colors.white, borderRadius: 20, borderWidth: 1, borderColor: colors.line, padding: 18 },
+  keywordsInput: { minHeight: 150, borderWidth: 1, borderColor: colors.line, borderRadius: 13, padding: 13, color: colors.ink, fontSize: 14, lineHeight: 24, backgroundColor: colors.background },
   retryButton: { alignSelf: 'stretch', marginTop: 22, borderRadius: 15, backgroundColor: colors.yellow, minHeight: 48, padding: 13, alignItems: 'center', justifyContent: 'center' },
   sectionHeading: { flexDirection: 'row', gap: 8, alignItems: 'center', paddingTop: 16, paddingBottom: 12 },
   sectionTitle: { color: colors.ink, fontSize: 13, fontWeight: '700', lineHeight: 22 },

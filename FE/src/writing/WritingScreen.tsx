@@ -34,6 +34,8 @@ export const WritingScreen = forwardRef<WritingHandle, {
   }), [controller, onGoToRecording]);
   const actions: WritingActions = {
     next() { void controller.next(); },
+    selectRecordType: controller.selectRecordType,
+    editKeywords: controller.editKeywords,
     openEditor: controller.openEditor,
     openRevision: controller.openRevision,
     back() { void back(); },

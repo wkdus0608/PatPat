@@ -1,12 +1,12 @@
 import { RecordingLibraryError } from '../library/recordingLibrary';
 import type { RecordingLibrary } from '../library/types';
 import type { SavedRecording } from '../recording/storage';
-import type { EditableJournal, WritingCapabilities, WritingServices, WritingState } from './types';
+import type { EditableJournal, RecordType, WritingCapabilities, WritingServices, WritingState } from './types';
 import { nonblank, readCandidate, readDraft, readPrepared, requireConfirmed, WritingInputError } from './validation';
 
 export function createWritingController(files: RecordingLibrary, services: WritingServices = {}) {
   let state: WritingState = {
-    route: 'picker', recordings: { status: 'idle' }, selected: [], checked: [], draft: null,
+    route: 'picker', recordType: null, keywords: '', recordings: { status: 'idle' }, selected: [], checked: [], draft: null,
     activeRecordId: null, phase: 'idle', notice: null, guard: null,
   };
   let disposed = false;
@@ -55,12 +55,12 @@ export function createWritingController(files: RecordingLibrary, services: Writi
   function finish(ticket: number) {
     if (current(ticket)) { abort = null; set({ phase: 'idle' }); }
   }
-  function guard(kind: 'selection' | 'regenerate' | 'leave', action: () => void) {
+  function guard(kind: 'selection' | 'regenerate' | 'leave', action: () => void, title?: string) {
     if (state.guard) return;
     guardedAction = action;
     set({ guard: kind === 'leave'
       ? { kind, title: '요청을 중단하고 이동할까요?', message: '현재 본문과 선택한 녹음은 유지돼요. 진행 중인 요청 결과는 적용하지 않아요.', confirmLabel: '중단하고 이동' }
-      : { kind, title: kind === 'selection' ? '사용할 녹음을 바꿀까요?' : '초안을 다시 작성할까요?',
+      : { kind, title: title ?? (kind === 'selection' ? '사용할 녹음을 바꿀까요?' : '초안을 다시 작성할까요?'),
         message: '현재 초안과 수정 내용이 초기화돼요. 이미 확정해 저장한 기록은 보관함에 남아요.',
         confirmLabel: kind === 'selection' ? '바꾸기' : '다시 작성' } });
   }
@@ -73,6 +73,29 @@ export function createWritingController(files: RecordingLibrary, services: Writi
     if (same) { set({ route: state.draft ? 'review' : 'picker', notice: null }); return; }
     if (state.draft) guard('selection', () => applySelection(selected));
     else applySelection(selected);
+  }
+  function changeWritingInput(patch: Pick<WritingState, 'recordType'> | Pick<WritingState, 'keywords'>) {
+    if (disposed || busy() || state.guard) return;
+    const apply = () => set({ ...patch, draft: null, activeRecordId: null, route: 'picker', notice: null });
+    if (state.draft) guard('selection', apply, '작성 정보를 바꿀까요?');
+    else apply();
+  }
+  function selectRecordType(recordType: RecordType) {
+    if ((recordType !== '관찰일지' && recordType !== '알림장') || state.recordType === recordType) return;
+    changeWritingInput({ recordType });
+  }
+  function editKeywords(keywords: string) {
+    if (state.keywords !== keywords) changeWritingInput({ keywords });
+  }
+  function missingInputNotice(recordingCount: number): string | null {
+    if (state.recordType === null) return '작성할 기록 유형을 선택해 주세요.';
+    if (recordingCount === 0 && !state.keywords.trim()) return '작성할 관찰 내용이 없어요.';
+    return null;
+  }
+  function unsupportedInputNotice(): string | null {
+    if (state.recordType === '알림장') return '알림장 초안 작성은 연결 준비 중이에요. 선택과 입력은 그대로 유지돼요.';
+    if (state.keywords.trim()) return '키워드를 포함한 초안 작성은 연결 준비 중이에요. 선택과 입력은 그대로 유지돼요.';
+    return null;
   }
   async function refreshRecordings() {
     if (disposed || busy() || state.guard) return;
@@ -131,10 +154,24 @@ export function createWritingController(files: RecordingLibrary, services: Writi
   }
   async function runGeneration() {
     if (disposed || busy() || state.guard) return;
-    if (!capabilities.generation || !services.workflow) {
-      set({ notice: '초안 작성 기능을 연결하고 있어요. 선택한 녹음은 그대로 유지돼요.' }); return;
+    const missing = missingInputNotice(state.selected.length);
+    if (missing) { set({ notice: missing }); return; }
+    const unsupported = unsupportedInputNotice();
+    if (unsupported) {
+      // Unsupported text/type inputs never enter the observation-only gateway.
+      // Selected recordings must still be checked rather than bypassed by text.
+      const { ticket } = begin('validating');
+      try {
+        await Promise.all(state.selected.map((row) => files.validate(row)));
+        if (current(ticket)) set({ notice: unsupported });
+      } catch (error) {
+        if (current(ticket)) set({ notice: errorMessage(error, '선택한 녹음을 확인하지 못했어요. 목록을 다시 확인해 주세요.') });
+      } finally { finish(ticket); }
+      return;
     }
-    if (state.selected.length === 0) { set({ notice: '먼저 사용할 녹음을 가져와 주세요.' }); return; }
+    if (!capabilities.generation || !services.workflow) {
+      set({ notice: '초안 작성 기능은 연결 준비 중이에요. 선택과 입력은 그대로 유지돼요.' }); return;
+    }
     const selected = state.selected.map((row) => ({ ...row }));
     const { ticket, signal } = begin('generating');
     try {
@@ -162,13 +199,11 @@ export function createWritingController(files: RecordingLibrary, services: Writi
   }
   async function next() {
     if (disposed || busy() || state.guard || state.route !== 'picker') return;
-    if (!capabilities.generation) {
-      set({ notice: '초안 작성 기능은 연결 준비 중이에요.' }); return;
-    }
-    if (state.checked.length === 0 || state.recordings.status !== 'ready') return;
+    const missing = missingInputNotice(state.checked.length);
+    if (missing) { set({ notice: missing }); return; }
     const { ticket } = begin('validating');
     try {
-      const known = [...state.recordings.data, ...state.selected];
+      const known = [...(state.recordings.status === 'ready' ? state.recordings.data : []), ...state.selected];
       const selected = state.checked.map((uri) => known.find((row) => row.uri === uri));
       if (selected.some((row) => !row)) throw new WritingInputError('선택한 녹음 목록을 다시 확인해 주세요.');
       const checked = selected as SavedRecording[];
@@ -330,7 +365,7 @@ export function createWritingController(files: RecordingLibrary, services: Writi
   return {
     getSnapshot: () => state, capabilities,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    initialize, next, openEditor, openRevision, back,
+    initialize, next, selectRecordType, editKeywords, openEditor, openRevision, back,
     openPicker, refreshRecordings, cancelPicker, toggleRecording, importRecordings, removeRecording,
     generate, selectRecord, editText, editPrompt, revise, dismissCandidate, applyCandidate, confirm, share,
     resolveGuard, leave, dispose,

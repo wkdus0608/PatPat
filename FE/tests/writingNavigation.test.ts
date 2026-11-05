@@ -74,6 +74,8 @@ function fixture(overrides: Partial<WritingServices> = {}) {
     },
     ...overrides,
   });
+  // Keep these navigation cases on the supported recording-based journal path.
+  controller.selectRecordType('관찰일지');
   return {
     controller, workflow, saved,
     setSaveFailure(value: boolean) { failSave = value; },

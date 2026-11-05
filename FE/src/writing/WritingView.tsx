@@ -39,9 +39,9 @@ function Helper({ text }: { text: string }) {
   return <Text style={styles.helperText}>{text}</Text>;
 }
 
-function phaseLabel(phase: WritingState['phase']) {
+function phaseLabel(phase: WritingState['phase'], recordType: string) {
   if (phase === 'validating') return '선택한 녹음을 확인하고 있어요.';
-  if (phase === 'generating') return '관찰일지 초안을 준비하고 있어요.';
+  if (phase === 'generating') return recordType + ' 초안을 준비하고 있어요.';
   if (phase === 'revising') return '수정 제안을 준비하고 있어요.';
   if (phase === 'confirming') return '확정한 본문을 저장하고 있어요.';
   if (phase === 'sharing') return '공유창을 열고 있어요.';
@@ -125,7 +125,8 @@ function DraftStep({ state, capabilities, actions }: WritingViewProps) {
   const editing = route === 'edit';
   const revising = route === 'revision';
   const complete = route === 'complete';
-  const title = editing ? '직접 수정' : revising ? 'AI에게 재수정' : complete ? '완성된 관찰일지' : '관찰일지 초안';
+  const recordType = state.recordType ?? '기록';
+  const title = editing ? '직접 수정' : revising ? 'AI에게 재수정' : complete ? '완성된 ' + recordType : recordType + ' 초안';
   const subtitle = editing ? '관찰 사실을 확인하며 본문을 수정해 주세요.'
     : revising ? '어떻게 수정해 드릴까요?'
       : complete ? '선생님이 확인하고 저장한 기록이에요.' : '초안을 읽고 다음 동작을 선택해 주세요.';
@@ -155,7 +156,7 @@ function DraftStep({ state, capabilities, actions }: WritingViewProps) {
           {busy ? <ActivityIndicator size="small" color={colors.ink} />
             : <Ionicons name="information-circle-outline" size={19} color={colors.ink} />}
           <View style={styles.noticeContent}>
-            {busy && <Text style={styles.noticeText}>{phaseLabel(state.phase)}</Text>}
+            {busy && <Text style={styles.noticeText}>{phaseLabel(state.phase, recordType)}</Text>}
             {!!state.notice && <Text style={styles.noticeText}>{state.notice}</Text>}
           </View>
         </View>}
@@ -163,7 +164,7 @@ function DraftStep({ state, capabilities, actions }: WritingViewProps) {
           contentContainerStyle={styles.childTabs} keyboardShouldPersistTaps="handled" testID="writing-child-tabs">
           {state.draft.records.map((item) => {
             const selected = item.recordId === state.activeRecordId;
-            return <Pressable key={item.recordId} accessibilityRole="tab" accessibilityLabel={item.childId + ' 관찰일지'}
+            return <Pressable key={item.recordId} accessibilityRole="tab" accessibilityLabel={item.childId + ' ' + recordType}
               accessibilityState={{ selected, disabled: busy }} disabled={busy} aria-selected={selected}
               onPress={() => actions.selectRecord(item.recordId)}
               style={({ pressed }) => [styles.childTab, selected && styles.selectedChildTab, pressed && styles.pressed]}
@@ -174,10 +175,10 @@ function DraftStep({ state, capabilities, actions }: WritingViewProps) {
             </Pressable>;
           })}
         </ScrollView>}
-        {!record ? <Text style={styles.smallNote}>표시할 관찰일지가 없어요. 녹음 선택 화면에서 다시 확인해 주세요.</Text> : (
+        {!record ? <Text style={styles.smallNote}>표시할 {recordType} 본문이 없어요. 작성 준비 화면에서 다시 확인해 주세요.</Text> : (
           <View style={styles.card}>
             <View style={styles.editorHeading}>
-              <Text style={styles.fieldLabel}>{record.childId} 관찰일지</Text>
+              <Text style={styles.fieldLabel}>{record.childId} {recordType}</Text>
               <View style={[styles.statusBadge, confirmed && styles.confirmedBadge]}>
                 <Text style={[styles.statusBadgeText, confirmed && styles.confirmedBadgeText]}>{confirmed ? '완료' : '검토 중'}</Text>
               </View>
@@ -187,16 +188,16 @@ function DraftStep({ state, capabilities, actions }: WritingViewProps) {
               <Text style={styles.evidenceWarningText}>확인 필요 · 개별 관찰 근거가 부족해요.</Text>
             </View>}
             {revising ? (
-              <TextInput accessibilityLabel="관찰일지 수정 요청 내용" multiline autoFocus value={record.prompt}
+              <TextInput accessibilityLabel={recordType + ' 수정 요청 내용'} multiline autoFocus value={record.prompt}
                 onChangeText={actions.editPrompt} editable={!busy} textAlignVertical="top"
                 placeholder="관찰 사실은 유지하고 문장을 더 간결하게 바꿔줘."
                 placeholderTextColor={colors.muted} style={[styles.promptInput, busy && styles.inactiveInput]}
                 testID="writing-prompt" />
             ) : editing ? (
-              <TextInput accessibilityLabel={record.childId + ' 관찰일지 본문 수정'} multiline autoFocus
+              <TextInput accessibilityLabel={record.childId + ' ' + recordType + ' 본문 수정'} multiline autoFocus
                 value={record.editedText} onChangeText={actions.editText} editable={!busy} textAlignVertical="top"
                 scrollEnabled={false} onContentSizeChange={(event) => setEditorHeight(Math.max(250, event.nativeEvent.contentSize.height))}
-                placeholder="관찰일지 본문을 입력해 주세요." placeholderTextColor={colors.muted}
+                placeholder={recordType + ' 본문을 입력해 주세요.'} placeholderTextColor={colors.muted}
                 style={[styles.editor, { height: editorHeight }, busy && styles.inactiveInput]} testID="writing-body" />
             ) : <>
               {review && !!state.draft?.commonText && <View style={styles.commonCard}>
@@ -240,7 +241,7 @@ function DraftStep({ state, capabilities, actions }: WritingViewProps) {
             busy={state.phase === 'confirming'} disabled={!canConfirm} onPress={actions.confirm} testID="writing-confirm" />
           <Helper text={candidate ? '수정 제안을 적용하거나 취소해 주세요.'
             : !capabilities.confirmation && !confirmed ? '확정·저장 기능은 연결 준비 중이에요.'
-              : '완료하면 현재 아동의 관찰일지가 확정·저장됩니다.'} />
+              : '완료하면 현재 아동의 ' + recordType + ' 본문이 확정·저장됩니다.'} />
         </>}
         {revising && <>
           <ActionButton label={state.phase === 'revising' ? '수정 중…' : '수정하기'} icon="sparkles-outline"
@@ -264,13 +265,12 @@ export function WritingView(props: WritingViewProps) {
   return (
     <View ref={container} style={styles.fill}
       onLayout={() => container.current?.measureInWindow((_x, y) => setKeyboardOffset(y))}>
-      {props.state.route === 'picker' ? <RecordingPicker {...props} /> : (
-        <KeyboardAvoidingView style={styles.fill}
+      <KeyboardAvoidingView style={styles.fill}
           behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
           keyboardVerticalOffset={keyboardOffset}>
-          <DraftStep key={props.state.route + ':' + props.state.activeRecordId} {...props} />
-        </KeyboardAvoidingView>
-      )}
+        {props.state.route === 'picker' ? <RecordingPicker {...props} />
+          : <DraftStep key={props.state.route + ':' + props.state.activeRecordId} {...props} />}
+      </KeyboardAvoidingView>
       <GuardDialog state={props.state} actions={props.actions} />
     </View>
   );
