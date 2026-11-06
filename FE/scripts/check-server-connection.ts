@@ -124,7 +124,10 @@ async function main() {
     assert.equal(rows.length, 2);
     assert.equal(rows[0].child_id, id);
     assert.equal(rows[0].name, '  가상 새 이름  ');
-    assert.equal(await roster.deactivate(id), true);
+    // Legacy server contract coverage; the settings UI uses a separate,
+    // currently unconnected deleteChild port instead of deactivation.
+    const deactivated = await api.deactivateChild(token, id);
+    assert.equal(deactivated.is_active, false);
     assert.equal((await api.listChildren(token, false)).length, 1);
     assert.equal((await api.listChildren(token, true))[0].is_active, false);
     await restored.logout();

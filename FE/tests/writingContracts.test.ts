@@ -275,6 +275,8 @@ function writingFixture() {
     },
   };
   const controller = createWritingController(files, services);
+  // Existing contract cases explicitly choose the supported document type.
+  controller.selectRecordType('관찰일지');
   return {
     controller, calls,
     setConfirmationFailure(value: Error | null) { confirmationFailure = value; },
@@ -295,6 +297,7 @@ async function importFiles(controller: WritingController) {
 }
 
 async function generateDraft(controller: WritingController) {
+  controller.selectRecordType('관찰일지');
   await importFiles(controller);
   controller.generate();
   for (let attempt = 0; attempt < 30; attempt += 1) {

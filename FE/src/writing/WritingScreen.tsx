@@ -15,20 +15,30 @@ const noServices: WritingServices = {};
 /** Remains mounted across tabs so unfinished FE edits are not discarded. */
 export const WritingScreen = forwardRef<WritingHandle, {
   services?: WritingServices;
+  active?: boolean;
   onGoToRecording(): void;
-}>(function WritingScreen({ services = noServices, onGoToRecording }, ref) {
+}>(function WritingScreen({ services = noServices, active = true, onGoToRecording }, ref) {
   const controller = useMemo(() => createWritingController(createLibraryPlatform().recordings,
     { ...services, sharing: services.sharing ?? createTextSharing() }), [services]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   useEffect(() => () => controller.dispose(), [controller]);
+  useEffect(() => {
+    if (active && controller.getSnapshot().route === 'picker') void controller.refreshRecordings();
+  }, [active, controller]);
+  async function back() {
+    if (await controller.back()) onGoToRecording();
+  }
   useImperativeHandle(ref, () => ({
-    back() {
-      if (controller.getSnapshot().route === 'picker') controller.cancelPicker();
-      else onGoToRecording();
-    },
+    back() { void back(); },
     leave: controller.leave,
   }), [controller, onGoToRecording]);
   const actions: WritingActions = {
+    next() { void controller.next(); },
+    selectRecordType: controller.selectRecordType,
+    editKeywords: controller.editKeywords,
+    openEditor: controller.openEditor,
+    openRevision: controller.openRevision,
+    back() { void back(); },
     openPicker() { void controller.openPicker(); },
     refreshRecordings() { void controller.refreshRecordings(); },
     cancelPicker: controller.cancelPicker,

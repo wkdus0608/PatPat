@@ -2,6 +2,7 @@ import type { JournalSource, LoadState } from '../library/types';
 import type { SavedRecording } from '../recording/storage';
 
 export type ContentKind = '관찰' | '배움 읽기' | '놀이 지원' | '지원 계획';
+export type RecordType = '관찰일지' | '알림장';
 
 export interface Observation {
   observation_id: string;
@@ -81,7 +82,9 @@ export interface WritingDraft {
 }
 
 export interface WritingState {
-  route: 'editor' | 'picker';
+  route: 'picker' | 'review' | 'edit' | 'revision' | 'complete';
+  recordType: RecordType | null;
+  keywords: string;
   recordings: LoadState<readonly SavedRecording[]>;
   selected: readonly SavedRecording[];
   checked: readonly string[];
@@ -103,6 +106,12 @@ export interface WritingCapabilities {
 }
 
 export interface WritingActions {
+  next(): void;
+  selectRecordType(type: RecordType): void;
+  editKeywords(text: string): void;
+  openEditor(): void;
+  openRevision(): void;
+  back(): void;
   openPicker(): void;
   refreshRecordings(): void;
   toggleRecording(uri: string): void;
