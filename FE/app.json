@@ -18,11 +18,13 @@
         "expo-audio",
         {
           "microphonePermission": "관찰 내용을 녹음하기 위해 마이크를 사용합니다.",
-          "enableBackgroundRecording": false,
+          "enableBackgroundRecording": true,
           "enableBackgroundPlayback": false
         }
       ],
-      "expo-secure-store"
-    ]
+      "expo-secure-store",
+      "./plugins/withSideButtonTrigger"
+    ],
+    "scheme": "patpat"
   }
 }

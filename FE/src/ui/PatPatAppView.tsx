@@ -18,6 +18,8 @@ export interface RecorderViewProps {
   message: string | null;
   canRetry: boolean;
   canStart: boolean;
+  /** Increases each time a side-button request asks to show the recording screen. */
+  startSignal?: number;
   dateLabel: string;
   onStart: () => void;
   onStop: () => void;
@@ -147,6 +149,20 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
     || props.phase === 'saving' || props.canRetry;
 
   useEffect(() => { if (!blockNavigation) setTabNotice(null); }, [blockNavigation]);
+
+  // A side-button request shows the recording screen even while the recording is already starting.
+  useEffect(() => {
+    if (!props.startSignal || switching.current) return;
+    switching.current = true;
+    void (async () => {
+      try {
+        await libraryRef.current?.leave().catch(() => false);
+        Keyboard.dismiss();
+        setTabNotice(null);
+        setTab('record');
+      } finally { switching.current = false; }
+    })();
+  }, [props.startSignal]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {

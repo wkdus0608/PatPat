@@ -195,3 +195,12 @@ TypeScript 검사와 FE 자동 검사 146개 통과. 추가 4개는 기존 허�
 **실행 결과**: `pnpm typecheck` 통과, `pnpm test` 154개 통과(기존 146개 중 2개 위 변경, 신규 수정 검증 포함), `pnpm test:integration` 통과(실제 FastAPI·임시 SQLite), iOS 코드 묶음 생성 통과.
 
 **미검증**: 실제 iPhone·Android에서의 녹음→즉시 업로드, 네트워크 차단 후 복구 시 자동 재시도, 보관함 목록 표시. 폴더 URI 슬래시 문제는 expo-file-system 소스 읽기와 회귀 테스트로 확인했고 기기에서 재현해 확인한 것은 아니다.
+
+## 측면 버튼 녹음 시작 — 2026-11-04 (`verify/background-recording-ios-android`)
+
+사용자 요청: iPhone·Galaxy 모두 측면 버튼으로 녹음을 시작하고 실기기 테스트 방법까지 제공.
+
+- 구현: iPhone은 App Intent + App Shortcut(Siri·단축어·액션 버튼), Galaxy는 앱 바로가기 + `patpat://record/start` 링크. 공통으로 요청 받은 앱이 녹음 화면으로 이동해 녹음을 시작한다. 요청은 45초 안에 처리되지 않으면 버리고, 이미 녹음 중이면 새로 시작하지 않는다. 앱이 측면 버튼 입력을 직접 읽는 방식은 두 OS 모두 불가해 OS의 측면 버튼 설정에 연결하는 방식이다.
+- 한계: 잠긴 화면에서 곧바로 시작되지 않고 잠금 해제 후 시작된다(Apple 기술지원 답변, Samsung 안내 2차 자료). 시작 뒤에는 백그라운드 녹음으로 화면을 꺼도 이어진다.
+- 자동 검사: `pnpm typecheck` 통과, `pnpm test` 161개 통과(요청 링크 판별·시각 파싱·유효기간·1회 소비·구독 7개 추가), 세 플랫폼 코드 묶음 생성 통과, `expo prebuild` 생성 결과 확인(iOS: Swift 파일이 앱 대상 Sources에 포함, URL 스킴·대체 앱 이름·배포 대상 16.4 / Android: 바로가기 XML·메타데이터·스킴·`singleTask`), `swiftc -typecheck`(macOS SDK)로 Swift 파일 구문·타입 확인.
+- 미검증: 실제 Xcode·Gradle 빌드, Siri의 한국어 인식, One UI의 바로가기 목록 표시, 잠금 화면 동작, 실기기 전체. 테스트 절차는 `plans/FE-05-side-button-trigger.md`. 기존 테스트·AC·골든 케이스는 변경하지 않았다.

@@ -8,7 +8,9 @@ import { createRecordingController, type RecordingController } from './controlle
 import { createExpoRecordingStorage } from './expoFileStore';
 import { createNativeEngine } from './nativeEngine';
 import type { Account } from '../auth/controller';
+import { backgroundRecordingSupported } from './backgroundMode';
 import { ensureMicrophonePermission } from './permissions';
+import { startRequestInbox } from './startRequest';
 import { getAccountLibrary } from '../library/platform';
 
 const OPTIONS = { ...RecordingPresets.HIGH_QUALITY, numberOfChannels: 1 };
@@ -32,6 +34,7 @@ export function useRecording(account?: Account): RecorderViewProps {
     if (status.hasError || status.isFinished) void controllerRef.current?.interrupt();
   });
   const [upload, setUpload] = useState<UploadState>('idle');
+  const [startSignal, setStartSignal] = useState(0);
   const alive = useRef(true);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryDelay = useRef(RETRY_FIRST_MS);
@@ -67,7 +70,7 @@ export function useRecording(account?: Account): RecorderViewProps {
       async setMode(recording) {
         await setAudioModeAsync({
           allowsRecording: recording, playsInSilentMode: true,
-          allowsBackgroundRecording: false, shouldPlayInBackground: false,
+          allowsBackgroundRecording: recording && backgroundRecordingSupported, shouldPlayInBackground: false,
         });
       },
     });
@@ -77,6 +80,18 @@ export function useRecording(account?: Account): RecorderViewProps {
   controllerRef.current = controller;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [clock, setClock] = useState(() => new Date());
+
+  // Side-button request (iPhone Siri / Galaxy shortcut): show the recording screen and start.
+  // `start()` ignores the call when a recording is already running or an unsaved one is waiting.
+  useEffect(() => {
+    const consume = () => {
+      if (!startRequestInbox.take()) return;
+      setStartSignal((value) => value + 1);
+      void controllerRef.current?.start();
+    };
+    consume(); // A request that arrived before sign-in finished.
+    return startRequestInbox.subscribe(consume);
+  }, []);
 
   // Flush recordings left from earlier sessions, and stop timers when the screen goes away.
   useEffect(() => {
@@ -94,8 +109,10 @@ export function useRecording(account?: Account): RecorderViewProps {
       setClock(new Date());
     }, 250);
     const foreground = AppState.addEventListener('change', (next) => {
-      // iOS permission prompts can temporarily make the app inactive.
-      if (next === 'background' || (next === 'inactive' && controller.getSnapshot().phase === 'recording')) void controller.interrupt();
+      // With background recording (development/production builds) leaving the screen keeps recording.
+      // In Expo Go it cannot, so stop and save. iOS permission prompts can briefly make the app inactive.
+      if (!backgroundRecordingSupported
+        && (next === 'background' || (next === 'inactive' && controller.getSnapshot().phase === 'recording'))) void controller.interrupt();
       else if (next === 'active') {
         setClock(new Date());
         retryDelay.current = RETRY_FIRST_MS;
@@ -119,7 +136,7 @@ export function useRecording(account?: Account): RecorderViewProps {
   return {
     phase: state.phase, durationMillis: state.durationMillis,
     message: state.phase === 'saved' ? savedMessage(upload, !!account) : state.message,
-    canStart: state.canStart, canRetry: state.canRetry,
+    canStart: state.canStart, canRetry: state.canRetry, startSignal,
     dateLabel: clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' }),
     onStart: () => { void controller.start(); },
     onStop: () => { void controller.stop(); },
