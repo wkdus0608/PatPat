@@ -8,8 +8,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from './theme';
 import { LibraryScreen, type LibraryHandle } from '../library/LibraryScreen';
 import { WritingScreen, type WritingHandle } from '../writing/WritingScreen';
+import { DailyWritingScreen } from '../writing/DailyWritingScreen';
 import type { WritingServices } from '../writing/types';
 import type { Account } from '../auth/controller';
+import type { V2Api } from '../api/v2';
 import { SettingsScreen, type SettingsHandle } from '../roster/SettingsScreen';
 import { createRosterController } from '../roster/controller';
 
@@ -31,8 +33,8 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 type Tab = 'record' | 'write' | 'library';
 
 const tabs: { key: Tab; label: string; icon: IconName; activeIcon: IconName }[] = [
+  { key: 'write', label: '일지 작성', icon: 'create-outline', activeIcon: 'create' },
   { key: 'record', label: '녹음', icon: 'mic-outline', activeIcon: 'mic' },
-  { key: 'write', label: '관찰일지 작성', icon: 'create-outline', activeIcon: 'create' },
   { key: 'library', label: '보관함', icon: 'folder-open-outline', activeIcon: 'folder-open' },
 ];
 
@@ -137,15 +139,18 @@ function RecordingScreen(props: RecorderViewProps) {
   );
 }
 
-export function PatPatAppView(props: RecorderViewProps & { writingServices?: WritingServices; account?: Account }) {
+export function PatPatAppView(props: RecorderViewProps & { writingServices?: WritingServices; account?: Account; apiV2?: V2Api }) {
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState<Tab>('record');
+  const [tab, setTab] = useState<Tab>('write');
   const [tabNotice, setTabNotice] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Keep unsaved characteristics for this authenticated app, across settings mounts.
+  const [rosterVersion, setRosterVersion] = useState(0);
+  const apiV2 = props.apiV2;
   const roster = useMemo(() => props.account ? createRosterController(
     props.account.api, props.account.session.token, props.account.unauthorized,
-  ) : null, [props.account?.api, props.account?.session.token, props.account?.session.teacher.teacher_id]);
+    apiV2 && { load: apiV2.characteristics, save: apiV2.saveCharacteristics },
+    apiV2 && { load: apiV2.teacherDocument, save: apiV2.saveTeacherDocument },
+  ) : null, [props.account?.api, props.account?.session.token, props.account?.session.teacher.teacher_id, apiV2]);
   useEffect(() => () => roster?.dispose(), [roster]);
   const settingsSaving = useRef(false);
   const settingsRef = useRef<SettingsHandle | null>(null);
@@ -242,11 +247,18 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
           </Pressable>}
         </View>
         {props.account && roster && settingsOpen && <Modal animationType="slide" onRequestClose={() => { if (!props.account?.busy && !settingsSaving.current) settingsRef.current?.back(); }}>
-          <SettingsScreen ref={settingsRef} account={props.account} controller={roster} onClose={() => setSettingsOpen(false)} onSavingChange={saving => { settingsSaving.current = saving; }} />
+          <SettingsScreen ref={settingsRef} account={props.account} controller={roster} onClose={() => {
+            setSettingsOpen(false);
+            setRosterVersion(value => value + 1);
+          }} onSavingChange={saving => { settingsSaving.current = saving; }} />
         </Modal>}
         <View style={[styles.writingContainer, tab !== 'write' && styles.hiddenScreen]}
           accessibilityElementsHidden={tab !== 'write'} importantForAccessibility={tab !== 'write' ? 'no-hide-descendants' : 'auto'}>
-          <WritingScreen ref={writingRef} active={tab === 'write'} services={props.writingServices} onGoToRecording={() => { void selectTab('record'); }} />
+          {props.account && apiV2
+            ? <DailyWritingScreen ref={writingRef} active={tab === 'write'} account={props.account} api={apiV2}
+              rosterVersion={rosterVersion} onGoToRecording={() => { void selectTab('record'); }} />
+            : <WritingScreen ref={writingRef} active={tab === 'write'} services={props.writingServices}
+              onGoToRecording={() => { void selectTab('record'); }} />}
         </View>
         {tab === 'library' ? (
           <LibraryScreen account={props.account} ref={libraryRef} journalSource={props.writingServices?.journals} onGoToRecording={() => { void selectTab('record'); }} />

@@ -1,0 +1,208 @@
+"""Observation-journal rows. They are created when a notice is confirmed and kept per child and per day.
+
+A row is a copy of one paragraph's worth of the day: the shared (common) paragraph and the child's own
+paragraph are separate rows, as in the 관찰일지 forms the teachers paste into. Rows the teacher edited are
+never overwritten by a later re-confirm; they are only marked outdated.
+"""
+import json
+
+from app.core.database import Database
+from app.core.errors import ApiError
+from app.core.timeutil import new_id, now_iso
+
+_SELECT = (
+    "SELECT e.*, c.name AS child_name, n.version AS notice_version, n.status AS notice_status, n.withdrawn AS notice_withdrawn "
+    "FROM journal_entries e JOIN children c ON c.child_id = e.child_id JOIN notices n ON n.notice_id = e.notice_id"
+)
+
+
+def entry_not_found() -> ApiError:
+    return ApiError(status_code=404, code="NOT_FOUND", message="관찰일지 행을 찾을 수 없습니다.")
+
+
+class JournalStore:
+    def __init__(self, database: Database):
+        self.database = database
+
+    # --- reading ----------------------------------------------------------------------------------------------------
+    @staticmethod
+    def _entry(row) -> dict:
+        data = dict(row)
+        data["areas"] = json.loads(data["areas"])
+        data["included"] = bool(data["included"])
+        data["outdated"] = data["source_notice_version"] < data["notice_version"]
+        return data
+
+    def get(self, teacher_id: str, entry_id: str) -> dict | None:
+        with self.database.connect() as connection:
+            row = connection.execute(_SELECT + " WHERE e.teacher_id=? AND e.entry_id=?", (teacher_id, entry_id)).fetchone()
+        return self._entry(row) if row else None
+
+    def require(self, teacher_id: str, entry_id: str) -> dict:
+        entry = self.get(teacher_id, entry_id)
+        if entry is None:
+            raise entry_not_found()
+        return entry
+
+    def list_for_child(
+        self, teacher_id: str, child_id: str, *, date_from: str | None = None, date_to: str | None = None
+    ) -> list[dict]:
+        clauses, values = ["e.teacher_id=?", "e.child_id=?", "n.withdrawn=0"], [teacher_id, child_id]
+        if date_from:
+            clauses.append("e.observed_date>=?")
+            values.append(date_from)
+        if date_to:
+            clauses.append("e.observed_date<=?")
+            values.append(date_to)
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                _SELECT + " WHERE " + " AND ".join(clauses)
+                + " ORDER BY e.observed_date, (e.block_kind='individual'), e.created_at, e.rowid",
+                values,
+            ).fetchall()
+        return [self._entry(row) for row in rows]
+
+    def find_shared_content(self, session_id: str, block_id: str, source_hash: str, areas: list[str],
+                            place: str | None, time_text: str | None) -> str | None:
+        """A finished common row of another child with exactly the same source, so the class text is written once."""
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT content FROM journal_entries WHERE session_id=? AND block_id=? AND block_kind='common' "
+                "AND source_hash=? AND areas=? AND place IS ? AND time_text IS ? AND status='ready' AND content<>'' LIMIT 1",
+                (session_id, block_id, source_hash, json.dumps(areas, ensure_ascii=False), place, time_text),
+            ).fetchone()
+        return row["content"] if row else None
+
+    # --- writing -------------------------------------------------------------------------------------------------------
+    def sync_rows(self, *, teacher_id: str, notice: dict, specs: list[dict]) -> list[str]:
+        """Bring this child's rows of the session in line with a confirmed notice; return the rows to (re)generate."""
+        to_generate: list[str] = []
+        stamp = now_iso()
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            active = connection.execute(
+                "SELECT 1 FROM notices WHERE notice_id=? AND teacher_id=? AND version=? AND status='완료'",
+                (notice["notice_id"], teacher_id, notice["version"]),
+            ).fetchone()
+            if active is None:
+                return []
+            existing = {
+                row["block_id"]: row for row in connection.execute(
+                    "SELECT * FROM journal_entries WHERE child_id=? AND session_id=?", (notice["child_id"], notice["session_id"])
+                )
+            }
+            wanted = set()
+            for spec in specs:
+                wanted.add(spec["block_id"])
+                areas = json.dumps(spec["areas"], ensure_ascii=False)
+                row = existing.get(spec["block_id"])
+                if row is None:
+                    entry_id = new_id()
+                    connection.execute(
+                        "INSERT INTO journal_entries(entry_id, teacher_id, child_id, session_id, block_id, notice_id, block_kind, "
+                        "observed_date, place, time_text, areas, content, status, included, version, source_notice_version, "
+                        "source_hash, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'','pending',1,1,?,?,?,?)",
+                        (entry_id, teacher_id, notice["child_id"], notice["session_id"], spec["block_id"], notice["notice_id"],
+                         spec["block_kind"], notice["target_date"], spec["place"], spec["time_text"], areas,
+                         notice["version"], spec["source_hash"], stamp, stamp),
+                    )
+                    to_generate.append(entry_id)
+                    continue
+                same_source = row["source_hash"] == spec["source_hash"]
+                if row["status"] == "edited":
+                    if same_source:  # the paragraph is the same, so the teacher's version is still the right one
+                        connection.execute(
+                            "UPDATE journal_entries SET source_notice_version=?, notice_id=?, updated_at=? WHERE entry_id=?",
+                            (notice["version"], notice["notice_id"], stamp, row["entry_id"]),
+                        )
+                    continue  # otherwise it stays outdated until the teacher regenerates it
+                unchanged = (
+                    same_source and row["status"] == "ready" and row["areas"] == areas
+                    and row["place"] == spec["place"] and row["time_text"] == spec["time_text"]
+                )
+                if unchanged:
+                    connection.execute(
+                        "UPDATE journal_entries SET source_notice_version=?, notice_id=?, updated_at=? WHERE entry_id=?",
+                        (notice["version"], notice["notice_id"], stamp, row["entry_id"]),
+                    )
+                    continue
+                connection.execute(
+                    "UPDATE journal_entries SET notice_id=?, place=?, time_text=?, areas=?, status='pending', error_code=NULL, "
+                    "version=version+1, source_notice_version=?, source_hash=?, updated_at=? WHERE entry_id=?",
+                    (notice["notice_id"], spec["place"], spec["time_text"], areas, notice["version"], spec["source_hash"], stamp,
+                     row["entry_id"]),
+                )
+                to_generate.append(row["entry_id"])
+            for block_id, row in existing.items():
+                if block_id not in wanted and row["status"] != "edited":
+                    connection.execute("DELETE FROM journal_entries WHERE entry_id=?", (row["entry_id"],))
+        return to_generate
+
+    def mark_pending(self, entry_id: str, *, notice_version: int, source_hash: str, areas: list[str],
+                     place: str | None, time_text: str | None) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                "UPDATE journal_entries SET place=?, time_text=?, areas=?, status='pending', error_code=NULL, "
+                "version=version+1, source_notice_version=?, source_hash=?, updated_at=? WHERE entry_id=?",
+                (place, time_text, json.dumps(areas, ensure_ascii=False), notice_version, source_hash, now_iso(), entry_id),
+            )
+
+    def mark_ready(self, entry_id: str, content: str, expected_version: int) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                "UPDATE journal_entries SET content=?, status='ready', error_code=NULL, version=version+1, updated_at=? "
+                "WHERE entry_id=? AND status='pending' AND version=?",
+                (content, now_iso(), entry_id, expected_version),
+            )
+
+    def mark_failed(self, entry_id: str, error_code: str, expected_version: int) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                "UPDATE journal_entries SET status='failed', error_code=?, version=version+1, updated_at=? "
+                "WHERE entry_id=? AND status='pending' AND version=?",
+                (error_code, now_iso(), entry_id, expected_version),
+            )
+
+    def fail_all_pending_for_notice(self, notice_id: str, error_code: str, source_version: int | None = None) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                "UPDATE journal_entries SET status='failed', error_code=?, version=version+1, updated_at=? "
+                "WHERE notice_id=? AND status='pending' AND (? IS NULL OR source_notice_version=?)",
+                (error_code, now_iso(), notice_id, source_version, source_version),
+            )
+
+    def update(self, teacher_id: str, entry_id: str, expected_version: int, changes: dict) -> dict:
+        """Teacher edit. Content, place, time or areas make the row 'edited'; `included` alone does not."""
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT e.* FROM journal_entries e JOIN notices n ON n.notice_id=e.notice_id "
+                "WHERE e.teacher_id=? AND e.entry_id=? AND n.withdrawn=0", (teacher_id, entry_id)
+            ).fetchone()
+            if row is None:
+                raise entry_not_found()
+            if row["status"] == "pending":
+                raise ApiError(status_code=409, code="ENTRY_BUSY", message="이 행을 만드는 중이에요. 끝난 뒤에 고쳐 주세요.")
+            if row["version"] != expected_version:
+                raise ApiError(status_code=409, code="VERSION_CONFLICT",
+                               message="다른 화면에서 먼저 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.",
+                               details={"current_version": row["version"]})
+            assignments, values = [], []
+            if "included" in changes:
+                assignments.append("included=?")
+                values.append(1 if changes["included"] else 0)
+            content_fields = {key: changes[key] for key in ("content", "place", "time_text") if key in changes}
+            if "areas" in changes:
+                content_fields["areas"] = json.dumps(changes["areas"], ensure_ascii=False)
+            for key, value in content_fields.items():
+                assignments.append(f"{key}=?")
+                values.append(value)
+            if content_fields:
+                assignments.append("status='edited'")
+                assignments.append("error_code=NULL")
+            if assignments:
+                connection.execute(
+                    f"UPDATE journal_entries SET {', '.join(assignments)}, version=version+1, updated_at=? WHERE entry_id=?",
+                    (*values, now_iso(), entry_id),
+                )
+        return self.require(teacher_id, entry_id)

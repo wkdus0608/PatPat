@@ -3,6 +3,8 @@ from pathlib import Path
 import sqlite3
 from threading import Lock
 
+from app.core.migrations import apply_extensions
+
 
 class Database:
     """Connection-per-operation SQLite storage, shared by auth and roster."""
@@ -61,6 +63,7 @@ class Database:
                         UNIQUE(teacher_id, upload_key))""")
                     connection.execute("CREATE INDEX recordings_teacher ON recordings(teacher_id, recorded_at)")
                     connection.execute("PRAGMA user_version=2")
+                apply_extensions(connection)
                 connection.commit()
                 self._ready = True
             finally:

@@ -18,6 +18,9 @@ dependencies = [
 include = ["app*"]
 
 [project.optional-dependencies]
+ai = [
+    "anthropic>=2.0,<3.0",
+]
 test = [
     "httpx2>=2.0,<3.0",
     "pytest>=8,<10",

@@ -38,14 +38,17 @@ export function serverRecording(value: unknown): ServerRecording {
     content_type: text(row.content_type), status: text(row.status) };
 }
 
-export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
+export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fetcher: typeof fetch = fetch) {
   const base = baseUrl.trim().replace(/\/+$/, '');
-  async function request(path: string, token: string | null, method = 'GET', body?: unknown): Promise<unknown> {
+  return async function request(
+    path: string, token: string | null, method = 'GET', body?: unknown,
+    responseType: 'json' | 'text' = 'json',
+  ): Promise<unknown> {
     if (!/^https?:\/\//.test(base)) throw new ApiError(0, 'CONNECTION', '서버에 연결할 수 없어요.');
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 12000);
     try {
-      const response = await fetcher(base + '/api/v1' + path, {
+      const response = await fetcher(base + prefix + path, {
         method, signal: abort.signal,
         headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
           ...(token ? { Authorization: 'Bearer ' + token } : {}) },
@@ -53,19 +56,30 @@ export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
       });
       if (!response.ok) {
         let code = '';
-        try { code = text(record(record(await response.json()).error).code); } catch { /* Safe generic error below. */ }
-        const message = response.status === 401
+        let serverMessage = '';
+        try {
+          const error = record(record(await response.json()).error);
+          code = text(error.code);
+          if (typeof error.message === 'string') serverMessage = error.message;
+        } catch { /* Safe generic error below. */ }
+        const fallback = response.status === 401
           ? (path === '/auth/login' ? '계정 ID 또는 비밀번호를 확인해 주세요.' : '로그인이 만료됐어요. 다시 로그인해 주세요.')
           : response.status === 404 ? '자료를 찾을 수 없어요. 목록을 새로고침해 주세요.'
             : response.status === 422 ? '입력한 내용을 확인해 주세요.' : '요청을 처리하지 못했어요. 다시 시도해 주세요.';
-        throw new ApiError(response.status, code, message);
+        throw new ApiError(response.status, code, prefix === '/api/v2' && response.status !== 401 && serverMessage ? serverMessage : fallback);
       }
-      return response.status === 204 ? undefined : await response.json();
+      if (response.status === 204) return undefined;
+      return responseType === 'text' ? await response.text() : await response.json();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       throw new ApiError(0, 'CONNECTION', '서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
     } finally { clearTimeout(timer); }
-  }
+  };
+}
+
+export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
+  const base = baseUrl.trim().replace(/\/+$/, '');
+  const request = createRequest(base, '/api/v1', fetcher);
   return {
     baseUrl: base,
     async listRecordings(token: string, offset = 0) {

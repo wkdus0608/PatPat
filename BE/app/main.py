@@ -8,6 +8,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.health import health_router
 from app.api.v1.not_implemented import not_implemented_router
 from app.api.v1.router import api_v1_router
+from app.container import install_services
 from app.core.config import Settings, get_settings
 from app.core.errors import ApiError
 from app.core.database import Database
@@ -30,7 +31,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         await to_thread(application.state.database.initialize)
+        for hook in application.state.startup_hooks:
+            await to_thread(hook)
         yield
+        for hook in application.state.shutdown_hooks:
+            await to_thread(hook)
 
     application = FastAPI(
         title=settings.app_name,
@@ -47,8 +52,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.auth_service = SQLiteAuthService(SQLiteAuthRepository(database), settings.session_ttl_seconds)
     application.state.children_service = SQLiteChildrenService(SQLiteChildrenRepository(database))
     application.state.recording_service = SQLiteRecordingService(database, settings)
+    install_services(application, settings, database)
     application.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
-                               allow_methods=["GET", "POST", "PATCH", "DELETE"],
+                               allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
                                allow_headers=["Authorization", "Content-Type", "Idempotency-Key"])
 
     application.add_exception_handler(ApiError, api_error_handler)
