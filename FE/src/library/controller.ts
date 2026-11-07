@@ -1,4 +1,5 @@
 import { loadJournalDetail, loadJournalList } from './journals';
+import type { V2Api } from '../api/v2';
 import type { SavedRecording } from '../recording/storage';
 import type {
   DeleteTarget, JournalListItem, JournalSource, LibraryPlayer, LibraryState, PlayerFactory,
@@ -11,14 +12,17 @@ const playbackError = '녹음을 재생하지 못했어요. 파일을 확인하�
 export function createLibraryController(
   recordings: RecordingLibrary,
   createPlayer: PlayerFactory,
-  journalSource?: JournalSource,
+  source?: JournalSource | Pick<V2Api, 'journalArchive'>,
   now: () => number = Date.now,
 ) {
+  const archiveSource = source && 'journalArchive' in source ? source : undefined;
+  const journalSource = source && 'get' in source ? source : undefined;
   let state: LibraryState = {
     route: 'home', recordings: { status: 'idle' }, journals: { status: 'idle' },
     journalDetail: { status: 'idle' }, selectedRecording: null, selectedJournal: null,
     player: initialPlayer(), deletePrompt: false, deleting: false,
     navigationBusy: false, notice: null,
+    ...(archiveSource ? { journalArchive: { status: 'idle' } } : {}),
   };
   let player: LibraryPlayer | null = null;
   let generation = 0;
@@ -85,6 +89,18 @@ export function createLibraryController(
   async function showJournals() {
     if (!(await navigate('journals', { selectedRecording: null, selectedJournal: null }))) return;
     const version = ++journalVersion;
+    if (archiveSource) {
+      update({ journalArchive: { status: 'loading' } });
+      try {
+        const data = await archiveSource.journalArchive();
+        if (!disposed && version === journalVersion) update({ journalArchive: { status: 'ready', data } });
+      } catch {
+        if (!disposed && version === journalVersion) update({ journalArchive: {
+          status: 'error', message: '관찰일지를 불러오지 못했어요. 다시 시도해 주세요.',
+        } });
+      }
+      return;
+    }
     update({ journals: { status: 'loading' } });
     const result = await loadJournalList(journalSource);
     if (!disposed && version === journalVersion) update({ journals: result });

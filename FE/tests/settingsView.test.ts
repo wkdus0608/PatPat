@@ -147,8 +147,8 @@ test('characteristics screen shows the named child, exact multiline draft, and e
   assert.ok(html.includes('아동 특성') && html.includes('가람가상'));
   assert.ok(html.includes('아동에 대해 알려주세요.'));
   assert.ok(html.includes('좋아하는 놀이, 평소 표현 방식, 도움이 필요한 상황을 자유롭게 적어주세요.'));
-  assert.ok(html.includes('작성한 뒤 저장하기를 눌러주세요.'));
-  assert.ok(html.includes('아직 저장하지 않은 내용이 있어요.'));
+  assert.ok(!html.includes('작성한 뒤 저장하기를 눌러주세요.'));
+  assert.ok(!html.includes('아직 저장하지 않은 내용이 있어요.'));
   assert.equal(disabled(html, 'settings-characteristics-save'), false);
   assert.ok(html.indexOf('settings-characteristics-input') < html.indexOf('settings-characteristics-save'));
   const input = tag(html, 'settings-characteristics-input');

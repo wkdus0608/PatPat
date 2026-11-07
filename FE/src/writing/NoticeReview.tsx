@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { ApiError, errorMessage } from '../api/client';
 import type { Job, Notice, NoticeRevision, NoticeSummary, V2Api } from '../api/v2';
 import { colors } from '../ui/theme';
+import { copyRecord } from '../ui/clipboard';
 import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 
 export function jobMessage(code: string | null) {
@@ -24,16 +25,24 @@ export async function waitForJob(api: V2Api, job: Job) {
   if (job.status === 'failed') throw new ApiError(0, job.error_code ?? 'JOB_FAILED', jobMessage(job.error_code));
 }
 
-export function NoticeReview({ api, summary }: { api: V2Api; summary: NoticeSummary }) {
+export function NoticeReview({ api, summary, onDirty }: {
+  api: V2Api; summary: NoticeSummary; onDirty(id: string, dirty: boolean): void;
+}) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [draft, setDraft] = useState<{ text: string; version: number } | null>(null);
   const [instruction, setInstruction] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<NoticeRevision | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [copiedVersion, setCopiedVersion] = useState<number | null>(null);
   const action = useWorkAction();
   const noticeId = summary.notice_id;
   const version = summary.version;
+  const dirty = (draft !== null && draft.text !== notice?.text) || !!instruction?.trim();
+  useEffect(() => {
+    onDirty(noticeId, dirty);
+    return () => onDirty(noticeId, false);
+  }, [noticeId, dirty, onDirty]);
   useEffect(() => {
     let current = true;
     setLoadError(null);
@@ -104,6 +113,7 @@ export function NoticeReview({ api, summary }: { api: V2Api; summary: NoticeSumm
           </View>
         </>}
         {notice.busy && <WorkMessage>이 아이의 알림장을 다시 쓰고 있어요.</WorkMessage>}
+        {confirmed && copiedVersion === notice.version && <WorkMessage>알림장을 복사했어요.</WorkMessage>}
         <View style={styles.actions}>
           <View style={[workStyles.row, styles.editActions]}>
             {draft !== null ? <>
@@ -120,8 +130,14 @@ export function NoticeReview({ api, summary }: { api: V2Api; summary: NoticeSumm
               <WorkButton label="AI 수정" secondary disabled={blocked} onPress={() => setInstruction('')} />
             </>}
           </View>
-          {confirmed ? <WorkButton label="확정 취소" secondary busy={action.busy} disabled={blocked}
-            onPress={() => { void action.run(async () => setNotice(await api.unconfirmNotice(noticeId, notice.version))); }} />
+          {confirmed ? <View style={workStyles.row}>
+            <WorkButton label="확정 취소" secondary disabled={blocked}
+              onPress={() => { void action.run(async () => setNotice(await api.unconfirmNotice(noticeId, notice.version))); }} />
+            <WorkButton label="복사" busy={action.busy} disabled={blocked} onPress={() => { void action.run(async () => {
+              await copyRecord(notice.text);
+              setCopiedVersion(notice.version);
+            }); }} />
+          </View>
             : instruction === null && !candidate && <WorkButton label={draft === null ? '확정' : '저장하고 확정'}
               busy={action.busy} disabled={blocked} onPress={() => { void action.run(() => save(notice, true)); }} />}
         </View>

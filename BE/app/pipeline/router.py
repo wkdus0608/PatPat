@@ -51,9 +51,10 @@ class AnswersBody(BaseModel):
 )
 def generate(
     session_id: str, teacher: CurrentTeacher, services: ServicesDependency, ask_missing_areas: bool = False,
+    prepare_journals: bool = False,
 ) -> JobResponse:
     return job_response(services.pipeline.start_generate(
-        teacher.teacher_id, session_id, ask_missing_areas=ask_missing_areas,
+        teacher.teacher_id, session_id, ask_missing_areas=ask_missing_areas, prepare_journals=prepare_journals,
     ))
 
 

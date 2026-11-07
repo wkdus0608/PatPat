@@ -50,12 +50,13 @@ export function WorkChoice({ label, selected, onPress, disabled, checkbox }: {
   );
 }
 
-export function WorkField({ label, ...props }: TextInputProps & { label: string }) {
+export function WorkField({ label, inputAccessory, ...props }: TextInputProps & { label: string; inputAccessory?: ReactNode }) {
+  const input = <TextInput accessibilityLabel={label} placeholderTextColor={colors.muted}
+    {...props} style={[workStyles.input, props.multiline && workStyles.multiline, props.style]} />;
   return (
     <View style={workStyles.field}>
       <Text style={workStyles.label}>{label}</Text>
-      <TextInput accessibilityLabel={label} placeholderTextColor={colors.muted}
-        {...props} style={[workStyles.input, props.multiline && workStyles.multiline, props.style]} />
+      {inputAccessory ? <View>{input}{inputAccessory}</View> : input}
     </View>
   );
 }
@@ -68,6 +69,7 @@ export function WorkMessage({ children, error }: { children: ReactNode; error?: 
 export const workStyles = StyleSheet.create({
   content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 26, gap: 14 },
   panel: { backgroundColor: colors.white, padding: 16, borderWidth: 1, borderColor: colors.line, borderRadius: 18, gap: 11 },
+  raised: { zIndex: 1 },
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   between: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
   heading: { color: colors.ink, fontSize: 22, fontWeight: '800' },

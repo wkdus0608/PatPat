@@ -18,6 +18,7 @@ from app.profile.schemas import (
     DocumentResponse,
     OnboardingProgress,
     TextBody,
+    WritingPreferences,
 )
 from app.profile.store import ProfileStore
 from app.rules.loader import age_band_from_label
@@ -47,6 +48,16 @@ def update_onboarding(
 ) -> OnboardingProgress:
     return OnboardingProgress(step=store.advance_onboarding(teacher.teacher_id, body.step))
 
+
+@profile_router.get("/teacher/writing-preferences", response_model=WritingPreferences, summary="자주 쓰는 장소·시간 조회")
+def writing_preferences(teacher: CurrentTeacher, store: StoreDependency) -> WritingPreferences:
+    return WritingPreferences(**store.writing_preferences(teacher.teacher_id))
+
+
+@profile_router.put("/teacher/writing-preferences", response_model=WritingPreferences, summary="자주 쓰는 장소·시간 저장")
+def save_writing_preferences(body: WritingPreferences, teacher: CurrentTeacher, store: StoreDependency) -> WritingPreferences:
+    store.save_writing_preferences(teacher.teacher_id, body.places, body.times)
+    return body
 
 def _own_child(store: ProfileStore, teacher_id: str, child_id: str) -> None:
     if not store.owns_child(teacher_id, child_id):

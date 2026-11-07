@@ -244,6 +244,30 @@ MIGRATIONS: tuple[tuple[str, str], ...] = (
         ALTER TABLE notice_history_next RENAME TO notice_history;
         """,
     ),
+    (
+        "009_writing_preferences_and_journal_source",
+        """
+        CREATE TABLE teacher_writing_preferences (
+            teacher_id TEXT PRIMARY KEY REFERENCES teachers(teacher_id),
+            places TEXT NOT NULL DEFAULT '[]',
+            times TEXT NOT NULL DEFAULT '[]'
+        );
+        ALTER TABLE journal_entries ADD COLUMN from_inputs INTEGER NOT NULL DEFAULT 0 CHECK(from_inputs IN (0,1));
+        """,
+    ),
+    (
+        "010_journal_day_edits",
+        """
+        CREATE TABLE journal_day_edits (
+            teacher_id TEXT NOT NULL REFERENCES teachers(teacher_id),
+            child_id TEXT NOT NULL REFERENCES children(child_id),
+            observed_date TEXT NOT NULL,
+            content TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            PRIMARY KEY (teacher_id, child_id, observed_date)
+        );
+        """,
+    ),
 )
 
 

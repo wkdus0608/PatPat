@@ -4,6 +4,8 @@ import type { TeacherDocumentKind } from '../roster/teacherDocuments';
 export const OBSERVATION_AREAS = ['신체운동·건강', '의사소통', '사회관계', '예술경험', '자연탐구'] as const;
 export type Area = typeof OBSERVATION_AREAS[number];
 export type OnboardingStep = 1 | 2 | 3 | 4 | 5;
+export type WritingPreferences = { places: string[]; times: string[] };
+export type DateRange = { from: string | null; to: string | null };
 
 export interface Classroom {
   classroom_id: string;
@@ -91,15 +93,45 @@ export interface JournalEntry {
   content: string;
   status: 'pending' | 'ready' | 'edited' | 'failed';
   included: boolean;
+  is_draft: boolean;
   version: number;
 }
+
+export interface JournalDayText {
+  observed_date: string;
+  content: string;
+  areas: Area[];
+  places: string[];
+  times: string[];
+}
+
+export interface JournalDay extends JournalDayText {
+  edit_version: number;
+  revision: string;
+  editable: boolean;
+}
+
+export interface JournalArchiveEntry extends JournalDayText {
+  child_id: string;
+  child_name: string;
+}
+
+export type JournalDayEdit = Pick<JournalDayText, 'observed_date' | 'content'> & { expected_revision: string };
 
 export interface Journal {
   child: { child_id: string; name: string; gender: string | null; birth_date: string | null };
   items: JournalEntry[];
+  days: JournalDay[];
 }
+export type JournalEdit = Pick<JournalEntry, 'content' | 'place' | 'time_text'>;
 
 const id = encodeURIComponent;
+function journalQuery(range?: DateRange, text = false) {
+  const parts = text ? ['format=text'] : [];
+  if (range?.from) parts.push('from=' + id(range.from));
+  if (range?.to) parts.push('to=' + id(range.to));
+  return parts.length ? '?' + parts.join('&') : '';
+}
 
 export function createV2Api(baseUrl: string, token: string | null, unauthorized?: (error: unknown) => void) {
   const request = createRequest(baseUrl, '/api/v2');
@@ -119,6 +151,8 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
       send<Teacher>('/auth/signup', 'POST', { login_id, display_name, password }),
     onboarding: () => send<{ step: OnboardingStep }>('/onboarding'),
     saveOnboarding: (step: OnboardingStep) => send<{ step: OnboardingStep }>('/onboarding', 'PUT', { step }),
+    writingPreferences: () => send<WritingPreferences>('/teacher/writing-preferences'),
+    saveWritingPreferences: (value: WritingPreferences) => send<WritingPreferences>('/teacher/writing-preferences', 'PUT', value),
     classrooms: async () => (await send<{ items: Classroom[] }>('/classrooms')).items,
     saveClassroom: (classroom: Classroom) => send<Classroom>('/classrooms/' + id(classroom.classroom_id), 'PATCH', {
       name: classroom.name, age_label: classroom.age_label,
@@ -139,7 +173,8 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     session: (sessionId: string) => send<WritingSession>('/sessions/' + id(sessionId)),
     saveBlock: (sessionId: string, blockId: string, edit: Partial<BlockEdit>) =>
       send<Block>('/sessions/' + id(sessionId) + '/blocks/' + id(blockId), 'PATCH', edit),
-    generate: (sessionId: string) => send<Job>('/sessions/' + id(sessionId) + '/generate?ask_missing_areas=true', 'POST'),
+    generate: (sessionId: string) =>
+      send<Job>('/sessions/' + id(sessionId) + '/generate?ask_missing_areas=true&prepare_journals=true', 'POST'),
     answer: (sessionId: string, answers: ReviewAnswer[]) =>
       send<Job>('/sessions/' + id(sessionId) + '/answers', 'POST', { answers }),
     reopen: (sessionId: string) => send<WritingSession>('/sessions/' + id(sessionId) + '/reopen', 'POST'),
@@ -159,10 +194,14 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
       send<NoticeRevision>('/notices/' + id(noticeId) + '/revisions/' + id(revisionId)),
     adoptRevision: (noticeId: string, revisionId: string, expected_version: number) =>
       send<Notice>('/notices/' + id(noticeId) + '/revisions/' + id(revisionId) + '/adopt', 'POST', { expected_version }),
-    journal: (childId: string) => send<Journal>('/children/' + id(childId) + '/journal'),
-    journalText: (childId: string) => send<string>('/children/' + id(childId) + '/journal/export?format=text', 'GET', undefined, 'text'),
-    saveJournalEntry: (entryId: string, content: string, expected_version: number) =>
-      send<JournalEntry>('/journal-entries/' + id(entryId), 'PATCH', { content, expected_version }),
+    journal: (childId: string, range?: DateRange) => send<Journal>('/children/' + id(childId) + '/journal' + journalQuery(range)),
+    saveJournalDays: (childId: string, days: JournalDayEdit[]) =>
+      send<JournalDay[]>('/children/' + id(childId) + '/journal', 'PATCH', { days }),
+    journalArchive: () => send<JournalArchiveEntry[]>('/journal/archive'),
+    journalText: (childId: string, range?: DateRange) =>
+      send<string>('/children/' + id(childId) + '/journal/export' + journalQuery(range, true), 'GET', undefined, 'text'),
+    saveJournalEntry: (entryId: string, edit: Partial<JournalEdit>, expected_version: number) =>
+      send<JournalEntry>('/journal-entries/' + id(entryId), 'PATCH', { ...edit, expected_version }),
   };
 }
 

@@ -1,4 +1,6 @@
 """Teacher/child profile data: child characteristics, teacher documents, classrooms."""
+import json
+
 from app.core.database import Database
 from app.core.timeutil import new_id, now_iso
 
@@ -6,6 +8,21 @@ from app.core.timeutil import new_id, now_iso
 class ProfileStore:
     def __init__(self, database: Database):
         self.database = database
+
+    def writing_preferences(self, teacher_id: str) -> dict:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT places, times FROM teacher_writing_preferences WHERE teacher_id=?", (teacher_id,),
+            ).fetchone()
+        return {key: json.loads(row[key]) if row else [] for key in ("places", "times")}
+
+    def save_writing_preferences(self, teacher_id: str, places: list[str], times: list[str]) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                "INSERT INTO teacher_writing_preferences(teacher_id, places, times) VALUES (?,?,?) "
+                "ON CONFLICT(teacher_id) DO UPDATE SET places=excluded.places, times=excluded.times",
+                (teacher_id, json.dumps(places, ensure_ascii=False), json.dumps(times, ensure_ascii=False)),
+            )
 
     def onboarding_step(self, teacher_id: str) -> int:
         with self.database.connect() as connection:

@@ -308,6 +308,62 @@ def test_removing_a_child_from_the_roster_keeps_the_journal(tmp_path):
         assert len(journal(env, ids["다온"])["items"]) == 2
 
 
+def test_editing_several_days_is_atomic_and_the_saved_text_appears_in_archive_and_export(tmp_path):
+    with running_env(tmp_path) as env:
+        first_date, second_date = "2026-11-06", "2026-11-08"
+        ids, _, first = day(env, date=first_date)
+        _, _, second = day(env, ids, date=second_date)
+        child = ids["다온"]
+        confirm(env, first["다온"]["notice_id"], 1)
+        last_notice = confirm(env, second["다온"]["notice_id"], 1)["notice"]
+        archive = f"{V2}/journal/archive"
+        path = f"{V2}/children/{child}/journal"
+        original = journal(env, child)
+        first_day, second_day = original["days"]
+        assert first_day["content"] == "\n\n".join(row["content"] for row in original["items"][:2])
+        assert second_day["observed_date"] == second_date
+        assert env.client.get(archive).status_code == 401
+        assert env.client.get(archive, headers=env.headers_b).json() == []
+
+        text_first = "  다온은 낙엽을 두 손으로 모았음.\n교사가 옆에서 관찰함.  "
+        text_second = "다온은 모은 낙엽을 교사에게 보여 줌.\n\n색을 비교하는 모습이 관찰됨."
+        updates = [
+            {"observed_date": item["observed_date"], "expected_revision": item["revision"], "content": content}
+            for item, content in zip((first_day, second_day), (text_first, text_second))
+        ]
+        stale = [updates[0], {**updates[1], "expected_revision": "0" * 64}]
+        assert env.client.patch(path, headers=env.headers, json={"days": stale}).status_code == 409
+        assert journal(env, child) == original  # the first date is rolled back as well
+        assert env.client.patch(path, headers=env.headers_b, json={"days": updates}).status_code == 404
+
+        response = env.client.patch(path, headers=env.headers, json={"days": updates})
+        assert response.status_code == 200, response.text
+        saved = response.json()
+        assert [item["content"] for item in saved] == [text_first, text_second]
+        assert all(item["edit_version"] == 1 for item in saved)
+        assert env.client.patch(path, headers=env.headers, json={"days": updates}).json() == saved
+        assert journal(env, child)["items"] == original["items"]
+        assert journal(env, child, f"?from={second_date}")["days"] == saved[1:]
+
+        archived = env.client.get(archive, headers=env.headers).json()
+        assert [(item["child_id"], item["observed_date"], item["content"]) for item in archived] == [
+            (child, first_date, text_first), (child, second_date, text_second),
+        ]
+        assert archived[0]["areas"] == original["items"][1]["areas"]
+        output = env.client.get(path + "/export", headers=env.headers).text
+        assert output.count(f"[{first_date}]") == 1 and output.count(f"[{second_date}]") == 1
+        assert text_first in output and text_second in output
+
+        notice_path = f"{V2}/notices/{last_notice['notice_id']}"
+        undone = env.client.post(notice_path + "/unconfirm", headers=env.headers, json={
+            "expected_version": last_notice["version"],
+        }).json()
+        assert env.client.get(archive, headers=env.headers).json() == archived[:1]
+        confirm(env, last_notice["notice_id"], undone["version"])
+        assert env.client.delete(f"{V2}/children/{child}", headers=env.headers).status_code == 204
+        assert env.client.get(archive, headers=env.headers).json() == archived
+
+
 def test_a_restart_fails_rows_that_were_still_being_written(tmp_path):
     with running_env(tmp_path) as env:
         ids, session, notices = day(env)

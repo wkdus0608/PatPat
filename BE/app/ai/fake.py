@@ -4,6 +4,7 @@ Its sentences are marked "[테스트 문장]" so they can never be mistaken for 
 Tests replace handlers per task to script particular situations or failures.
 """
 import json
+import re
 from collections.abc import Callable
 
 from app.ai.privacy import mask_names
@@ -46,7 +47,20 @@ def _review(request: AIRequest) -> dict:
                 others = [name for child_id, name in roster.items() if child_id != row["child_id"]]
                 facts.append({"child_id": row["child_id"], "fact": mask_names(row["text"], others)})
         events.append({"child_ids": incident_ids, "facts": facts})
-    return {"flags": flags, "joint_events": events, "incident_child_ids": incident_ids}
+    result = {"flags": flags, "joint_events": events, "incident_child_ids": incident_ids}
+    if "metadata_sources" in request.payload:
+        metadata = []
+        for source in request.payload["metadata_sources"]:
+            text = source["text"]
+            place = re.search(r"(바깥놀이터|놀이터|유희실|교실|운동장|공원)(?:에서|으로|에)", text)
+            time = re.search(r"(?:오전 |오후 )?\d{1,2}(?::\d{2}|시(?:\s*\d{1,2}분)?)", text)
+            metadata.append({
+                "block_id": source["block_id"],
+                "place": place[1] if place and "place" in source["fields"] else "",
+                "time_text": time[0] if time and "time_text" in source["fields"] else "",
+            })
+        result["metadata"] = metadata
+    return result
 
 
 def _common(request: AIRequest) -> dict:

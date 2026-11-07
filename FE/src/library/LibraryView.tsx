@@ -16,6 +16,7 @@ import {
 import { recordingLabel } from '../recording/files';
 import type { SavedRecording } from '../recording/storage';
 import { colors } from '../ui/theme';
+import { JournalArchive } from './JournalArchive';
 import type { JournalListItem, LibraryViewProps } from './types';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -260,7 +261,7 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
   }
 
   function journalListPanel() {
-    const load = state.journals;
+    const load = state.journalArchive ?? state.journals;
     if (load.status === 'idle' || load.status === 'loading') {
       return <StatePanel icon="document-text-outline" title="관찰일지를 불러오고 있어요" message="작성된 기록을 확인하고 있어요." loading />;
     }
@@ -337,6 +338,21 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
   }
 
   if (state.route === 'journals') {
+    if (state.journalArchive) {
+      const archive = state.journalArchive;
+      const header = <Header title="작성한 관찰일지" subtitle="날짜를 좌우로 넘겨 기록을 확인해요."
+        onBack={actions.back} onRefresh={actions.refresh} busy={locked} />;
+      return archive.status === 'ready' && archive.data.length > 0 ? (
+        <View style={styles.fill}>
+          <View style={styles.archiveHeader}>{header}{notice}</View>
+          <JournalArchive records={archive.data} />
+        </View>
+      ) : (
+        <ScrollView style={styles.fill} contentContainerStyle={styles.content}>
+          {header}{notice}{journalListPanel()}
+        </ScrollView>
+      );
+    }
     const data = state.journals.status === 'ready' ? state.journals.data : [];
     return (
       <FlatList
@@ -472,6 +488,7 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 5, paddingBottom: 30, flexGrow: 1 },
+  archiveHeader: { paddingHorizontal: 24, paddingTop: 5 },
   header: { marginBottom: 24 },
   navigationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   backButton: { flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 44, paddingRight: 12 },

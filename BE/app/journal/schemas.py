@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +22,7 @@ class JournalEntryResponse(BaseModel):
     status: Literal["pending", "ready", "edited", "failed"]
     error_code: str | None
     included: bool = Field(description="false이면 내보내기에서 뺍니다.")
+    is_draft: bool = Field(description="알림장 확정을 기다리는 관찰일지 초안")
     version: int = Field(description="수정 요청에 expected_version으로 그대로 보냅니다.")
     source_notice_version: int
     outdated: bool = Field(description="알림장이 이 행을 만든 뒤에 바뀌었으면 true. 다시 확정하거나 행을 다시 만들면 풀립니다.")
@@ -36,11 +38,45 @@ class JournalChild(BaseModel):
     birth_date: str | None
 
 
+class JournalDayText(BaseModel):
+    observed_date: str
+    content: str
+    areas: list[AreaName]
+    places: list[str]
+    times: list[str]
+
+
+class JournalDayResponse(JournalDayText):
+    edit_version: int
+    revision: str
+    editable: bool
+
+
+class JournalArchiveEntry(JournalDayText):
+    child_id: str
+    child_name: str
+
+
 class JournalResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     child: JournalChild = Field(description="관찰일지 문서 머리(이름, 성별, 생년월일)")
     items: list[JournalEntryResponse]
+    days: list[JournalDayResponse] = Field(description="확정된 관찰을 날짜별로 모은 본문")
+
+
+class DayEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observed_date: date
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    content: str
+
+
+class DaysPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    days: list[DayEdit] = Field(min_length=1)
 
 
 class EntryPatch(BaseModel):

@@ -1,11 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { errorMessage, type Child } from '../api/client';
-import type { ChildDetails, Classroom, OnboardingStep, V2Api } from '../api/v2';
+import type { ChildDetails, Classroom, OnboardingStep, V2Api, WritingPreferences } from '../api/v2';
+import { DateArrow, DatePicker, todayDate } from '../ui/DatePicker';
 import { colors } from '../ui/theme';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import type { Account } from './controller';
+import { emptyPresetLines, parsePreferenceLines, PreferenceFields, preferenceLines } from '../writing/WritingPreferences';
 
 const titles = ['반 정보', '아동 명단', '아이별 특성', '내 말투 알려주기'];
 type Profile = ChildDetails & { characteristics: string };
@@ -14,6 +17,7 @@ type SetupData = {
   children?: Child[];
   profiles?: Record<string, Profile>;
   example?: string;
+  preferences?: WritingPreferences;
 };
 
 function SetupFrame({ children }: { children: ReactNode }) {
@@ -54,12 +58,6 @@ export function OnboardingGate({ account, api, children }: { account: Account; a
   );
 }
 
-function isDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(value + 'T00:00:00Z');
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
 function SetupStep({ step, account, api, onAdvance }: {
   step: Exclude<OnboardingStep, 5>; account: Account; api: V2Api; onAdvance(step: OnboardingStep): void;
 }) {
@@ -69,18 +67,26 @@ function SetupStep({ step, account, api, onAdvance }: {
   const [name, setName] = useState('');
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [example, setExample] = useState('');
+  const [exampleExpanded, setExampleExpanded] = useState(false);
+  const [preferences, setPreferences] = useState(emptyPresetLines);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const action = useWorkAction();
   const token = account.session.token;
   const legacy = account.api;
   const unauthorized = account.unauthorized;
+  const { height } = useWindowDimensions();
+  const ageMatch = room?.age_label.match(/\d+/);
+  const age = ageMatch ? Number(ageMatch[0]) : null;
 
   useEffect(() => {
     let current = true;
     setLoadError(null);
     async function load(): Promise<SetupData> {
-      if (step === 1) return { classroom: (await api.classrooms())[0] };
+      if (step === 1) {
+        const [classrooms, preferences] = await Promise.all([api.classrooms(), api.writingPreferences()]);
+        return { classroom: classrooms[0], preferences };
+      }
       if (step === 4) return { example: await api.teacherDocument('writing_examples') ?? '' };
       const children = await legacy.listChildren(token);
       if (step === 2) return { children };
@@ -99,6 +105,7 @@ function SetupStep({ step, account, api, onAdvance }: {
       setChildren(data.children ?? []);
       setProfiles(data.profiles ?? {});
       setExample(data.example ?? '');
+      setPreferences(data.preferences ? preferenceLines(data.preferences) : emptyPresetLines);
     }).catch(error => {
       if (!current) return;
       unauthorized(error);
@@ -121,10 +128,11 @@ function SetupStep({ step, account, api, onAdvance }: {
   async function advance(skip = false) {
     if (!skip) {
       if (step === 1) {
-        if (!room?.name.trim() || !room.age_label.trim()) {
-          action.setError('반 이름과 연령을 입력해 주세요.');
+        if (!room?.name.trim() || age === null || age > 5) {
+          action.setError('반 이름을 입력하고 연령을 선택해 주세요.');
           return;
         }
+        await api.saveWritingPreferences(parsePreferenceLines(preferences));
         await api.saveClassroom({ ...room, name: room.name.trim(), age_label: room.age_label.trim() });
       }
       if (step === 2) {
@@ -134,13 +142,6 @@ function SetupStep({ step, account, api, onAdvance }: {
         }
       }
       if (step === 3) {
-        for (const child of children) {
-          const value = profiles[child.child_id];
-          if (value.birth_date && !isDate(value.birth_date.trim())) {
-            action.setError(child.name + ' 생년월일을 YYYY-MM-DD 형식으로 입력해 주세요.');
-            return;
-          }
-        }
         for (const child of children) {
           const value = profiles[child.child_id];
           const before = baseline?.profiles?.[child.child_id];
@@ -179,8 +180,18 @@ function SetupStep({ step, account, api, onAdvance }: {
         {step === 1 && room && <View style={workStyles.panel}>
           <WorkField label="반 이름" value={room.name} maxLength={100} editable={!action.busy}
             onChangeText={value => setRoom({ ...room, name: value })} />
-          <WorkField label="반 연령" placeholder="예: 만 2세" value={room.age_label} maxLength={30} editable={!action.busy}
-            onChangeText={value => setRoom({ ...room, age_label: value })} />
+          <Text style={workStyles.label}>반 연령</Text>
+          <View style={workStyles.between}>
+            <Text accessibilityLabel="반 연령" style={workStyles.body}>{age === null ? '만 나이 선택' : '만 ' + age + '세'}</Text>
+            <View style={styles.ageButtons}>
+              <DateArrow name="chevron-up" label="반 연령 높이기" disabled={action.busy || (age !== null && age >= 5)}
+                onPress={() => setRoom({ ...room, age_label: '만 ' + ((age ?? -1) + 1) + '세' })} />
+              <DateArrow name="chevron-down" label="반 연령 낮추기" disabled={action.busy || age === 0}
+                onPress={() => setRoom({ ...room, age_label: '만 ' + Math.min(5, (age ?? 6) - 1) + '세' })} />
+            </View>
+          </View>
+          <Text style={workStyles.title}>자주 쓰는 장소·시간</Text>
+          <PreferenceFields value={preferences} onChange={setPreferences} disabled={action.busy} />
         </View>}
         {step === 2 && <View style={workStyles.panel}>
           <WorkMessage>알림장과 관찰일지를 작성할 아이를 등록해 주세요.</WorkMessage>
@@ -202,8 +213,8 @@ function SetupStep({ step, account, api, onAdvance }: {
                   selected={value.gender === gender} disabled={action.busy}
                   onPress={() => changeProfile(child.child_id, { gender: value.gender === gender ? null : gender })} />)}
               </View>
-              <WorkField label={child.name + ' 생년월일'} placeholder="YYYY-MM-DD" value={value.birth_date ?? ''}
-                editable={!action.busy} maxLength={10} onChangeText={birth_date => changeProfile(child.child_id, { birth_date })} />
+              <DatePicker label={child.name + ' 생년월일'} value={value.birth_date} max={todayDate()} years
+                disabled={action.busy} onChange={birth_date => changeProfile(child.child_id, { birth_date })} />
               <WorkField label={child.name + ' 특성'} value={value.characteristics} multiline maxLength={20000}
                 editable={!action.busy} onChangeText={characteristics => changeProfile(child.child_id, { characteristics })} />
             </View>;
@@ -212,6 +223,14 @@ function SetupStep({ step, account, api, onAdvance }: {
         {step === 4 && <View style={workStyles.panel}>
           <WorkMessage>선생님이 직접 쓴 문장을 넣으면 말투를 참고해요.</WorkMessage>
           <WorkField label="알림장 예시" value={example} onChangeText={setExample} multiline maxLength={20000}
+            style={[styles.exampleInput, { height: exampleExpanded ? Math.max(200, height - 200) : 90 }]}
+            inputAccessory={<Pressable accessibilityRole="button" accessibilityLabel={exampleExpanded ? '원래 크기' : '전체화면'}
+              accessibilityState={{ expanded: exampleExpanded, disabled: action.busy }} disabled={action.busy}
+              onPress={() => setExampleExpanded(value => !value)}
+              style={({ pressed }) => [styles.exampleControl, action.busy && workStyles.disabled, pressed && workStyles.pressed]}>
+              <Ionicons accessible={false} name={exampleExpanded ? 'contract-outline' : 'resize-outline'}
+                size={21} color={colors.ink} />
+            </Pressable>}
             editable={!action.busy} placeholder="이전에 작성한 알림장 문장을 붙여 넣어주세요." />
         </View>}
         {action.error && <WorkMessage error>{action.error}</WorkMessage>}
@@ -229,4 +248,8 @@ const styles = StyleSheet.create({
   scroll: { alignItems: 'center', flexGrow: 1 },
   frame: { maxWidth: 540, width: '100%', paddingHorizontal: 22, gap: 14 },
   brand: { color: colors.ink, fontSize: 24, fontWeight: '800' },
+  ageButtons: { gap: 4 },
+  exampleInput: { paddingRight: 55 },
+  exampleControl: { position: 'absolute', top: 3, right: 3, width: 44, height: 44, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center' },
 });

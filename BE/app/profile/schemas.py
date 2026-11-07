@@ -1,7 +1,7 @@
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 DocumentKind = Literal["writing_examples", "record_format"]
 MAX_TEXT = 20_000
@@ -11,6 +11,21 @@ class OnboardingProgress(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     step: int = Field(ge=1, le=5, description="1 반 정보, 2 아동 명단, 3 아동 특성, 4 글 예시, 5 완료")
+
+
+PresetText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+class WritingPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    places: list[PresetText] = Field(default_factory=list, max_length=30)
+    times: list[PresetText] = Field(default_factory=list, max_length=30)
+
+    @field_validator("places", "times")
+    @classmethod
+    def unique_presets(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values))
 
 
 class TextBody(BaseModel):

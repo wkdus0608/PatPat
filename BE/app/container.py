@@ -36,13 +36,13 @@ def install_services(application: FastAPI, settings: Settings, database: Databas
     sessions = SessionStore(database, profile)
     notices = NoticeStore(database)
     jobs = JobRunner(database, inline=settings.jobs_inline, workers=max(2, settings.ai_parallelism))
-    pipeline = PipelineService(
-        rules=rules, sessions=sessions, profile=profile, notices=notices, ai=gateway, jobs=jobs,
-        parallelism=settings.ai_parallelism,
-    )
     journal_store = JournalStore(database)
     journal = JournalService(
         rules=rules, store=journal_store, notices=notices, sessions=sessions, profile=profile, jobs=jobs, ai=gateway
+    )
+    pipeline = PipelineService(
+        rules=rules, sessions=sessions, profile=profile, notices=notices, ai=gateway, jobs=jobs,
+        journal=journal, parallelism=settings.ai_parallelism,
     )
     notice_service = NoticeService(rules=rules, store=notices, sessions=sessions, jobs=jobs, ai=gateway, journal=journal)
     services = Services(

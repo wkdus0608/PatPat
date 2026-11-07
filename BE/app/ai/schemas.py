@@ -59,6 +59,23 @@ TEXT_SCHEMA = {
     "properties": {"text": _STR},
 }
 
+REVIEW_WITH_METADATA_SCHEMA = {
+    **REVIEW_SCHEMA,
+    "required": [*REVIEW_SCHEMA["required"], "metadata"],
+    "properties": {
+        **REVIEW_SCHEMA["properties"],
+        "metadata": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["block_id", "place", "time_text"],
+                "properties": {"block_id": _STR, "place": _STR, "time_text": _STR},
+            },
+        },
+    },
+}
+
 CONTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,

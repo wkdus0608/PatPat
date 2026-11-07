@@ -9,10 +9,13 @@ import json
 from app.core.database import Database
 from app.core.errors import ApiError
 from app.core.timeutil import new_id, now_iso
+from app.journal.days import day_text, editable_day, group_days
 
 _SELECT = (
-    "SELECT e.*, c.name AS child_name, n.version AS notice_version, n.status AS notice_status, n.withdrawn AS notice_withdrawn "
-    "FROM journal_entries e JOIN children c ON c.child_id = e.child_id JOIN notices n ON n.notice_id = e.notice_id"
+    "SELECT e.*, c.name AS child_name, n.version AS notice_version, n.status AS notice_status, "
+    "n.withdrawn AS notice_withdrawn, d.content AS day_content, d.version AS day_version "
+    "FROM journal_entries e JOIN children c ON c.child_id = e.child_id JOIN notices n ON n.notice_id = e.notice_id "
+    "LEFT JOIN journal_day_edits d ON d.teacher_id=e.teacher_id AND d.child_id=e.child_id AND d.observed_date=e.observed_date"
 )
 
 
@@ -30,7 +33,8 @@ class JournalStore:
         data = dict(row)
         data["areas"] = json.loads(data["areas"])
         data["included"] = bool(data["included"])
-        data["outdated"] = data["source_notice_version"] < data["notice_version"]
+        data["is_draft"] = bool(data["from_inputs"] and data["notice_status"] != "완료")
+        data["outdated"] = not data["from_inputs"] and data["source_notice_version"] < data["notice_version"]
         return data
 
     def get(self, teacher_id: str, entry_id: str) -> dict | None:
@@ -62,6 +66,49 @@ class JournalStore:
             ).fetchall()
         return [self._entry(row) for row in rows]
 
+    def archive(self, teacher_id: str) -> list[dict]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                _SELECT + " WHERE e.teacher_id=? AND n.withdrawn=0 AND n.status='완료' AND e.included=1 "
+                "ORDER BY e.observed_date, c.rowid, (e.block_kind='individual'), e.created_at, e.rowid",
+                (teacher_id,),
+            ).fetchall()
+        days = [day_text(entries) for entries in group_days([self._entry(row) for row in rows]).values()]
+        return [day for day in days if day["content"].strip()]
+
+    def update_days(self, teacher_id: str, child_id: str, changes: dict[str, tuple[str, str]]) -> list[dict]:
+        saved = []
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                _SELECT + " WHERE e.teacher_id=? AND e.child_id=? AND n.withdrawn=0 "
+                "AND e.observed_date BETWEEN ? AND ? "
+                "ORDER BY e.observed_date, (e.block_kind='individual'), e.created_at, e.rowid",
+                (teacher_id, child_id, min(changes), max(changes)),
+            ).fetchall()
+            groups = group_days([self._entry(row) for row in rows])
+            for observed_date, (content, expected_revision) in changes.items():
+                entries = groups.get((child_id, observed_date))
+                if not entries:
+                    raise ApiError(status_code=409, code="VERSION_CONFLICT",
+                                   message=f"{observed_date}의 확정된 관찰이 바뀌었어요. 수정 화면을 다시 열어 주세요.")
+                day = editable_day(entries)
+                if content != day["content"]:
+                    if not day["editable"] or expected_revision != day["revision"]:
+                        raise ApiError(status_code=409, code="VERSION_CONFLICT",
+                                       message=f"{observed_date}의 내용이 바뀌었어요. 수정 화면을 다시 열어 주세요.")
+                    version = day["edit_version"] + 1
+                    connection.execute(
+                        "INSERT INTO journal_day_edits (teacher_id, child_id, observed_date, content, version) VALUES (?,?,?,?,?) "
+                        "ON CONFLICT (teacher_id, child_id, observed_date) DO UPDATE "
+                        "SET content=excluded.content, version=excluded.version",
+                        (teacher_id, child_id, observed_date, content, version),
+                    )
+                    entries[0].update(day_content=content, day_version=version)
+                    day = editable_day(entries)
+                saved.append(day)
+        return saved
+
     def find_shared_content(self, session_id: str, block_id: str, source_hash: str, areas: list[str],
                             place: str | None, time_text: str | None) -> str | None:
         """A finished common row of another child with exactly the same source, so the class text is written once."""
@@ -74,15 +121,21 @@ class JournalStore:
         return row["content"] if row else None
 
     # --- writing -------------------------------------------------------------------------------------------------------
-    def sync_rows(self, *, teacher_id: str, notice: dict, specs: list[dict]) -> list[str]:
+    def has_input_rows(self, notice_id: str) -> bool:
+        with self.database.connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM journal_entries WHERE notice_id=? AND from_inputs=1 LIMIT 1", (notice_id,),
+            ).fetchone() is not None
+
+    def sync_rows(self, *, teacher_id: str, notice: dict, specs: list[dict], from_inputs: bool = False) -> list[str]:
         """Bring this child's rows of the session in line with a confirmed notice; return the rows to (re)generate."""
         to_generate: list[str] = []
         stamp = now_iso()
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             active = connection.execute(
-                "SELECT 1 FROM notices WHERE notice_id=? AND teacher_id=? AND version=? AND status='완료'",
-                (notice["notice_id"], teacher_id, notice["version"]),
+                "SELECT 1 FROM notices WHERE notice_id=? AND teacher_id=? AND version=? AND status=? AND withdrawn=0",
+                (notice["notice_id"], teacher_id, notice["version"], "검토중" if from_inputs else "완료"),
             ).fetchone()
             if active is None:
                 return []
@@ -101,10 +154,10 @@ class JournalStore:
                     connection.execute(
                         "INSERT INTO journal_entries(entry_id, teacher_id, child_id, session_id, block_id, notice_id, block_kind, "
                         "observed_date, place, time_text, areas, content, status, included, version, source_notice_version, "
-                        "source_hash, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'','pending',1,1,?,?,?,?)",
+                        "source_hash, created_at, updated_at, from_inputs) VALUES (?,?,?,?,?,?,?,?,?,?,?,'','pending',1,1,?,?,?,?,?)",
                         (entry_id, teacher_id, notice["child_id"], notice["session_id"], spec["block_id"], notice["notice_id"],
                          spec["block_kind"], notice["target_date"], spec["place"], spec["time_text"], areas,
-                         notice["version"], spec["source_hash"], stamp, stamp),
+                         notice["version"], spec["source_hash"], stamp, stamp, int(from_inputs)),
                     )
                     to_generate.append(entry_id)
                     continue
@@ -117,7 +170,7 @@ class JournalStore:
                         )
                     continue  # otherwise it stays outdated until the teacher regenerates it
                 unchanged = (
-                    same_source and row["status"] == "ready" and row["areas"] == areas
+                    same_source and row["from_inputs"] == int(from_inputs) and row["status"] == "ready" and row["areas"] == areas
                     and row["place"] == spec["place"] and row["time_text"] == spec["time_text"]
                 )
                 if unchanged:
@@ -128,9 +181,9 @@ class JournalStore:
                     continue
                 connection.execute(
                     "UPDATE journal_entries SET notice_id=?, place=?, time_text=?, areas=?, status='pending', error_code=NULL, "
-                    "version=version+1, source_notice_version=?, source_hash=?, updated_at=? WHERE entry_id=?",
+                    "version=version+1, source_notice_version=?, source_hash=?, updated_at=?, from_inputs=? WHERE entry_id=?",
                     (notice["notice_id"], spec["place"], spec["time_text"], areas, notice["version"], spec["source_hash"], stamp,
-                     row["entry_id"]),
+                     int(from_inputs), row["entry_id"]),
                 )
                 to_generate.append(row["entry_id"])
             for block_id, row in existing.items():

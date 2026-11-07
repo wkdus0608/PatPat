@@ -1,4 +1,5 @@
 import type { SavedRecording } from '../recording/storage';
+import type { JournalArchiveEntry } from '../api/v2';
 
 export type LoadState<T> =
   | { status: 'idle' | 'loading' }
@@ -69,6 +70,7 @@ export interface LibraryState {
   route: 'home' | 'recordings' | 'recording' | 'journals' | 'journal';
   recordings: LoadState<readonly SavedRecording[]>;
   journals: LoadState<readonly JournalListItem[]>;
+  journalArchive?: LoadState<JournalArchiveEntry[]>;
   journalDetail: LoadState<JournalDetail>;
   selectedRecording: SavedRecording | null;
   selectedJournal: JournalListItem | null;

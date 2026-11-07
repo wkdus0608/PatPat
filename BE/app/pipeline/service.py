@@ -11,7 +11,7 @@ first call wrote. Calls for different children run in parallel; all database wri
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from app.ai import prompts, schemas
 from app.ai.anthropic_client import NotConfiguredAIClient
@@ -22,6 +22,7 @@ from app.ai.prompts import BlockCtx, ChildCtx, ClassCtx
 from app.ai.types import AIError
 from app.core.errors import ApiError
 from app.jobs.runner import JobRunner
+from app.journal.service import JournalService
 from app.notices.store import NoticeStore
 from app.profile.store import ProfileStore
 from app.rules.loader import RulesBundle, age_band_from_label
@@ -30,6 +31,7 @@ from app.sessions.store import SessionStore
 logger = logging.getLogger(__name__)
 
 EMPTY_REVIEW = {"flags": [], "joint_events": [], "incident_child_ids": []}
+METADATA_LABELS = {"place": "장소", "time_text": "시간"}
 
 
 @dataclass
@@ -66,7 +68,7 @@ def mode_and_answers(flags: list[dict], child_id: str) -> tuple[str, list[dict]]
     """Turn the teacher's answers about this child into a drafting mode and the answers worth passing on."""
     mode, answers = "normal", []
     for flag in flags:
-        if flag["kind"] == "area" or child_id not in flag["child_ids"] or flag["status"] != "answered":
+        if flag["kind"] in ("area", *METADATA_LABELS) or child_id not in flag["child_ids"] or flag["status"] != "answered":
             continue
         answer = (flag["answer"] or "").strip()
         if not answer:
@@ -108,6 +110,7 @@ class PipelineService:
         notices: NoticeStore,
         ai: AIGateway,
         jobs: JobRunner,
+        journal: JournalService | None = None,
         parallelism: int = 4,
     ):
         self.rules = rules
@@ -116,6 +119,7 @@ class PipelineService:
         self.notices = notices
         self.ai = ai
         self.jobs = jobs
+        self.journal = journal
         self.parallelism = max(1, parallelism)
         jobs.register_recovery("generate", self._recover_session_job)
         jobs.register_recovery("draft", self._recover_session_job)
@@ -135,7 +139,10 @@ class PipelineService:
             roster.append(ChildCtx(child_id=block["child_id"], name=block["child_name"], characteristics=traits))
             if block["absent"]:
                 absent.add(block["child_id"])
-            child_blocks[block["child_id"]] = self._ctx_block(block)
+            child_blocks[block["child_id"]] = replace(
+                self._ctx_block(block), place=block["place"] or (common_block or {}).get("place"),
+                time_text=block["time_text"] or (common_block or {}).get("time_text"),
+            )
             if block["filled"] and not block["absent"] and not block["areas"]:
                 missing.append({"block_id": block["block_id"], "child_id": block["child_id"]})
         common = None
@@ -179,7 +186,9 @@ class PipelineService:
             )
 
     # --- generate --------------------------------------------------------------------------------------------------------------
-    def start_generate(self, teacher_id: str, session_id: str, *, ask_missing_areas: bool = False) -> dict:
+    def start_generate(
+        self, teacher_id: str, session_id: str, *, ask_missing_areas: bool = False, prepare_journals: bool = False,
+    ) -> dict:
         session = self.sessions.require(teacher_id, session_id)
         if session["status"] not in ("writing", "failed"):
             raise ApiError(status_code=409, code="SESSION_BUSY", message="이미 만들고 있거나 만든 세션이에요.",
@@ -193,18 +202,34 @@ class PipelineService:
             rules_hash=self.rules.rules_hash, model=self.ai.model, error_code=None,
         )
         return self.jobs.start(
-            teacher_id, "generate", session_id, lambda: self._run_generate(teacher_id, session_id, ask_missing_areas),
+            teacher_id, "generate", session_id,
+            lambda: self._run_generate(teacher_id, session_id, ask_missing_areas, prepare_journals),
             on_error=lambda code: self.sessions.set_status(session_id, "failed", error_code=code),
         )
 
-    def _run_generate(self, teacher_id: str, session_id: str, ask_missing_areas: bool) -> dict:
+    def _run_generate(self, teacher_id: str, session_id: str, ask_missing_areas: bool, prepare_journals: bool) -> dict:
         ctx = self._load(teacher_id, session_id)
         valid_ids = {child.child_id for child in ctx.present}
+        sources = {}
+        if prepare_journals:
+            blocks = [ctx.blocks[child.child_id] for child in ctx.present]
+            if ctx.common:
+                blocks.insert(0, ctx.common)
+            for block in blocks:
+                missing = [key for key in METADATA_LABELS if not (getattr(block, key) or "").strip()]
+                if block.text.strip() and missing:
+                    sources[block.block_id] = {
+                        "block_id": block.block_id, "child_id": block.child_id, "text": block.text, "fields": missing,
+                    }
         review_request = prompts.build_review(
             self.rules, cls=ctx.cls, roster=ctx.present, common=ctx.common,
             blocks=[ctx.blocks[child.child_id] for child in ctx.present],
+            metadata_sources=list(sources.values()),
         )
-        review = schemas.parse_review(self._call(review_request, ctx).data, valid_ids, allow_common=ctx.common is not None)
+        data = self._call(review_request, ctx).data
+        review = schemas.parse_review(data, valid_ids, allow_common=ctx.common is not None)
+        review["prepare_journals"] = prepare_journals
+        review["flags"].extend(self._metadata_questions(ctx, data, sources))
         if ask_missing_areas and ctx.areas_missing:
             missing_ids = {item["child_id"] for item in ctx.areas_missing}
             with ThreadPoolExecutor(max_workers=self.parallelism, thread_name_prefix="patpat-areas") as pool:
@@ -220,6 +245,35 @@ class PipelineService:
             return {"phase": "asking", "questions": len(review["flags"])}
         self.sessions.set_status(session_id, "drafting", **stored)
         return self._run_draft(teacher_id, session_id)
+
+    @staticmethod
+    def _metadata_questions(ctx: DraftContext, data: dict, sources: dict) -> list[dict]:
+        names = {child.child_id: child.name for child in ctx.present}
+        flags = []
+        seen = set()
+        for item in data.get("metadata") or []:
+            if not isinstance(item, dict) or not isinstance(item.get("block_id"), str):
+                continue
+            source = sources.get(item["block_id"])
+            if source is None:
+                continue
+            child_id = source["child_id"]
+            for key in source["fields"]:
+                value = item.get(key)
+                marker = (item["block_id"], key)
+                if not isinstance(value, str) or not value.strip() or len(value) > 100 or marker in seen:
+                    continue
+                value = value.strip()
+                if value not in source["text"]:
+                    continue
+                seen.add(marker)
+                name = "반 공통" if child_id is None else names[child_id]
+                label = METADATA_LABELS[key]
+                flags.append({
+                    "kind": key, "child_ids": [] if child_id is None else [child_id],
+                    "question": f"{name} 관찰의 {label}은 ‘{value}’로 기록할까요?", "options": [value],
+                })
+        return flags
 
     def _area_question(self, ctx: DraftContext, child: ChildCtx) -> dict:
         block = ctx.blocks[child.child_id]
@@ -238,7 +292,7 @@ class PipelineService:
         answers = [
             {"question": flag["question"], "answer": flag["answer"]}
             for flag in flags
-            if not flag["child_ids"] and flag["status"] == "answered" and flag["answer"]
+            if flag["kind"] not in METADATA_LABELS and not flag["child_ids"] and flag["status"] == "answered" and flag["answer"]
         ]
         request = prompts.build_common(
             self.rules, cls=ctx.cls, common=ctx.common, all_names=ctx.all_names,
@@ -255,6 +309,7 @@ class PipelineService:
         flags = {flag["flag_id"]: flag for flag in self.sessions.list_flags(session_id)}
         decided: dict[str, str | None] = {}
         area_updates: dict[str, list[str]] = {}
+        metadata_updates: dict[str | None, dict[str, str]] = {}
         for item in answers:
             flag_id = item["flag_id"]
             flag = flags.get(flag_id)
@@ -273,6 +328,11 @@ class PipelineService:
             else:
                 if areas is not None:
                     raise ApiError(status_code=422, code="INVALID_AREA_ANSWER", message="영역 확인 질문에만 관찰영역을 선택할 수 있어요.")
+                if text and flag["kind"] in METADATA_LABELS:
+                    if len(text) > 100:
+                        raise ApiError(status_code=422, code="INVALID_METADATA_ANSWER", message="장소·시간은 100자까지 적어 주세요.")
+                    child_id = flag["child_ids"][0] if flag["child_ids"] else None
+                    metadata_updates.setdefault(child_id, {})[flag["kind"]] = text
                 decided[flag_id] = text or None
         open_ids = [fid for fid, flag in flags.items() if flag["status"] == "open" and fid not in decided]
         if open_ids and not skip_remaining:
@@ -280,7 +340,7 @@ class PipelineService:
                            details={"flag_ids": open_ids})
         for flag_id in open_ids:
             decided[flag_id] = None
-        self.sessions.finish_review(teacher_id, session_id, decided, area_updates)
+        self.sessions.finish_review(teacher_id, session_id, decided, area_updates, metadata_updates)
         return self.jobs.start(
             teacher_id, "draft", session_id, lambda: self._run_draft(teacher_id, session_id),
             on_error=lambda code: self.sessions.set_status(session_id, "failed", error_code=code),
@@ -361,7 +421,9 @@ class PipelineService:
             if isinstance(outcome, AIError):
                 failed.append({"child_id": child_id, "error_code": outcome.code})
                 continue
-            self._save_notice(ctx, inputs, outcome, child_id in incident_ids)
+            notice = self._save_notice(ctx, inputs, outcome, child_id in incident_ids)
+            if self.journal and review.get("prepare_journals"):
+                self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags, review=review)
             drafted += 1
         self.sessions.set_status(ctx.session["session_id"], "reviewing", error_code=None)
         return {"phase": "reviewing", "drafted": drafted, "failed": failed}
@@ -411,6 +473,8 @@ class PipelineService:
         has_input = bool(inputs["block"].text.strip())
         individual = self._write_individual(ctx, inputs) if has_input else ""
         notice = self._save_notice(ctx, inputs, individual, child_id in incident_ids_of(review, flags))
+        if self.journal and review.get("prepare_journals"):
+            self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags, review=review)
         if session["status"] == "failed":
             self.sessions.set_status(session_id, "reviewing", error_code=None)
         return {"notice_id": notice["notice_id"], "version": notice["version"]}

@@ -1,11 +1,6 @@
-"""Turns confirmed notices into observation-journal rows.
-
-Confirming a notice never calls the AI. This service runs afterwards, in a background job: it splits the
-confirmed text back into the class-wide paragraph and the child's own paragraph and writes one row for each
-(in the formal register of a 관찰일지). The class-wide row is the same for every child, so it is written once
-and copied to the others.
-"""
+"""Writes journal drafts from reviewed inputs, or legacy journal rows from confirmed notices."""
 import hashlib
+import json
 import re
 
 from app.ai import prompts, schemas
@@ -92,8 +87,46 @@ class JournalService:
         common_block = next((block for block in blocks if block["is_common"]), None)
         return plan_rows(notice_text, child_block, common_block)
 
+    def _input_specs(self, notice: dict, flags: list[dict], review: dict) -> list[dict]:
+        blocks = self.sessions.list_blocks(notice["session_id"], only_active=False)
+        child_id = notice["child_id"]
+        common = next((block for block in blocks if block["is_common"]), None)
+        child = next((block for block in blocks if block["child_id"] == child_id), None)
+        all_names = [block["child_name"] for block in blocks if block["child_id"] is not None]
+        other_names = [block["child_name"] for block in blocks if block["child_id"] not in (None, child_id)]
+
+        def source(block: dict | None, scoped_id: str | None, names: list[str]) -> str:
+            if not block or not block["filled"]:
+                return ""
+            parts = [block["text"]]
+            for flag in flags:
+                applies = scoped_id in flag["child_ids"] if scoped_id is not None else not flag["child_ids"]
+                if not applies or flag["status"] != "answered" or flag["kind"] in ("area", "place", "time_text"):
+                    continue
+                answer = flag["answer"]
+                if answer and (flag["kind"] != "incident" or answer not in ("부드럽게", "그대로")):
+                    parts.append(f'교사 확인 ({flag["question"]}): {answer}')
+            if scoped_id is not None:
+                for event in review.get("joint_events", []):
+                    facts = event["facts"]
+                    if scoped_id in facts:
+                        parts.extend(fact for other, fact in facts.items() if other != scoped_id and fact)
+            return mask_names(re.sub(r"\n\s*\n", "\n", "\n".join(parts).strip()), names)
+
+        text = "\n\n".join(part for part in (source(common, None, all_names), source(child, child_id, other_names)) if part)
+        return plan_rows(text, child, common)
+
+    def prepare(self, *, teacher_id: str, notice: dict, flags: list[dict], review: dict) -> dict | None:
+        specs = self._input_specs(notice, flags, review)
+        entry_ids = self.store.sync_rows(teacher_id=teacher_id, notice=notice, specs=specs, from_inputs=True)
+        if not entry_ids:
+            return None
+        return self._start(teacher_id, notice, entry_ids, {spec["block_id"]: spec["text"] for spec in specs}, notice["version"])
+
     # --- on confirm ----------------------------------------------------------------------------------------------------------
     def on_confirm(self, teacher_id: str, notice: dict) -> dict | None:
+        if self.store.has_input_rows(notice["notice_id"]):
+            return None
         specs = self._specs(notice["session_id"], notice["child_id"], notice["edited_text"])
         entry_ids = self.store.sync_rows(teacher_id=teacher_id, notice=notice, specs=specs)
         if not entry_ids:
@@ -118,18 +151,25 @@ class JournalService:
             raise ApiError(status_code=503, code="AI_NOT_CONFIGURED",
                            message="AI 연결 키가 아직 등록되지 않았습니다. 직접 고치거나 키가 등록된 뒤에 요청해 주세요.")
         notice = self.notices.require(teacher_id, entry["notice_id"])
-        confirmed = self.notices.last_confirmed(notice["notice_id"])
-        if confirmed is None:
-            raise ApiError(status_code=409, code="NOT_CONFIRMED", message="확정한 알림장이 있어야 관찰일지 행을 만들 수 있어요.")
-        specs = self._specs(notice["session_id"], notice["child_id"], confirmed["text"])
+        if entry["from_inputs"]:
+            session = self.sessions.require(teacher_id, notice["session_id"])
+            review = json.loads(session["review_json"] or "{}")
+            specs = self._input_specs(notice, self.sessions.list_flags(notice["session_id"]), review)
+            source_version = notice["version"]
+        else:
+            confirmed = self.notices.last_confirmed(notice["notice_id"])
+            if confirmed is None:
+                raise ApiError(status_code=409, code="NOT_CONFIRMED", message="확정한 알림장이 있어야 관찰일지 행을 만들 수 있어요.")
+            specs = self._specs(notice["session_id"], notice["child_id"], confirmed["text"])
+            source_version = confirmed["version"]
         spec = next((item for item in specs if item["block_id"] == entry["block_id"]), None)
         if spec is None:
             raise ApiError(status_code=409, code="SOURCE_GONE", message="이 행의 바탕이 된 문단이 알림장에서 사라졌어요.")
         self.store.mark_pending(
-            entry_id, notice_version=confirmed["version"], source_hash=spec["source_hash"], areas=spec["areas"],
+            entry_id, notice_version=source_version, source_hash=spec["source_hash"], areas=spec["areas"],
             place=spec["place"], time_text=spec["time_text"],
         )
-        return self._start(teacher_id, notice, [entry_id], {spec["block_id"]: spec["text"]}, confirmed["version"])
+        return self._start(teacher_id, notice, [entry_id], {spec["block_id"]: spec["text"]}, source_version)
 
     # --- the job ---------------------------------------------------------------------------------------------------------------------------
     def _generate(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int) -> dict:
@@ -159,10 +199,13 @@ class JournalService:
                     content, reused = shared, reused + 1
                 else:
                     if entry["block_kind"] == "common":
-                        request = prompts.build_journal_common(self.rules, cls=cls, text=body, common=block)
+                        request = prompts.build_journal_common(
+                            self.rules, cls=cls, text=body, common=block, from_inputs=bool(entry["from_inputs"]),
+                        )
                     else:
                         request = prompts.build_journal_individual(
-                            self.rules, cls=cls, child=child, text=body, block=block, common=None, incident=notice["incident"]
+                            self.rules, cls=cls, child=child, text=body, block=block, common=None,
+                            incident=notice["incident"], from_inputs=bool(entry["from_inputs"]),
                         )
                     result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"])
                     content = mask_names(schemas.require_text(result.data, "content"), other_names)

@@ -10,7 +10,10 @@ from app.children.router import private_response
 from app.core.errors import ApiError
 from app.jobs.router import JobResponse, job_response
 from app.journal import export
-from app.journal.schemas import EntryPatch, JournalChild, JournalEntryResponse, JournalResponse
+from app.journal.days import editable_day, group_days
+from app.journal.schemas import (
+    DaysPatch, EntryPatch, JournalArchiveEntry, JournalChild, JournalDayResponse, JournalEntryResponse, JournalResponse,
+)
 from app.rules.loader import AREAS
 from app.schemas.common import ErrorResponse
 from app.services import Services, get_services
@@ -61,7 +64,36 @@ def child_journal(
     return JournalResponse(
         child=JournalChild(child_id=child["child_id"], name=child["name"], gender=child["gender"], birth_date=child["birth_date"]),
         items=[entry_response(row) for row in rows],
+        days=[JournalDayResponse(**editable_day(entries)) for entries in group_days(rows).values()],
     )
+
+
+@journal_router.patch(
+    "/children/{child_id}/journal",
+    response_model=list[JournalDayResponse],
+    summary="날짜별 관찰일지 본문 수정",
+    description="확정된 관찰의 날짜별 본문을 한 번에 저장합니다. 원본 행과 관찰 영역·장소·시간은 보존합니다.",
+)
+def patch_days(
+    child_id: str, body: DaysPatch, teacher: CurrentTeacher, services: ServicesDependency,
+) -> list[JournalDayResponse]:
+    _child(services, teacher.teacher_id, child_id)
+    changes = {day.observed_date.isoformat(): (day.content, day.expected_revision) for day in body.days}
+    if len(changes) != len(body.days):
+        raise ApiError(status_code=422, code="VALIDATION_ERROR", message="같은 날짜를 한 번만 보내 주세요.")
+    if any(not day.content.strip() for day in body.days):
+        raise ApiError(status_code=422, code="EMPTY_TEXT", message="관찰내용을 입력해 주세요.")
+    return [JournalDayResponse(**day) for day in services.journal_store.update_days(teacher.teacher_id, child_id, changes)]
+
+
+@journal_router.get(
+    "/journal/archive",
+    response_model=list[JournalArchiveEntry],
+    summary="보관함의 날짜별 관찰일지",
+    description="확정된 관찰일지를 날짜·아동순으로 반환합니다. 비활성 아동의 기록도 포함합니다.",
+)
+def journal_archive(teacher: CurrentTeacher, services: ServicesDependency) -> list[JournalArchiveEntry]:
+    return [JournalArchiveEntry(**day) for day in services.journal_store.archive(teacher.teacher_id)]
 
 
 @journal_router.get(

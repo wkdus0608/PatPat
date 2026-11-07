@@ -247,7 +247,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
           </Pressable>}
         </View>
         {props.account && roster && settingsOpen && <Modal animationType="slide" onRequestClose={() => { if (!props.account?.busy && !settingsSaving.current) settingsRef.current?.back(); }}>
-          <SettingsScreen ref={settingsRef} account={props.account} controller={roster} onClose={() => {
+          <SettingsScreen ref={settingsRef} account={props.account} controller={roster} apiV2={apiV2} onClose={() => {
             setSettingsOpen(false);
             setRosterVersion(value => value + 1);
           }} onSavingChange={saving => { settingsSaving.current = saving; }} />
@@ -261,7 +261,8 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
               onGoToRecording={() => { void selectTab('record'); }} />}
         </View>
         {tab === 'library' ? (
-          <LibraryScreen account={props.account} ref={libraryRef} journalSource={props.writingServices?.journals} onGoToRecording={() => { void selectTab('record'); }} />
+          <LibraryScreen account={props.account} ref={libraryRef} apiV2={apiV2} journalSource={props.writingServices?.journals}
+            onGoToRecording={() => { void selectTab('record'); }} />
         ) : tab === 'record' ? (
           <ScrollView key={tab} contentContainerStyle={[styles.scrollContent, tab === 'record' && styles.recordingScrollContent]} showsVerticalScrollIndicator={false} style={styles.scrollView}>
             <RecordingScreen {...props} />

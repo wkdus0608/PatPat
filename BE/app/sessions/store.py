@@ -209,6 +209,7 @@ class SessionStore:
 
     def finish_review(
         self, teacher_id: str, session_id: str, answers: dict[str, str | None], areas_by_child: dict[str, list[str]],
+        metadata_by_child: dict[str | None, dict[str, str]],
     ) -> None:
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -234,6 +235,14 @@ class SessionStore:
                     "UPDATE input_blocks SET areas=?, updated_at=? WHERE session_id=? AND child_id=? AND areas='[]'",
                     (json.dumps(ordered, ensure_ascii=False), stamp, session_id, child_id),
                 )
+            for child_id, metadata in metadata_by_child.items():
+                for key in ("place", "time_text"):
+                    if key in metadata:
+                        connection.execute(
+                            f"UPDATE input_blocks SET {key}=?, updated_at=? "
+                            f"WHERE session_id=? AND child_id IS ? AND trim(coalesce({key}, ''))=''",
+                            (metadata[key], stamp, session_id, child_id),
+                        )
             connection.execute(
                 "UPDATE writing_sessions SET status='drafting', updated_at=?, error_code=NULL WHERE session_id=?",
                 (stamp, session_id),
