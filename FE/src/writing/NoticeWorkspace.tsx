@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { errorMessage } from '../api/client';
 import { OBSERVATION_AREAS, type Area, type Block, type BlockEdit, type Flag, type ReviewAnswer, type V2Api,
@@ -65,57 +65,40 @@ function ReviewQuestions({ flags, busy, onAnswer, onReopen, onDirty }: {
   onDirty(id: string, dirty: boolean): void;
 }) {
   const [answers, setAnswers] = useState<Record<string, string | null>>({});
-  const [areaAnswers, setAreaAnswers] = useState<Record<string, Area[] | undefined>>({});
-  const ready = flags.every(flag => flag.kind === 'area'
-    ? areaAnswers[flag.flag_id] !== undefined
-    : answers[flag.flag_id] === null || answers[flag.flag_id]?.trim());
+  // Existing sessions may still have pending area flags. Submit them as skipped.
+  const questions = flags.filter(flag => flag.kind !== 'area');
+  const ready = questions.every(flag => answers[flag.flag_id] === null || answers[flag.flag_id]?.trim());
   function answer(flagId: string, value: string | null) {
     setAnswers(old => ({ ...old, [flagId]: value }));
-    onDirty('questions', true);
-  }
-  function chooseAreas(flagId: string, areas: Area[]) {
-    setAreaAnswers(old => ({ ...old, [flagId]: areas }));
     onDirty('questions', true);
   }
   useEffect(() => () => onDirty('questions', false), [onDirty]);
   return (
     <>
-      <Text style={workStyles.title}>작성 전에 확인할 내용</Text>
-      <WorkMessage>교사가 확인한 답을 알림장과 관찰일지에 반영해요.</WorkMessage>
-      {flags.map((flag, index) => {
-        const selected = areaAnswers[flag.flag_id];
-        const recommended = OBSERVATION_AREAS.filter(area => flag.options.includes(area));
+      {questions.length > 0 ? <>
+        <Text style={workStyles.title}>작성 전에 확인할 내용</Text>
+        <WorkMessage>교사가 확인한 답을 알림장과 관찰일지에 반영해요.</WorkMessage>
+      </> : <WorkMessage>확인할 질문이 없어요.</WorkMessage>}
+      {questions.map((flag, index) => {
+        const metadata = flag.kind === 'place' || flag.kind === 'time_text';
         return (
           <View key={flag.flag_id} style={workStyles.panel}>
             <Text style={workStyles.body}>{flag.question}</Text>
-            {flag.kind === 'area' ? <>
-              <Areas areas={selected ?? []} disabled={busy} onChange={areas => chooseAreas(flag.flag_id, areas)} />
-              <View style={workStyles.row}>
-                {recommended.length > 0 && <WorkButton label="추천 영역으로 할게요" secondary disabled={busy}
-                  onPress={() => chooseAreas(flag.flag_id, recommended)} />}
-                <WorkButton label="영역 없이 계속" secondary disabled={busy}
-                  onPress={() => chooseAreas(flag.flag_id, [])} />
-              </View>
-              {selected?.length === 0 && <WorkMessage>영역을 비워 두었어요.</WorkMessage>}
-            </> : <>
-              <View accessibilityRole="radiogroup" accessibilityLabel={'질문 ' + (index + 1) + ' 선택지'} style={workStyles.row}>
-                {flag.options.map(option => <WorkChoice key={option} label={option}
-                  selected={answers[flag.flag_id] === option} disabled={busy}
-                  onPress={() => answer(flag.flag_id, option)} />)}
-                  <WorkChoice label={flag.kind === 'place' || flag.kind === 'time_text' ? '비워 두기' : '건너뛰기'}
-                    selected={answers[flag.flag_id] === null} disabled={busy}
-                  onPress={() => answer(flag.flag_id, null)} />
-              </View>
-              <WorkField label={'질문 ' + (index + 1) + ' 답변'} placeholder="답변을 직접 입력할 수 있어요."
-                  value={answers[flag.flag_id] ?? ''} maxLength={flag.kind === 'place' || flag.kind === 'time_text' ? 100 : 500} editable={!busy}
-                onChangeText={value => answer(flag.flag_id, value)} />
-            </>}
+            <View accessibilityRole="radiogroup" accessibilityLabel={'질문 ' + (index + 1) + ' 선택지'} style={workStyles.row}>
+              {flag.options.map(option => <WorkChoice key={option} label={option}
+                selected={answers[flag.flag_id] === option} disabled={busy} onPress={() => answer(flag.flag_id, option)} />)}
+              <WorkChoice label={metadata ? '비워 두기' : '건너뛰기'} selected={answers[flag.flag_id] === null}
+                disabled={busy} onPress={() => answer(flag.flag_id, null)} />
+            </View>
+            <WorkField label={'질문 ' + (index + 1) + ' 답변'} placeholder="답변을 직접 입력할 수 있어요."
+              value={answers[flag.flag_id] ?? ''} maxLength={metadata ? 100 : 500} editable={!busy}
+              onChangeText={value => answer(flag.flag_id, value)} />
           </View>
         );
       })}
-      <WorkButton label="답변하고 초안 만들기" busy={busy} disabled={!ready}
+      <WorkButton label={questions.length > 0 ? '답변하고 초안 만들기' : '초안 만들기'} busy={busy} disabled={!ready}
         onPress={() => onAnswer(flags.map(flag => flag.kind === 'area'
-          ? { flag_id: flag.flag_id, areas: areaAnswers[flag.flag_id] ?? [] }
+          ? { flag_id: flag.flag_id, areas: [] }
           : { flag_id: flag.flag_id, answer: answers[flag.flag_id] }))} />
       <WorkButton label="입력으로 돌아가기" secondary disabled={busy} onPress={onReopen} />
     </>
@@ -125,7 +108,7 @@ function ReviewQuestions({ flags, busy, onAnswer, onReopen, onDirty }: {
 export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; active: boolean; rosterVersion: number }) {
   const [session, setSession] = useState<WritingSession | null>(null);
   const [edits, setEdits] = useState<Record<string, Partial<BlockEdit>>>({});
-  const [areaCheckIds, setAreaCheckIds] = useState<string[] | null>(null);
+  const [checkingAreas, setCheckingAreas] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -133,6 +116,7 @@ export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; ac
   const menu = usePresetMenu(active);
   const [day, setDay] = useState(todayDate);
   const [preferences, setPreferences] = useState<WritingPreferences>({ places: [], times: [] });
+  const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const dirtyEditors = useRef(new Set<string>());
   const onDirty = useCallback((id: string, dirty: boolean) => {
     if (dirty) dirtyEditors.current.add(id);
@@ -173,7 +157,8 @@ export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; ac
 
   const blocks = session?.blocks.map(block => ({ ...block, ...edits[block.block_id] })) ?? [];
   const common = blocks.find(block => block.is_common);
-  const missing = blocks.filter(block => !block.is_common && !block.absent && block.text.trim() && !block.areas.length);
+  const presentChildren = blocks.filter(block => !block.is_common && !block.absent);
+  const observedChildren = presentChildren.filter(block => block.text.trim());
 
   function editBlock(blockId: string, change: Partial<BlockEdit>) {
     setEdits(values => {
@@ -212,23 +197,26 @@ export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; ac
     return value;
   }
 
-  async function generate(current: WritingSession, afterAreaCheck = false) {
-    if (!blocks.some(block => !block.is_common && !block.absent)) {
+  function checkAreas() {
+    if (!presentChildren.length) {
       action.setError('출석한 아이가 있어야 알림장을 만들 수 있어요.');
       return;
     }
-    if (!blocks.some(block => !block.absent && block.text.trim())) {
+    if (!common?.text.trim() && !observedChildren.length) {
       action.setError('공통 내용이나 아이의 관찰 내용을 적어 주세요.');
       return;
     }
-    if (missing.length && !afterAreaCheck) {
-      setAreaCheckIds(missing.map(block => block.block_id));
-      return;
-    }
+    action.setError(null);
+    setCheckingAreas(true);
+    scroll.current?.scrollTo({ y: 0, animated: false });
+  }
+
+  async function generate(current: WritingSession) {
     await saveInputs(current);
     await api.generate(current.session_id);
-    setAreaCheckIds(null);
     setSession(await api.session(current.session_id));
+    setCheckingAreas(false);
+    scroll.current?.scrollTo({ y: 0, animated: false });
   }
 
   function changeDay(next: string | null) {
@@ -241,14 +229,14 @@ export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; ac
       if (session && Object.keys(edits).length) await saveInputs(session);
       setSession(null);
       setEdits({});
-      setAreaCheckIds(null);
+      setCheckingAreas(false);
       setSaved(false);
       setDay(next);
     });
   }
 
   return (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={workStyles.content}>
+    <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={workStyles.content}>
       <View style={styles.dateRow}>
         <DateArrow name="chevron-back" label="이전 날짜" disabled={action.busy} onPress={() => changeDay(shiftDate(day, -1))} />
         <DatePicker label="알림장 날짜" value={day} onChange={changeDay} compact disabled={action.busy} />
@@ -286,18 +274,19 @@ export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; ac
                 }); }} />
               </View>;
             })}
-          </> : areaCheckIds ? <>
+          </> : checkingAreas ? <>
             <Text style={workStyles.title}>아이별 영역 확인</Text>
-            <WorkMessage>영역을 아직 고르지 않은 아이의 관찰 내용을 확인해 주세요.</WorkMessage>
-            {blocks.filter(block => areaCheckIds.includes(block.block_id))
-              .map(block => <View key={block.block_id} style={workStyles.panel}>
-                <Text style={workStyles.title}>{block.child_name}</Text>
-                <Text style={workStyles.body}>{block.text}</Text>
-                <Areas areas={block.areas} disabled={action.busy} onChange={areas => editBlock(block.block_id, { areas })} />
-              </View>)}
+            <WorkMessage>{observedChildren.length > 0
+              ? '아이별 관찰 내용을 보고 필요한 영역을 선택해 주세요. 비워 두어도 됩니다.'
+              : '아이별 관찰 내용이 없어 선택할 영역이 없어요.'}</WorkMessage>
+            {observedChildren.map(block => <View key={block.block_id} style={workStyles.panel}>
+              <Text style={workStyles.title}>{block.child_name}</Text>
+              <Text style={workStyles.body}>{block.text}</Text>
+              <Areas areas={block.areas} disabled={action.busy} onChange={areas => editBlock(block.block_id, { areas })} />
+            </View>)}
             <WorkButton label="초안 만들기" busy={action.busy}
-              onPress={() => { void action.run(() => generate(session, true)); }} />
-            <WorkButton label="입력으로 돌아가기" secondary disabled={action.busy} onPress={() => setAreaCheckIds(null)} />
+              onPress={() => { void action.run(() => generate(session)); }} />
+            <WorkButton label="입력으로 돌아가기" secondary disabled={action.busy} onPress={() => setCheckingAreas(false)} />
           </> : <>
             {session.status === 'failed' && <WorkMessage error>{jobMessage(session.error_code)}</WorkMessage>}
             {blocks.map(block => <InputBlock key={block.block_id} block={block} busy={action.busy} menu={menu}
@@ -310,12 +299,11 @@ export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; ac
                 await saveInputs(session);
                 setSaved(true);
               }); }} />
-              <WorkButton label="알림장 만들기" busy={action.busy}
-                onPress={() => { void action.run(() => generate(session)); }} />
+              <WorkButton label="다음" disabled={action.busy} onPress={checkAreas} />
             </View>
+            {session.notices.length === 0 && <RecordingComingSoon />}
           </>}
       </>}
-      <RecordingComingSoon />
     </ScrollView>
   );
 }

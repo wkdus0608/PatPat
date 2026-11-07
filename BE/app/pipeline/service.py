@@ -171,15 +171,15 @@ class PipelineService:
                 message="AI 연결 키가 아직 등록되지 않았습니다. 관리자가 키를 등록한 뒤에 만들 수 있어요.",
             )
 
-    # --- validation shared by generate and regenerate ------------------------------------------------------------------------
+    # --- validation ----------------------------------------------------------------------------------------------------------
     @staticmethod
-    def _check_inputs(ctx: DraftContext, *, ask_missing_areas: bool) -> None:
+    def _check_inputs(ctx: DraftContext, *, allow_missing_areas: bool) -> None:
         if not ctx.present:
             raise ApiError(status_code=422, code="NO_CHILDREN", message="출석한 아이가 없어요. 아이를 등록하거나 결석 표시를 확인해 주세요.")
         filled = [child for child in ctx.present if ctx.blocks[child.child_id].text.strip()]
         if ctx.common is None and not filled:
             raise ApiError(status_code=422, code="NOTHING_TO_WRITE", message="적은 내용이 없어요. 오늘 있었던 일을 한 곳이라도 적어 주세요.")
-        if ctx.areas_missing and not ask_missing_areas:
+        if ctx.areas_missing and not allow_missing_areas:
             raise ApiError(
                 status_code=422, code="AREAS_REQUIRED", message="관찰영역을 고르지 않은 입력이 있어요. 영역을 하나 이상 골라 주세요.",
                 details={"block_ids": [item["block_id"] for item in ctx.areas_missing]},
@@ -188,6 +188,7 @@ class PipelineService:
     # --- generate --------------------------------------------------------------------------------------------------------------
     def start_generate(
         self, teacher_id: str, session_id: str, *, ask_missing_areas: bool = False, prepare_journals: bool = False,
+        manual_areas: bool = False,
     ) -> dict:
         session = self.sessions.require(teacher_id, session_id)
         if session["status"] not in ("writing", "failed"):
@@ -196,18 +197,23 @@ class PipelineService:
         self._ensure_ai_ready()
         self.sessions.ensure_blocks(teacher_id, session_id)
         ctx = self._load(teacher_id, session_id)
-        self._check_inputs(ctx, ask_missing_areas=ask_missing_areas)
+        self._check_inputs(ctx, allow_missing_areas=manual_areas or ask_missing_areas)
         self.sessions.set_status(
             session_id, "analyzing", snapshot=json.dumps({"common": common_snapshot(ctx.common)}, ensure_ascii=False),
             rules_hash=self.rules.rules_hash, model=self.ai.model, error_code=None,
         )
         return self.jobs.start(
             teacher_id, "generate", session_id,
-            lambda: self._run_generate(teacher_id, session_id, ask_missing_areas, prepare_journals),
+            lambda: self._run_generate(
+                teacher_id, session_id, ask_missing_areas=ask_missing_areas,
+                prepare_journals=prepare_journals, manual_areas=manual_areas,
+            ),
             on_error=lambda code: self.sessions.set_status(session_id, "failed", error_code=code),
         )
 
-    def _run_generate(self, teacher_id: str, session_id: str, ask_missing_areas: bool, prepare_journals: bool) -> dict:
+    def _run_generate(
+        self, teacher_id: str, session_id: str, *, ask_missing_areas: bool, prepare_journals: bool, manual_areas: bool,
+    ) -> dict:
         ctx = self._load(teacher_id, session_id)
         valid_ids = {child.child_id for child in ctx.present}
         sources = {}
@@ -230,7 +236,9 @@ class PipelineService:
         review = schemas.parse_review(data, valid_ids, allow_common=ctx.common is not None)
         review["prepare_journals"] = prepare_journals
         review["flags"].extend(self._metadata_questions(ctx, data, sources))
-        if ask_missing_areas and ctx.areas_missing:
+        if manual_areas:
+            review["manual_areas"] = True
+        elif ask_missing_areas and ctx.areas_missing:
             missing_ids = {item["child_id"] for item in ctx.areas_missing}
             with ThreadPoolExecutor(max_workers=self.parallelism, thread_name_prefix="patpat-areas") as pool:
                 area_flags = list(pool.map(
@@ -446,13 +454,15 @@ class PipelineService:
             raise ApiError(status_code=422, code="CHILD_ABSENT", message="결석으로 표시된 아이예요.")
         if not ctx.blocks[child_id].text.strip() and ctx.common is None:
             raise ApiError(status_code=422, code="NOTHING_TO_WRITE", message="이 아이에 대해 적은 내용이 없어요.")
-        skipped_area = any(
-            flag["kind"] == "area" and child_id in flag["child_ids"] and flag["status"] == "skipped"
-            for flag in self.sessions.list_flags(session_id)
-        )
-        if not skipped_area and any(item["child_id"] == child_id for item in ctx.areas_missing):
-            raise ApiError(status_code=422, code="AREAS_REQUIRED", message="관찰영역을 하나 이상 골라 주세요.",
-                           details={"block_ids": [item["block_id"] for item in ctx.areas_missing if item["child_id"] == child_id]})
+        missing_blocks = [item["block_id"] for item in ctx.areas_missing if item["child_id"] == child_id]
+        if missing_blocks:
+            review = json.loads(session["review_json"] or "{}")
+            if not review.get("manual_areas") and not any(
+                flag["kind"] == "area" and child_id in flag["child_ids"] and flag["status"] == "skipped"
+                for flag in self.sessions.list_flags(session_id)
+            ):
+                raise ApiError(status_code=422, code="AREAS_REQUIRED", message="관찰영역을 하나 이상 골라 주세요.",
+                               details={"block_ids": missing_blocks})
         return self.jobs.start(teacher_id, "regenerate_child", ref_id, lambda: self._run_regenerate(teacher_id, session_id, child_id))
 
     def _run_regenerate(self, teacher_id: str, session_id: str, child_id: str) -> dict:

@@ -154,9 +154,10 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     writingPreferences: () => send<WritingPreferences>('/teacher/writing-preferences'),
     saveWritingPreferences: (value: WritingPreferences) => send<WritingPreferences>('/teacher/writing-preferences', 'PUT', value),
     classrooms: async () => (await send<{ items: Classroom[] }>('/classrooms')).items,
-    saveClassroom: (classroom: Classroom) => send<Classroom>('/classrooms/' + id(classroom.classroom_id), 'PATCH', {
-      name: classroom.name, age_label: classroom.age_label,
-    }),
+    saveClassroom: (classroom: { classroom_id: string; name: string; age_label?: string }) =>
+      send<Classroom>('/classrooms/' + id(classroom.classroom_id), 'PATCH', {
+        name: classroom.name, age_label: classroom.age_label,
+      }),
     characteristics: async (childId: string) =>
       (await send<{ text: string | null }>('/children/' + id(childId) + '/characteristics')).text,
     saveCharacteristics: (childId: string, text: string) =>
@@ -174,7 +175,7 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     saveBlock: (sessionId: string, blockId: string, edit: Partial<BlockEdit>) =>
       send<Block>('/sessions/' + id(sessionId) + '/blocks/' + id(blockId), 'PATCH', edit),
     generate: (sessionId: string) =>
-      send<Job>('/sessions/' + id(sessionId) + '/generate?ask_missing_areas=true&prepare_journals=true', 'POST'),
+      send<Job>('/sessions/' + id(sessionId) + '/generate?manual_areas=true&prepare_journals=true', 'POST'),
     answer: (sessionId: string, answers: ReviewAnswer[]) =>
       send<Job>('/sessions/' + id(sessionId) + '/answers', 'POST', { answers }),
     reopen: (sessionId: string) => send<WritingSession>('/sessions/' + id(sessionId) + '/reopen', 'POST'),

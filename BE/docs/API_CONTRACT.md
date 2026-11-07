@@ -136,6 +136,8 @@ erDiagram
 
 ## 알림장 기반 관찰일지 v2
 
+앱에서 관찰영역은 초안 요청 전 교사가 확인한다. `POST /api/v2/sessions/{session_id}/generate?manual_areas=true&prepare_journals=true`는 영역을 비워 두어도 작성에 필요한 맥락과 장소·시간을 검토하며, 영역을 추천하거나 역질문으로 묻지 않는다. 같은 세션에서 아이별 초안을 다시 만들 때도 교사가 확인한 영역을 사용한다.
+
 교사가 날짜별로 이어진 본문을 편집할 수 있도록 `GET /api/v2/children/{child_id}/journal`의 `days`는 확정된 관찰을 아이와 날짜별로 모아 돌려준다. `PATCH /api/v2/children/{child_id}/journal`은 수정한 날짜의 `observed_date`, `content`, `expected_revision`을 받아 한 번에 저장한다. 날짜별 수정문은 원본 관찰 행과 별도로 보관하므로 장소·시간·영역과 알림장 근거를 유지한다. 저장한 수정문은 텍스트 출력과 `GET /api/v2/journal/archive`의 날짜별 보관함에 반영된다. 보관함은 확정 취소된 기록을 제외하고 명단에서 비활성화한 아이의 과거 기록을 포함한다.
 
 ## 문서 적용 범위와 남은 구현

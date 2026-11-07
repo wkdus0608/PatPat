@@ -4,7 +4,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollVie
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { errorMessage, type Child } from '../api/client';
 import type { ChildDetails, Classroom, OnboardingStep, V2Api, WritingPreferences } from '../api/v2';
-import { DateArrow, DatePicker, todayDate } from '../ui/DatePicker';
+import { DatePicker, todayDate } from '../ui/DatePicker';
 import { colors } from '../ui/theme';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import type { Account } from './controller';
@@ -76,8 +76,6 @@ function SetupStep({ step, account, api, onAdvance }: {
   const legacy = account.api;
   const unauthorized = account.unauthorized;
   const { height } = useWindowDimensions();
-  const ageMatch = room?.age_label.match(/\d+/);
-  const age = ageMatch ? Number(ageMatch[0]) : null;
 
   useEffect(() => {
     let current = true;
@@ -128,12 +126,12 @@ function SetupStep({ step, account, api, onAdvance }: {
   async function advance(skip = false) {
     if (!skip) {
       if (step === 1) {
-        if (!room?.name.trim() || age === null || age > 5) {
-          action.setError('반 이름을 입력하고 연령을 선택해 주세요.');
+        if (!room?.name.trim()) {
+          action.setError('반 이름을 입력해 주세요.');
           return;
         }
         await api.saveWritingPreferences(parsePreferenceLines(preferences));
-        await api.saveClassroom({ ...room, name: room.name.trim(), age_label: room.age_label.trim() });
+        await api.saveClassroom({ classroom_id: room.classroom_id, name: room.name.trim() });
       }
       if (step === 2) {
         if (!await addChild() && children.length === 0) {
@@ -180,16 +178,6 @@ function SetupStep({ step, account, api, onAdvance }: {
         {step === 1 && room && <View style={workStyles.panel}>
           <WorkField label="반 이름" value={room.name} maxLength={100} editable={!action.busy}
             onChangeText={value => setRoom({ ...room, name: value })} />
-          <Text style={workStyles.label}>반 연령</Text>
-          <View style={workStyles.between}>
-            <Text accessibilityLabel="반 연령" style={workStyles.body}>{age === null ? '만 나이 선택' : '만 ' + age + '세'}</Text>
-            <View style={styles.ageButtons}>
-              <DateArrow name="chevron-up" label="반 연령 높이기" disabled={action.busy || (age !== null && age >= 5)}
-                onPress={() => setRoom({ ...room, age_label: '만 ' + ((age ?? -1) + 1) + '세' })} />
-              <DateArrow name="chevron-down" label="반 연령 낮추기" disabled={action.busy || age === 0}
-                onPress={() => setRoom({ ...room, age_label: '만 ' + Math.min(5, (age ?? 6) - 1) + '세' })} />
-            </View>
-          </View>
           <Text style={workStyles.title}>자주 쓰는 장소·시간</Text>
           <PreferenceFields value={preferences} onChange={setPreferences} disabled={action.busy} />
         </View>}
@@ -248,7 +236,6 @@ const styles = StyleSheet.create({
   scroll: { alignItems: 'center', flexGrow: 1 },
   frame: { maxWidth: 540, width: '100%', paddingHorizontal: 22, gap: 14 },
   brand: { color: colors.ink, fontSize: 24, fontWeight: '800' },
-  ageButtons: { gap: 4 },
   exampleInput: { paddingRight: 55 },
   exampleControl: { position: 'absolute', top: 3, right: 3, width: 44, height: 44, borderRadius: 10,
     alignItems: 'center', justifyContent: 'center' },

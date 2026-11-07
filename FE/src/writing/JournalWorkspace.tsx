@@ -8,7 +8,6 @@ import { colors } from '../ui/theme';
 import { copyRecord } from '../ui/clipboard';
 import { DatePicker } from '../ui/DatePicker';
 import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
-import { RecordingComingSoon } from './RecordingComingSoon';
 
 type Draft = JournalDayEdit & { original: string };
 
@@ -217,7 +216,6 @@ export function JournalWorkspace({ api, account, active, rosterVersion }: {
       {journals?.map(journal => <JournalCard key={journal.child.child_id} journal={journal} api={api}
         range={range} onEditing={onEditing} onSaved={updateDays} onReload={() => setAttempt(value => value + 1)} />)}
       {error && <WorkButton label="다시 불러오기" secondary onPress={() => setAttempt(value => value + 1)} />}
-      <RecordingComingSoon />
     </ScrollView>
   );
 }

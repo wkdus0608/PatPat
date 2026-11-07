@@ -74,8 +74,8 @@ export function PresetField({ label, fieldId, groupId, menu, value, options, dis
   </View>;
 }
 
-export function WritingPreferencesEditor({ api, onBack, onBusy }: {
-  api: V2Api; onBack(): void; onBusy(busy: boolean): void;
+export function WritingPreferencesEditor({ api, onSaved, onBusy }: {
+  api: V2Api; onSaved(): void; onBusy(busy: boolean): void;
 }) {
   const [draft, setDraft] = useState<PresetLines | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,12 +89,7 @@ export function WritingPreferencesEditor({ api, onBack, onBusy }: {
     return () => { current = false; };
   }, [api, attempt]);
   useEffect(() => { onBusy(action.busy); return () => onBusy(false); }, [action.busy, onBusy]);
-  return <ScrollView keyboardShouldPersistTaps="handled" style={{ flex: 1, width: '100%', maxWidth: 540, alignSelf: 'center' }}
-    contentContainerStyle={workStyles.content}>
-    <View style={workStyles.between}>
-      <Text style={workStyles.heading}>자주 쓰는 장소·시간</Text>
-      <WorkButton label="뒤로" secondary disabled={action.busy} onPress={onBack} />
-    </View>
+  return <>
     {error ? <>
       <WorkMessage error>{error}</WorkMessage>
       <WorkButton label="다시 불러오기" secondary onPress={() => setAttempt(value => value + 1)} />
@@ -103,10 +98,10 @@ export function WritingPreferencesEditor({ api, onBack, onBusy }: {
       {action.error && <WorkMessage error>{action.error}</WorkMessage>}
       <WorkButton label="저장하기" busy={action.busy} onPress={() => { void action.run(async () => {
         await api.saveWritingPreferences(parsePreferenceLines(draft));
-        onBack();
+        onSaved();
       }); }} />
     </View>}
-  </ScrollView>;
+  </>;
 }
 
 const styles = StyleSheet.create({

@@ -30,6 +30,34 @@ def test_area_review_asks_only_for_missing_areas_and_accepts_a_skip(tmp_path):
         assert {item["child_id"] for item in result["notices"]} == {selected, missing, skipped}
 
 
+def test_manual_areas_accept_blanks_without_suggestions_and_keep_context_review(tmp_path):
+    with running_env(tmp_path) as env:
+        selected, blank = add_children(env, ["다온", "이든"])
+        session = open_session(env)
+        sid = session["session_id"]
+        fill(env, session, None, "오전 10시에 유희실에서 블록을 쌓았어요.", (), place="유희실")
+        fill(env, session, "다온", "나무 블록을 여러 개 쌓았어요.", ("자연탐구",))
+        fill(env, session, "이든", "블록을 나란히 두었어요.", ())
+        response = env.client.post(f"{V2}/sessions/{sid}/generate?manual_areas=true&prepare_journals=true", headers=env.headers)
+        assert response.status_code == 202 and response.json()["result"]["phase"] == "asking"
+        flags = get_session(env, sid)["flags"]
+        assert [(flag["kind"], flag["options"]) for flag in flags] == [("time_text", ["오전 10시"])]
+        assert not env.app.state.ai_client.calls_for(AITask.AREAS)
+        response = env.client.post(f"{V2}/sessions/{sid}/answers", headers=env.headers, json={
+            "answers": [{"flag_id": flags[0]["flag_id"], "answer": "오전 10시"}],
+        })
+        assert response.status_code == 202 and response.json()["result"]["phase"] == "reviewing"
+        result = get_session(env, sid)
+        assert block_of(result, "다온")["areas"] == ["자연탐구"]
+        assert block_of(result, "이든")["areas"] == []
+        assert {item["child_id"] for item in result["notices"]} == {selected, blank}
+        response = env.client.post(f"{V2}/sessions/{sid}/children/{blank}/regenerate", headers=env.headers)
+        assert response.status_code == 202 and response.json()["status"] == "completed"
+        journal = env.client.get(f"{V2}/children/{blank}/journal", headers=env.headers).json()
+        assert journal["items"][-1]["areas"] == []
+        assert not env.app.state.ai_client.calls_for(AITask.AREAS)
+
+
 def test_unconfirm_hides_the_journal_and_reconfirm_keeps_the_teachers_edit(tmp_path):
     with running_env(tmp_path) as env:
         child = add_children(env, ["다온"])[0]

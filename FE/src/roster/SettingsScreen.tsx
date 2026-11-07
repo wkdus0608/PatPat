@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { forwardRef, useEffect, useImperativeHandle, useState, useSyncExternalStore } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Child } from '../api/client';
@@ -108,6 +108,27 @@ interface ReferenceEditorProps {
   onBack(): void; onChange(text: string): void; onSave(): void;
 }
 
+function SettingsEditorLayout({ title, titleInHeader, backLabel, backId, disabled, onBack, children }: {
+  title: string; titleInHeader?: boolean; backLabel: string; backId: string;
+  disabled: boolean; onBack(): void; children: ReactNode;
+}) {
+  return <>
+    <View style={[styles.header, styles.editorHeader]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={backLabel} disabled={disabled}
+        accessibilityState={{ disabled }} onPress={onBack}
+        style={({ pressed }) => [styles.backButton, disabled && styles.disabled, pressed && styles.pressed]} testID={backId}>
+        <Ionicons name="chevron-back" size={20} color={colors.ink} />
+        <Text style={styles.label}>뒤로</Text>
+      </Pressable>
+      {titleInHeader && <Text accessibilityRole="header" style={[styles.title, styles.editorHeaderTitle]}>{title}</Text>}
+    </View>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      {!titleInHeader && <Text accessibilityRole="header" style={styles.title}>{title}</Text>}
+      {children}
+    </ScrollView>
+  </>;
+}
+
 function ReferenceEditor(props: ReferenceEditorProps) {
   const { entry, prefix, dirty } = props;
   const canSave = !props.busy && dirty && (entry.loadState === 'ready' || entry.loadState === 'unavailable');
@@ -115,17 +136,8 @@ function ReferenceEditor(props: ReferenceEditorProps) {
     : entry.saveState === 'unavailable' ? '아직 저장되지 않았어요.'
       : dirty ? props.hideSaveHints ? null : '아직 저장하지 않은 내용이 있어요.'
         : entry.loadState === 'ready' && entry.savedText !== null ? '저장됨' : null;
-  return <>
-    <View style={[styles.header, styles.characteristicsHeader]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={props.backLabel} disabled={props.navigationBlocked}
-        accessibilityState={{ disabled: props.navigationBlocked }} onPress={props.onBack}
-        style={({ pressed }) => [styles.backButton, pressed && styles.pressed]} testID={prefix + '-back'}>
-        <Ionicons name="chevron-back" size={20} color={colors.ink} />
-        <Text style={styles.label}>뒤로</Text>
-      </Pressable>
-      <Text style={[styles.title, styles.characteristicsTitle]}>{props.title}</Text>
-    </View>
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+  return <SettingsEditorLayout title={props.title} titleInHeader={props.subjectName !== undefined}
+    backLabel={props.backLabel} backId={prefix + '-back'} disabled={props.navigationBlocked} onBack={props.onBack}>
       {props.subjectName !== undefined && <Text style={styles.subtitle} testID={prefix + '-child-name'}>{props.subjectName}</Text>}
       <View style={styles.card} testID={prefix + '-card'}>
         <Text style={styles.subtitle}>{props.prompt}</Text>
@@ -147,8 +159,7 @@ function ReferenceEditor(props: ReferenceEditorProps) {
         {status && <Text accessibilityLiveRegion="polite" style={entry.saveState === 'error' ? styles.danger : styles.hint}
           testID={prefix + '-status'}>{status}</Text>}
       </View>
-    </ScrollView>
-  </>;
+  </SettingsEditorLayout>;
 }
 
 function SettingsContent(props: SettingsViewProps) {
@@ -302,8 +313,10 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
   useImperativeHandle(ref, () => ({ back }), [controller, account.busy, onClose, showPreferences, savingPreferences]);
   return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
     style={[styles.page, { paddingTop: insets.top + 12, paddingBottom: insets.bottom }]}>
-    {showPreferences && apiV2 ? <WritingPreferencesEditor api={apiV2} onBack={() => setShowPreferences(false)}
-      onBusy={setSavingPreferences} /> :
+    {showPreferences && apiV2 ? <SettingsEditorLayout title="자주 쓰는 장소·시간" backLabel="교사 설정으로 돌아가기"
+      backId="settings-writing-preferences-back" disabled={account.busy || savingPreferences} onBack={back}>
+      <WritingPreferencesEditor api={apiV2} onSaved={() => setShowPreferences(false)} onBusy={setSavingPreferences} />
+    </SettingsEditorLayout> :
     <SettingsView account={account} state={state} name={name} onNameChange={setName} onBack={back}
       onAdd={() => { void controller.create(name).then(saved => { if (saved) setName(''); }); }}
       onRefresh={() => { void controller.refresh(); }} onSelect={controller.beginSelection}
@@ -349,8 +362,8 @@ const styles = StyleSheet.create({
   characteristicsActionText: { color: colors.ink, fontWeight: '600', fontSize: 13 },
   teacherAction: { minHeight: 48, padding: 14, borderRadius: 12, backgroundColor: colors.yellowLight, flexDirection: 'row', alignItems: 'center', gap: 12 },
   teacherActionLabel: { flex: 1, flexShrink: 1 },
-  characteristicsHeader: { justifyContent: 'flex-start', gap: 16 },
-  characteristicsTitle: { flexShrink: 1 },
+  editorHeader: { justifyContent: 'flex-start', gap: 16 },
+  editorHeaderTitle: { flexShrink: 1 },
   backButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 2 },
   characteristicsInput: { minHeight: 240, fontSize: 15, lineHeight: 24 },
   dialogOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: '#49372C66', padding: 24, justifyContent: 'center', alignItems: 'center' },

@@ -47,14 +47,16 @@ class AnswersBody(BaseModel):
     summary="알림장 만들기 시작",
     description="모든 아이의 입력을 한 번에 검토해 꼭 필요한 질문만 뽑고, 질문이 없으면 곧바로 아이별 초안을 씁니다. "
     "session.status가 asking이면 질문에 답하고(answers), reviewing이면 초안이 나온 것입니다. "
+    "manual_areas=true면 입력한 영역만 사용하고 비워 둔 영역은 질문하지 않습니다. "
     "작성 중(writing)이거나 실패(failed)한 세션에서만 시작할 수 있습니다.",
 )
 def generate(
     session_id: str, teacher: CurrentTeacher, services: ServicesDependency, ask_missing_areas: bool = False,
-    prepare_journals: bool = False,
+    prepare_journals: bool = False, manual_areas: bool = False,
 ) -> JobResponse:
     return job_response(services.pipeline.start_generate(
         teacher.teacher_id, session_id, ask_missing_areas=ask_missing_areas, prepare_journals=prepare_journals,
+        manual_areas=manual_areas,
     ))
 
 
