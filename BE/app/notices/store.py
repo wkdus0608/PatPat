@@ -5,6 +5,7 @@ history row, and every write checks the version the client saw, so two screens c
 """
 import json
 from difflib import SequenceMatcher
+from typing import Literal
 
 from app.core.database import Database
 from app.core.errors import ApiError
@@ -14,7 +15,10 @@ CONFIRMED = "완료"
 REVIEWING = "검토중"
 
 _SELECT = (
-    "SELECT n.*, c.name AS child_name FROM notices n JOIN children c ON c.child_id = n.child_id"
+    "SELECT n.*, c.name AS child_name, CASE WHEN n.withdrawn=1 THEN n.edited_text <> COALESCE("
+    "(SELECT h.text FROM notice_history h WHERE h.notice_id=n.notice_id AND h.kind='confirm' "
+    "ORDER BY h.version DESC LIMIT 1), n.edited_text) ELSE 0 END AS needs_journal_update_choice "
+    "FROM notices n JOIN children c ON c.child_id = n.child_id"
 )
 
 
@@ -48,6 +52,7 @@ class NoticeStore:
         data = dict(row)
         data["needs_check"] = bool(data["needs_check"])
         data["incident"] = bool(data["incident"])
+        data["needs_journal_update_choice"] = bool(data["needs_journal_update_choice"])
         data["warnings"] = json.loads(data["warnings"])
         return data
 
@@ -182,7 +187,7 @@ class NoticeStore:
     def _locked(self, connection, teacher_id: str, notice_id: str):
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
-            "SELECT * FROM notices WHERE teacher_id=? AND notice_id=?", (teacher_id, notice_id)
+            _SELECT + " WHERE n.teacher_id=? AND n.notice_id=?", (teacher_id, notice_id)
         ).fetchone()
         if row is None:
             raise not_found()
@@ -203,32 +208,40 @@ class NoticeStore:
                 self._add_history(connection, notice_id, version, "manual_edit", text, REVIEWING)
         return self.require(teacher_id, notice_id)
 
-    def confirm(self, teacher_id: str, notice_id: str, expected_version: int) -> tuple[dict, bool]:
-        """Confirm the text exactly as it is. Returns (notice, changed); a repeated request changes nothing."""
+    def confirm(
+        self, teacher_id: str, notice_id: str, expected_version: int, *, update_journal: bool | None = None,
+    ) -> tuple[dict, Literal["keep", "sync", "refresh"]]:
+        """Confirm the saved text and decide the journal action in the same transaction."""
+        journal_action: Literal["keep", "sync", "refresh"] = "keep"
         with self.database.connect() as connection:
             row = self._locked(connection, teacher_id, notice_id)
             if row["status"] == CONFIRMED:
                 last = connection.execute(
                     "SELECT kind FROM notice_history WHERE notice_id=? ORDER BY version DESC LIMIT 1", (notice_id,)
                 ).fetchone()
-                if expected_version == row["version"] or (
+                if expected_version != row["version"] and not (
                     expected_version == row["version"] - 1 and last and last["kind"] == "confirm"
                 ):
-                    changed = False
-                else:
                     raise version_conflict(row["version"])
             elif row["version"] != expected_version:
                 raise version_conflict(row["version"])
             else:
+                if row["needs_journal_update_choice"]:
+                    if update_journal is None:
+                        raise ApiError(status_code=409, code="JOURNAL_UPDATE_CHOICE_REQUIRED",
+                                       message="관찰일지를 업데이트할지 선택해 주세요.")
+                    if update_journal:
+                        journal_action = "refresh"
+                elif not row["withdrawn"]:
+                    journal_action = "sync"
                 version, stamp = row["version"] + 1, now_iso()
                 connection.execute(
                     "UPDATE notices SET status=?, version=?, needs_check=0, updated_at=?, confirmed_at=?, withdrawn=0 WHERE notice_id=?",
                     (CONFIRMED, version, stamp, stamp, notice_id),
                 )
                 self._add_history(connection, notice_id, version, "confirm", row["edited_text"], CONFIRMED)
-                changed = True
             confirmed = connection.execute(_SELECT + " WHERE n.notice_id=?", (notice_id,)).fetchone()
-            return self._notice(confirmed), changed
+            return self._notice(confirmed), journal_action
 
     def unconfirm(self, teacher_id: str, notice_id: str, expected_version: int) -> dict:
         with self.database.connect() as connection:

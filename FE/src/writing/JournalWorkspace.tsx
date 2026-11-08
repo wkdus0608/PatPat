@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, errorMessage } from '../api/client';
@@ -141,14 +141,15 @@ function JournalCard({ journal, api, range, onEditing, onSaved, onReload }: {
   );
 }
 
-export function JournalWorkspace({ api, account, active, rosterVersion }: {
-  api: V2Api; account: Account; active: boolean; rosterVersion: number;
+export function JournalWorkspace({ api, account, active, rosterVersion, journalVersion }: {
+  api: V2Api; account: Account; active: boolean; rosterVersion: number; journalVersion: number;
 }) {
   const [journals, setJournals] = useState<Journal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [range, setRange] = useState<DateRange>({ from: null, to: null });
   const [editingIds, setEditingIds] = useState<string[]>([]);
+  const localSaves = useRef(0);
   const legacy = account.api;
   const token = account.session.token;
   const unauthorized = account.unauthorized;
@@ -162,19 +163,17 @@ export function JournalWorkspace({ api, account, active, rosterVersion }: {
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function load() {
+      const saveCount = localSaves.current;
       try {
         const roster = await legacy.listChildren(token);
         if (!current) return;
         const values = await Promise.all(roster.map(child => api.journal(child.child_id, range)));
         if (!current) return;
-        setJournals(previous => values.map(value => {
-          const old = previous?.find(journal => journal.child.child_id === value.child.child_id);
-          const versions = new Map(old?.days.map(day => [day.observed_date, day]));
-          return { ...value, days: (value.days ?? []).map(day => {
-            const latest = versions.get(day.observed_date);
-            return latest && latest.edit_version > day.edit_version ? latest : day;
-          }) };
-        }));
+        if (saveCount !== localSaves.current) {
+          timer = setTimeout(() => { void load(); }, 0);
+          return;
+        }
+        setJournals(values.map(value => ({ ...value, days: value.days ?? [] })));
         setError(null);
         if (values.some(value => value.items.some(entry => entry.status === 'pending'))) {
           timer = setTimeout(() => { void load(); }, 1400);
@@ -188,9 +187,10 @@ export function JournalWorkspace({ api, account, active, rosterVersion }: {
     setError(null);
     void load();
     return () => { current = false; clearTimeout(timer); };
-  }, [active, api, legacy, token, unauthorized, rosterVersion, attempt, range]);
+  }, [active, api, legacy, token, unauthorized, rosterVersion, journalVersion, attempt, range]);
 
   function updateDays(childId: string, days: JournalDay[]) {
+    localSaves.current += 1;
     const saved = new Map(days.map(day => [day.observed_date, day]));
     setJournals(values => values?.map(journal => journal.child.child_id === childId
       ? { ...journal, days: journal.days.map(day => saved.get(day.observed_date) ?? day) }

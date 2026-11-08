@@ -53,12 +53,18 @@ class NoticeService:
         self._idle(teacher_id, notice_id)
         return self.store.update_text(teacher_id, notice_id, expected_version, clean_text(text))
 
-    def confirm(self, teacher_id: str, notice_id: str, expected_version: int) -> tuple[dict, dict | None]:
-        """Confirm the text as it is (no AI call), then queue the journal rows for it."""
+    def confirm(
+        self, teacher_id: str, notice_id: str, expected_version: int, *, update_journal: bool | None = None,
+    ) -> tuple[dict, dict | None]:
+        """Confirm the saved text, then start the journal work selected for this version."""
         self._idle(teacher_id, notice_id)
-        notice, changed = self.store.confirm(teacher_id, notice_id, expected_version)
-        job = self.journal.on_confirm(teacher_id, notice) if (changed and self.journal is not None) else None
-        return notice, job
+        notice, journal_action = self.store.confirm(teacher_id, notice_id, expected_version, update_journal=update_journal)
+        if self.journal is not None:
+            if journal_action == "refresh":
+                return notice, self.journal.refresh_from_notice(teacher_id, notice)
+            if journal_action == "sync":
+                return notice, self.journal.on_confirm(teacher_id, notice)
+        return notice, None
 
     def unconfirm(self, teacher_id: str, notice_id: str, expected_version: int) -> dict:
         self._idle(teacher_id, notice_id)

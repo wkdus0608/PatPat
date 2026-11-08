@@ -62,6 +62,7 @@ export interface NoticeSummary {
 export interface Notice extends NoticeSummary {
   text: string;
   warnings: { code: string; word: string }[];
+  needs_journal_update_choice: boolean;
 }
 
 export interface NoticeRevision {
@@ -185,8 +186,8 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     notice: (noticeId: string) => send<Notice>('/notices/' + id(noticeId)),
     saveNotice: (noticeId: string, edited_text: string, expected_version: number) =>
       send<Notice>('/notices/' + id(noticeId), 'PATCH', { edited_text, expected_version }),
-    confirmNotice: (noticeId: string, expected_version: number) =>
-      send<{ notice: Notice; journal_job: Job | null }>('/notices/' + id(noticeId) + '/confirm', 'POST', { expected_version }),
+    confirmNotice: (noticeId: string, expected_version: number, update_journal?: boolean) =>
+      send<{ notice: Notice; journal_job: Job | null }>('/notices/' + id(noticeId) + '/confirm', 'POST', { expected_version, update_journal }),
     unconfirmNotice: (noticeId: string, expected_version: number) =>
       send<Notice>('/notices/' + id(noticeId) + '/unconfirm', 'POST', { expected_version }),
     requestRevision: (noticeId: string, instruction: string, base_version: number) =>

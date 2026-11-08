@@ -1,4 +1,4 @@
-"""Writes journal drafts from reviewed inputs, or legacy journal rows from confirmed notices."""
+"""Writes journal drafts from reviewed inputs and refreshes journals from confirmed notices."""
 import hashlib
 import json
 import re
@@ -133,6 +133,24 @@ class JournalService:
             return None
         return self._start(teacher_id, notice, entry_ids, {spec["block_id"]: spec["text"] for spec in specs}, notice["version"])
 
+    def refresh_from_notice(self, teacher_id: str, notice: dict) -> dict | None:
+        specs = self._specs(notice["session_id"], notice["child_id"], notice["edited_text"])
+        if not specs:
+            return None
+        expected_edits = self.store.edit_versions(notice)
+
+        def refresh() -> dict:
+            cls, child, other_names = self._writing_context(teacher_id, notice)
+            rows, reused = [], 0
+            for spec in specs:
+                content, shared = self._write_row(teacher_id, notice, spec, spec["text"], cls, child, other_names)
+                rows.append({**spec, "content": content})
+                reused += int(shared)
+            self.store.apply_notice_refresh(notice, rows, expected_edits)
+            return {"generated": len(rows) - reused, "reused": reused, "failed": []}
+
+        return self.jobs.start(teacher_id, "journal_refresh", notice["notice_id"], refresh)
+
     def _start(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int) -> dict:
         return self.jobs.start(
             teacher_id, "journal", notice["notice_id"],
@@ -172,44 +190,52 @@ class JournalService:
         return self._start(teacher_id, notice, [entry_id], {spec["block_id"]: spec["text"]}, source_version)
 
     # --- the job ---------------------------------------------------------------------------------------------------------------------------
-    def _generate(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int) -> dict:
+    def _writing_context(self, teacher_id: str, notice: dict) -> tuple[ClassCtx, ChildCtx, list[str]]:
         session = self.sessions.require(teacher_id, notice["session_id"])
         classroom = self.profile.get_classroom(teacher_id, session["classroom_id"])
         cls = ClassCtx(age_label=classroom["age_label"], band=age_band_from_label(classroom["age_label"]))
         traits, _ = self.profile.get_characteristics(notice["child_id"])
         child = ChildCtx(child_id=notice["child_id"], name=notice["child_name"], characteristics=traits)
         other_names = self.sessions.other_child_names(notice["session_id"], notice["child_id"])
+        return cls, child, other_names
+
+    def _write_row(
+        self, teacher_id: str, notice: dict, row: dict, body: str, cls: ClassCtx, child: ChildCtx, other_names: list[str],
+    ) -> tuple[str, bool]:
+        common = row["block_kind"] == "common"
+        block = BlockCtx(
+            block_id=row["block_id"], child_id=None if common else notice["child_id"],
+            text=body, areas=tuple(row["areas"]), place=row["place"], time_text=row["time_text"],
+        )
+        from_inputs = bool(row.get("from_inputs"))
+        if common:
+            shared = self.store.find_shared_content(
+                notice["session_id"], row["block_id"], row["source_hash"], row["areas"], row["place"], row["time_text"],
+            )
+            if shared is not None:
+                return shared, True
+            request = prompts.build_journal_common(self.rules, cls=cls, text=body, common=block, from_inputs=from_inputs)
+        else:
+            request = prompts.build_journal_individual(
+                self.rules, cls=cls, child=child, text=body, block=block, common=None,
+                incident=notice["incident"], from_inputs=from_inputs,
+            )
+        result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"])
+        return mask_names(schemas.require_text(result.data, "content"), other_names), False
+
+    def _generate(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int) -> dict:
+        cls, child, other_names = self._writing_context(teacher_id, notice)
         generated, reused, failed, first_error = 0, 0, [], None
         for entry_id in entry_ids:
             entry = self.store.get(teacher_id, entry_id)
             if entry is None or entry["status"] != "pending" or entry["source_notice_version"] != source_version:
                 continue  # changed by the teacher while the job was waiting
-            body = texts[entry["block_id"]]
-            block = BlockCtx(
-                block_id=entry["block_id"], child_id=None if entry["block_kind"] == "common" else entry["child_id"],
-                text=body, areas=tuple(entry["areas"]), place=entry["place"], time_text=entry["time_text"],
-            )
             try:
-                shared = None
-                if entry["block_kind"] == "common":
-                    shared = self.store.find_shared_content(
-                        entry["session_id"], entry["block_id"], entry["source_hash"], entry["areas"], entry["place"], entry["time_text"]
-                    )
-                if shared is not None:
-                    content, reused = shared, reused + 1
-                else:
-                    if entry["block_kind"] == "common":
-                        request = prompts.build_journal_common(
-                            self.rules, cls=cls, text=body, common=block, from_inputs=bool(entry["from_inputs"]),
-                        )
-                    else:
-                        request = prompts.build_journal_individual(
-                            self.rules, cls=cls, child=child, text=body, block=block, common=None,
-                            incident=notice["incident"], from_inputs=bool(entry["from_inputs"]),
-                        )
-                    result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"])
-                    content = mask_names(schemas.require_text(result.data, "content"), other_names)
-                    generated += 1
+                content, shared = self._write_row(
+                    teacher_id, notice, entry, texts[entry["block_id"]], cls, child, other_names,
+                )
+                reused += int(shared)
+                generated += int(not shared)
                 self.store.mark_ready(entry_id, content, entry["version"])
             except AIError as error:
                 self.store.mark_failed(entry_id, error.code, entry["version"])

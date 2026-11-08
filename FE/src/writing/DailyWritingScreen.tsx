@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { V2Api } from '../api/v2';
 import type { Account } from '../auth/controller';
@@ -11,6 +11,8 @@ export const DailyWritingScreen = forwardRef<WritingHandle, {
   account: Account; api: V2Api; active: boolean; rosterVersion: number; onGoToRecording(): void;
 }>(function DailyWritingScreen({ account, api, active, rosterVersion, onGoToRecording }, ref) {
   const [mode, setMode] = useState<'알림장' | '관찰일지'>('알림장');
+  const [journalVersion, setJournalVersion] = useState(0);
+  const onJournalUpdated = useCallback(() => setJournalVersion(version => version + 1), []);
   useEffect(() => { if (active) setMode('알림장'); }, [active]);
   useImperativeHandle(ref, () => ({
     back() {
@@ -30,10 +32,11 @@ export const DailyWritingScreen = forwardRef<WritingHandle, {
         </View>
       </View>
       <View style={[styles.workspace, mode !== '알림장' && styles.hidden]}>
-        <NoticeWorkspace api={api} active={active && mode === '알림장'} rosterVersion={rosterVersion} />
+        <NoticeWorkspace api={api} active={active && mode === '알림장'} rosterVersion={rosterVersion} onJournalUpdated={onJournalUpdated} />
       </View>
       <View style={[styles.workspace, mode !== '관찰일지' && styles.hidden]}>
-        <JournalWorkspace account={account} api={api} active={active && mode === '관찰일지'} rosterVersion={rosterVersion} />
+        <JournalWorkspace account={account} api={api} active={active && mode === '관찰일지'} rosterVersion={rosterVersion}
+          journalVersion={journalVersion} />
       </View>
     </View>
   );

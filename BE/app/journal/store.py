@@ -11,6 +11,8 @@ from app.core.errors import ApiError
 from app.core.timeutil import new_id, now_iso
 from app.journal.days import day_text, editable_day, group_days
 
+EditVersions = tuple[int, tuple[tuple[str, int], ...]]
+
 _SELECT = (
     "SELECT e.*, c.name AS child_name, n.version AS notice_version, n.status AS notice_status, "
     "n.withdrawn AS notice_withdrawn, d.content AS day_content, d.version AS day_version "
@@ -126,6 +128,61 @@ class JournalStore:
             return connection.execute(
                 "SELECT 1 FROM journal_entries WHERE notice_id=? AND from_inputs=1 LIMIT 1", (notice_id,),
             ).fetchone() is not None
+
+    @staticmethod
+    def _edit_versions(connection, notice: dict) -> EditVersions:
+        day = connection.execute(
+            "SELECT version FROM journal_day_edits WHERE teacher_id=? AND child_id=? AND observed_date=?",
+            (notice["teacher_id"], notice["child_id"], notice["target_date"]),
+        ).fetchone()
+        rows = connection.execute(
+            "SELECT entry_id, version FROM journal_entries WHERE notice_id=? AND status='edited' ORDER BY entry_id",
+            (notice["notice_id"],),
+        )
+        return (day["version"] if day else 0, tuple((row["entry_id"], row["version"]) for row in rows))
+
+    def edit_versions(self, notice: dict) -> EditVersions:
+        with self.database.connect() as connection:
+            return self._edit_versions(connection, notice)
+
+    def apply_notice_refresh(self, notice: dict, rows: list[dict], expected_edits: EditVersions) -> None:
+        """Publish a complete rewrite only if its confirmed notice and the teacher's edits are still current."""
+        stamp = now_iso()
+        teacher_id, notice_id = notice["teacher_id"], notice["notice_id"]
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            active = connection.execute(
+                "SELECT 1 FROM notices WHERE teacher_id=? AND notice_id=? AND version=? AND status='완료' AND withdrawn=0",
+                (teacher_id, notice_id, notice["version"]),
+            ).fetchone()
+            if active is None or self._edit_versions(connection, notice) != expected_edits:
+                raise ApiError(status_code=409, code="VERSION_CONFLICT", message="알림장이나 관찰일지가 먼저 바뀌었어요.")
+            for row in rows:
+                connection.execute(
+                    "INSERT INTO journal_entries(entry_id, teacher_id, child_id, session_id, block_id, notice_id, "
+                    "block_kind, observed_date, place, time_text, areas, content, status, included, version, "
+                    "source_notice_version, source_hash, created_at, updated_at, from_inputs) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'ready',1,1,?,?,?,?,0) "
+                    "ON CONFLICT(child_id, block_id) DO UPDATE SET notice_id=excluded.notice_id, "
+                    "block_kind=excluded.block_kind, place=excluded.place, time_text=excluded.time_text, areas=excluded.areas, "
+                    "content=excluded.content, status='ready', error_code=NULL, version=journal_entries.version+1, "
+                    "source_notice_version=excluded.source_notice_version, source_hash=excluded.source_hash, "
+                    "updated_at=excluded.updated_at, from_inputs=0",
+                    (new_id(), teacher_id, notice["child_id"], notice["session_id"], row["block_id"], notice_id,
+                     row["block_kind"], notice["target_date"], row["place"], row["time_text"],
+                     json.dumps(row["areas"], ensure_ascii=False), row["content"],
+                     notice["version"], row["source_hash"], stamp, stamp),
+                )
+            block_ids = [row["block_id"] for row in rows]
+            placeholders = ",".join("?" for _ in block_ids)
+            connection.execute(
+                f"DELETE FROM journal_entries WHERE teacher_id=? AND notice_id=? AND block_id NOT IN ({placeholders})",
+                (teacher_id, notice_id, *block_ids),
+            )
+            connection.execute(
+                "DELETE FROM journal_day_edits WHERE teacher_id=? AND child_id=? AND observed_date=?",
+                (teacher_id, notice["child_id"], notice["target_date"]),
+            )
 
     def sync_rows(self, *, teacher_id: str, notice: dict, specs: list[dict], from_inputs: bool = False) -> list[str]:
         """Bring this child's rows of the session in line with a confirmed notice; return the rows to (re)generate."""

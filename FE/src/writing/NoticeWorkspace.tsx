@@ -105,7 +105,9 @@ function ReviewQuestions({ flags, busy, onAnswer, onReopen, onDirty }: {
   );
 }
 
-export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; active: boolean; rosterVersion: number }) {
+export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }: {
+  api: V2Api; active: boolean; rosterVersion: number; onJournalUpdated(): void;
+}) {
   const [session, setSession] = useState<WritingSession | null>(null);
   const [edits, setEdits] = useState<Record<string, Partial<BlockEdit>>>({});
   const [checkingAreas, setCheckingAreas] = useState(false);
@@ -262,7 +264,8 @@ export function NoticeWorkspace({ api, active, rosterVersion }: { api: V2Api; ac
           }); }} onReopen={() => { void action.run(async () => setSession(await api.reopen(session.session_id))); }} />
           : session.status === 'reviewing' ? <>
             <Text style={workStyles.title}>아이별 알림장</Text>
-            {session.notices.map(notice => <NoticeReview key={notice.notice_id} api={api} summary={notice} onDirty={onDirty} />)}
+            {session.notices.map(notice => <NoticeReview key={notice.notice_id} api={api} summary={notice}
+              onDirty={onDirty} onJournalUpdated={onJournalUpdated} />)}
             {session.job?.result?.failed?.map(failed => {
               const block = blocks.find(item => item.child_id === failed.child_id);
               return <View key={failed.child_id} style={workStyles.panel}>

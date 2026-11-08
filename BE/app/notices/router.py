@@ -8,6 +8,7 @@ from app.auth.dependencies import CurrentTeacher
 from app.children.router import private_response
 from app.core.errors import ApiError
 from app.notices.schemas import (
+    ConfirmBody,
     ConfirmResponse,
     HistoryItem,
     HistoryResponse,
@@ -50,6 +51,7 @@ def notice_response(services: Services, notice: dict) -> NoticeResponse:
         can_share=confirmed, share_text=notice["edited_text"] if confirmed else None,
         busy=services.notice_service.is_busy(notice), rules_hash=notice["rules_hash"], model=notice["model"],
         created_at=notice["created_at"], updated_at=notice["updated_at"], confirmed_at=notice["confirmed_at"],
+        needs_journal_update_choice=notice["needs_journal_update_choice"],
     )
 
 
@@ -109,10 +111,13 @@ def edit_notice(notice_id: str, body: NoticePatch, teacher: CurrentTeacher, serv
     response_model=ConfirmResponse,
     summary="알림장 확정",
     description="지금 글을 그대로 완료로 저장합니다(AI를 다시 부르지 않습니다). "
-    "확정되면 관찰일지 행이 쌓이기 시작하고(journal_job), 같은 요청을 다시 보내도 결과는 같습니다.",
+    "확정 취소 후 본문을 수정했으면 update_journal로 기존 관찰일지를 유지하거나 업데이트할지 선택합니다. "
+    "같은 요청을 다시 보내도 알림장이나 일지를 중복 저장하지 않습니다.",
 )
-def confirm_notice(notice_id: str, body: VersionBody, teacher: CurrentTeacher, services: ServicesDependency) -> ConfirmResponse:
-    notice, job = services.notice_service.confirm(teacher.teacher_id, notice_id, body.expected_version)
+def confirm_notice(notice_id: str, body: ConfirmBody, teacher: CurrentTeacher, services: ServicesDependency) -> ConfirmResponse:
+    notice, job = services.notice_service.confirm(
+        teacher.teacher_id, notice_id, body.expected_version, update_journal=body.update_journal,
+    )
     return ConfirmResponse(
         notice=notice_response(services, notice),
         journal_job=JobSummary(**{key: job[key] for key in ("job_id", "kind", "status", "error_code", "result")}) if job else None,

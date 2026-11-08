@@ -38,6 +38,7 @@ class NoticeResponse(BaseModel):
     created_at: str
     updated_at: str
     confirmed_at: str | None
+    needs_journal_update_choice: bool = Field(description="확정을 취소한 뒤 본문을 바꿔 다시 확정하는 경우")
 
 
 class NoticeListResponse(BaseModel):
@@ -57,6 +58,10 @@ class VersionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_version: int = Field(ge=1)
+
+
+class ConfirmBody(VersionBody):
+    update_journal: bool | None = Field(default=None, description="수정한 알림장을 다시 확정할 때 관찰일지도 업데이트할지 선택")
 
 
 class ConfirmResponse(BaseModel):
