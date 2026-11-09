@@ -129,7 +129,8 @@ def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = 
         is_common = allow_common and not requested_ids and kind != "incident"
         if kind not in KIND_PRIORITY or not isinstance(question, str) or not question.strip():
             continue
-        if not 2 <= len(options) <= 4 or (not child_ids and not is_common):
+        direct_answer_only = kind == "missing_fact" and raw.get("options") == []
+        if (not direct_answer_only and not 2 <= len(options) <= 4) or (not child_ids and not is_common):
             continue
         flags.append({"kind": kind, "child_ids": child_ids, "question": question.strip(), "options": options})
     flags.sort(key=lambda flag: KIND_PRIORITY[flag["kind"]])

@@ -102,7 +102,7 @@ def journal_archive(teacher: CurrentTeacher, services: ServicesDependency) -> li
     responses=EXPORT_RESPONSES,
     summary="관찰일지 붙여 넣기용 글",
     description="어린이집마다 양식이 달라 양식에 맞춘 파일은 만들지 않습니다. 교사가 자기 양식에 복사해 붙이도록 항목별 글로 줍니다. "
-    "format=text는 항목 이름이 붙은 글, tsv는 표(탭 구분)입니다. 포함으로 표시한 행 중 만들어진 것만 담고, "
+    "format=text는 날짜마다 한 묶음의 글, tsv는 표(탭 구분)입니다. 포함으로 표시한 행 중 만들어진 것만 담고, "
     "아직 만드는 중이거나 실패한 행의 수는 X-Skipped-Count 헤더로 알립니다.",
 )
 def export_journal(

@@ -416,7 +416,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
               recordingAction(() => api.applyRecordingDraft(session.session_id, run.run_id, childId), true);
             }}
             onDismiss={() => recordingAction(() => api.dismissRecordingDraft(session.session_id, run.run_id))} />)}
-        <NoticeRecordingList key={day} list={{ ...recordings, reload: () => {
+        {!checkingAreas && <NoticeRecordingList key={day} list={{ ...recordings, reload: () => {
           recordings.reload();
           if (!audioWorking && !action.busy) setAudioAttempt(value => value + 1);
         } }} account={account} active={active} used={used} busy={action.busy} deleteBlocked={!!run}
@@ -435,7 +435,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
                 onPress={() => recordingAction(() => api.startRecordingDraft(session.session_id, selected, targets))} />
             </View>
           </>}
-        </NoticeRecordingList>
+        </NoticeRecordingList>}
       </>}
     </ScrollView>
   );
