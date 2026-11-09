@@ -1,11 +1,11 @@
 # 핵심 흐름: Teacher가 Child·Activity에 연결된 Observation을 기록하고,
-# DailyNote·Journal이 공통 활동과 아이별 사실을 구분해 담으며 Teacher가 확정한다.
+# DailyNote·Journal에 공통 활동과 아이별 사실을 구분해 담는다.
+# 현재 v2에서는 Teacher가 DailyNote를 검토·확정하고 연결된 Journal을 조회·편집한다.
 # Guardian·WritingSession의 업무 배경은 조사 문서에서 설명한다.
-# 근거의 종류는 별도 EvidenceSource 클래스 대신 Observation.source_type으로 설명한다.
-# source_type·대상일·기간은 도메인 설명이며, 현재 API에 임의로 추가하는 필드가 아니다.
-# MVP API/서버 데이터 관계는 SPEC 5-1~5-4 및 BE/docs/API_CONTRACT.md를 따른다.
-# DailyNote는 후속 범위. 기존 생성 규칙과 의미 판정 조건은 유지한다.
-version: 5
+# evidence는 조사 근거를, note의 SPEC 참조는 팀 설계를 설명한다.
+# 현재 API·서버 설계는 SPEC 5-1~5-2와 BE/docs/API_CONTRACT.md를 따른다.
+# 초기 출력 필드와 판정 기준은 SPEC 5-3·6절과 golden_cases.yaml을 따른다.
+version: 6
 classes:
   Teacher:
     description: 관찰을 입력하고 기록 초안을 검토·확정하는 어린이집 담임 교사
@@ -25,8 +25,7 @@ classes:
     evidence: [로그 4, 로그 6, 로그 9]
     attributes:
       child_id: {type: string, key: true, note: 사용자 MVP 결정에 따라 서버 실명 명단과 연결하는 고정 ID이며 가명 코드가 아님}
-      name: {type: string, note: 서버 명단 관리용 이름; SPEC 5-2절}
-      is_active: {type: boolean, note: 비활성화해도 과거 일지 ID와 근거를 보존; SPEC 5-2절}
+      name: {type: string, note: 서버 명단 관리용 이름. 팀 설계는 SPEC 5-1절 참조}
     relations:
       - participates_in: Activity
         evidence: [로그 4, 로그 7, 로그 9]
@@ -46,10 +45,14 @@ classes:
     attributes:
       observation_id: {type: string, key: true, note: 문장의 근거를 연결하기 위한 팀 설계}
       text: {type: string, evidence: [로그 7, 관찰 2]}
-      observation_type: {type: list, examples: [행동, 발화, 반응, 부상, 다툼, 교사 지원, 지원 계획], note: 내용의 종류이며 고정 열거 목록이 아님}
+      observation_type: {type: list, examples: [행동, 말, 역할, 반응, 부상·다툼, 교사 지원, 지원 계획], note: 초기 계약의 내용 분류 예시. 골든 케이스의 용어를 따르며 고정 열거 목록이 아님}
       scope: {type: enum, values: [common, individual, joint, unresolved], note: 아동 연결과 초안 위치를 결정하는 SPEC의 설계 분류}
       sensitive: {type: boolean, note: 부상·다툼을 구분하는 설계 속성, evidence: [로그 2, 로그 3, 관찰 1]}
-      source_type: {type: list, examples: [교사의 기억, 메모, 사진 재확인, 동료 교사 확인, 아동에게 확인], note: 기존 업무의 근거 종류이며 제품의 사진 입력·분석 기능이나 API 필드가 아님, evidence: [로그 2, 로그 7, 로그 8, 로그 9]}
+      source_type:
+        type: list
+        examples: [교사의 기억, 메모, 아동에게 확인]
+        note: 교사가 기존 업무에서 사실을 회상·재확인하는 방법. 교사의 기억과 메모는 로그 7, 아동에게 확인하는 방법은 관찰 3에 근거한다.
+        evidence: [로그 7, 관찰 3]
     relations:
       - about: Child
         note: common은 확인된 참여 아동, individual은 1명, joint는 공동 사건 참여 아동들, unresolved는 아동 연결 없음
@@ -62,10 +65,10 @@ classes:
     evidence: [로그 3, 로그 7, 로그 9]
     attributes:
       record_id: {type: string, key: true, note: 기록 식별 설계}
-      target_date: {type: string, note: 교사의 관찰 선택 기준이며 현재 API 필드가 아님}
+      target_date: {type: string, note: 알림장의 대상일. 현재 v2는 작성 세션에 대상일을 지정한다. SPEC 5-2절 참조}
       common_text: {type: string, evidence: [로그 9, 관찰 3]}
-      individual_sentences: {type: list, note: 선택한 근거 관찰 ID를 문장별로 연결, evidence: [로그 4, 로그 9]}
-      special_notes: {type: list, note: 부상·다툼을 분리하되 사실을 보존, evidence: [로그 2, 로그 3, 관찰 1]}
+      individual_sentences: {type: list, note: 아동별 사실을 담는다. 문장별 관찰 ID 연결은 SPEC 5-3절의 초기 계약이다., evidence: [로그 4, 로그 9]}
+      special_notes: {type: list, note: 부상·다툼의 사실을 보존한다. 별도 필드로 분리하는 형식은 SPEC 5-3절의 초기 계약이다., evidence: [로그 2, 로그 3, 관찰 1]}
       missing_evidence: {type: boolean, note: 개별·공동 관찰이 없으면 확인 필요로 표시하는 설계, evidence: [로그 9, 관찰 3]}
       status: {type: enum, values: [작성중, 검토중, 완료], note: 교사 확정으로만 완료가 되는 설계, evidence: [로그 3, 관찰 1]}
     relations:
@@ -83,21 +86,17 @@ classes:
     evidence: [로그 4, 로그 7, 로그 8]
     attributes:
       record_id: {type: string, key: true, note: 기록 식별 설계}
-      target_period: {type: string, note: 교사의 관찰 선택 기준이며 현재 API 필드가 아님}
-      created_at: {type: string, note: 서버가 최초 생성 시 부여하는 시간대 포함 시각; 이전 일지 날짜 필터 기준; SPEC 5-4절}
-      version: {type: integer, note: 1부터 시작하며 쓰기 충돌을 막고 변경 이력을 연결; SPEC 5-3절}
-      common_text: {type: string, note: 공통 활동을 개별 관찰과 구분하는 팀 설계}
-      individual_sentences: {type: list, note: 선택한 근거 관찰 ID를 문장별로 연결하는 팀 설계}
-      content_kind: {type: enum, values: [관찰, 배움 읽기, 놀이 지원, 지원 계획], note: 교사가 입력한 항목만 분류하며 없는 단계의 내용은 생성하지 않음, evidence: [관찰 2]}
-      missing_evidence: {type: boolean, note: 개별·공동 관찰이 없으면 확인 필요로 표시하는 팀 설계}
-      status: {type: enum, values: [작성중, 검토중, 완료], note: 교사 확정으로만 완료가 되는 팀 설계}
+      target_period: {type: string, note: 교사가 관찰을 모아 기록하는 대상 기간, evidence: [로그 8]}
+      observed_date: {type: string, note: 관찰이 발생한 날. 현재 v2의 아동별 일지 조회·편집 기준은 SPEC 5-2절 참조}
     relations:
       - about: Child
         evidence: [로그 4, 로그 8]
       - includes: Observation
-        evidence: [로그 4, 로그 7, 관찰 2]
+        evidence: [로그 7, 로그 8]
       - reviewed_by: Teacher
-        evidence: [로그 4, 관찰 2]
+        note: 교사가 일지 내용을 조회하고 편집하는 팀 설계. SPEC 5-2절 참조
+      - draws_from: DailyNote
+        note: 현재 v2의 팀 설계. 연결된 알림장 작성 과정에서 일지 초안을 준비할 수 있다. 이 관계는 모든 관찰일지의 필수 조건으로 정의하지 않는다. SPEC 4절·5-2절 참조
 
 rules:
   - common은 공통 문장에 사용하며 개별 근거로 대신하지 않는다.
@@ -106,3 +105,11 @@ rules:
   - 입력에 없는 행동·감정·발화·원인·조치를 생성하지 않는다.
   - 알림장의 부상·다툼은 특이사항으로 분리하며 관찰일지는 관찰 문장으로 보존한다.
   - 교사 검토·확정 전에는 기록을 완료하지 않는다. 제품은 보호자 발송을 수행하지 않는다.
+
+# 현재 MVP에서 제외하는 기능은 SPEC 4절을 따른다.
+out_of_scope:
+  - 기기 내 전사·전체 가명 처리와 실명 복원
+  - 보호자 자동 발송
+  - 외부 알림장 앱 연동
+  - 사진 정리·분류
+  - 상담·발달 기록
