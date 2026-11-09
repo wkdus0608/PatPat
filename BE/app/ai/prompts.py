@@ -4,6 +4,7 @@ Every call sends the same system block (the rule files) so it can be cached. Any
 differs per call, including the task instruction, goes into the user message after it.
 A child's prompt never contains another child's name, input, or characteristics.
 """
+import json
 from dataclasses import dataclass
 
 from app.ai import schemas
@@ -29,6 +30,8 @@ class ChildCtx:
     child_id: str
     name: str
     characteristics: str | None = None
+    birth_date: str | None = None
+    gender: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,30 @@ def _request(task: AITask, bundle: RulesBundle, user_text: str, schema: dict, pa
 
 
 # --- review ------------------------------------------------------------------------------------------------
+def build_recording_observations(
+    bundle: RulesBundle, *, transcripts: dict[str, str], roster: list[ChildCtx],
+) -> AIRequest:
+    children = [
+        {"child_id": child.child_id, "name": child.name, "characteristics": child.characteristics,
+         "birth_date": child.birth_date, "gender": child.gender}
+        for child in roster
+    ]
+    lines = [
+        "[작업] 전사문에서 관찰 근거 선택",
+        "선택한 녹음에서 오늘의 관찰만 원문 그대로 인용한다. 녹음별 recording_id와 원문에 연속해 들어 있는 quote를 쓴다.",
+        "아동 이름이 명확하면 scope=individual과 그 한 아이의 child_id를 쓴다. 동명이인·대상 불명은 scope=unresolved다.",
+        "반 전체 관찰임이 명확한 경우에만 scope=common을 쓴다. common과 unresolved의 child_id는 빈 문자열이다.",
+        "여러 아이가 나온 사건은 원문에 구분되는 사실만 각각 인용한다. 대상이나 사실을 추측하지 않는다.",
+        "명단과 특성은 아동을 알아보는 참고 자료이며 관찰 근거로 쓰지 않는다. 질문이나 초안은 여기서 작성하지 않는다.",
+        "[아동 정보]",
+        _wrap(json.dumps(children, ensure_ascii=False)),
+    ]
+    for recording_id, text in transcripts.items():
+        lines.extend((f"[녹음 {recording_id}]", _wrap(text)))
+    return _request(AITask.RECORDING_OBSERVATIONS, bundle, "\n".join(lines), schemas.RECORDING_OBSERVATIONS_SCHEMA,
+                    {"transcripts": transcripts, "roster": children})
+
+
 def build_review(
     bundle: RulesBundle,
     *,
@@ -94,6 +121,8 @@ def build_review(
     common: BlockCtx | None,
     blocks: list[BlockCtx],
     metadata_sources: list[dict] | None = None,
+    previous_answers: list[dict] | None = None,
+    include_profiles: bool = False,
 ) -> AIRequest:
     names = {child.child_id: child.name for child in roster}
     lines = [
@@ -131,6 +160,20 @@ def build_review(
             if block.child_id in names and block.text.strip()
         ],
     }
+    if previous_answers:
+        lines.extend(("", "[교사가 이미 확인한 답변]",
+                      "같은 사실을 다시 묻지 않는다. 새 입력과 답이 다르거나 여전히 불분명하면 질문한다.",
+                      _wrap(json.dumps(previous_answers, ensure_ascii=False))))
+        payload["previous_answers"] = previous_answers
+    if include_profiles:
+        profiles = [
+            {"child_id": child.child_id, "characteristics": child.characteristics,
+             "birth_date": child.birth_date, "gender": child.gender}
+            for child in roster
+        ]
+        lines.extend(("", "[등록한 아동 정보]", "대상과 맥락을 확인할 때만 참고한다. 관찰한 사실로 옮겨 쓰지 않는다.",
+                      _wrap(json.dumps(profiles, ensure_ascii=False))))
+        payload["child_profiles"] = profiles
     schema = schemas.REVIEW_SCHEMA
     if metadata_sources:
         lines += [

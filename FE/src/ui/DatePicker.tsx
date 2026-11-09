@@ -29,9 +29,10 @@ export function DateArrow({ name, label, disabled, onPress }: {
   </Pressable>;
 }
 
-export function DatePicker({ label, value, onChange, min, max, disabled, compact, years }: {
+export function DatePicker({ label, value, onChange, min, max, disabled, compact, years, availableDates }: {
   label: string; value: string | null; onChange(date: string | null): void; min?: string; max?: string;
   disabled?: boolean; compact?: boolean; years?: boolean;
+  availableDates?: ReadonlySet<string>;
 }) {
   const [month, setMonth] = useState<string | null>(null);
   const shown = utc(month ?? todayDate());
@@ -85,7 +86,8 @@ export function DatePicker({ label, value, onChange, min, max, disabled, compact
             {Array.from({ length: leading }, (_, i) => <View key={'blank' + i} style={styles.cell} />)}
             {Array.from({ length: count }, (_, i) => {
               const date = iso(new Date(Date.UTC(year, index, i + 1)));
-              const unavailable = (!!min && date < min) || (!!max && date > max);
+              const unavailable = (!!min && date < min) || (!!max && date > max)
+                || (!!availableDates && !availableDates.has(date));
               return <Pressable key={date} accessibilityRole="button" accessibilityLabel={date}
                 accessibilityState={{ selected: date === value, disabled: unavailable }} disabled={unavailable}
                 onPress={() => choose(date)}

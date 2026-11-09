@@ -25,8 +25,9 @@ export async function waitForJob(api: V2Api, job: Job) {
   if (job.status === 'failed') throw new ApiError(0, job.error_code ?? 'JOB_FAILED', jobMessage(job.error_code));
 }
 
-export function NoticeReview({ api, summary, onDirty, onJournalUpdated }: {
+export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatusChange }: {
   api: V2Api; summary: NoticeSummary; onDirty(id: string, dirty: boolean): void; onJournalUpdated(): void;
+  onStatusChange(notice: NoticeSummary): void;
 }) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [draft, setDraft] = useState<{ text: string; version: number } | null>(null);
@@ -57,13 +58,14 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated }: {
     setJournalMessage(null);
     const result = await api.confirmNotice(noticeId, version, updateJournal);
     setNotice(result.notice);
+    onStatusChange(result.notice);
     if (updateJournal && result.journal_job) {
       setJournalMessage('관찰일지를 업데이트하고 있어요.');
       try {
         await waitForJob(api, result.journal_job);
         setJournalMessage('관찰일지를 업데이트했어요.');
         onJournalUpdated();
-      } catch (error) {
+      } catch {
         setJournalMessage(null);
         throw new ApiError(0, 'JOURNAL_REFRESH', '알림장은 확정했어요. 관찰일지 업데이트 결과를 확인하지 못했어요.');
       }
@@ -158,7 +160,9 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated }: {
           {confirmed ? <View style={workStyles.row}>
             <WorkButton label="확정 취소" secondary disabled={blocked}
               onPress={() => { void action.run(async () => {
-                setNotice(await api.unconfirmNotice(noticeId, notice.version));
+                const updated = await api.unconfirmNotice(noticeId, notice.version);
+                setNotice(updated);
+                onStatusChange(updated);
                 setJournalMessage(null);
               }); }} />
             <WorkButton label="복사" busy={action.busy} disabled={blocked} onPress={() => { void action.run(async () => {

@@ -58,6 +58,17 @@ class SessionStore:
             raise _not_found()
         return session
 
+    def begin_generation(self, session_id: str, *, snapshot: str, rules_hash: str, model: str) -> None:
+        with self.database.connect() as connection:
+            result = connection.execute(
+                "UPDATE writing_sessions SET status='analyzing', updated_at=?, snapshot=?, rules_hash=?, model=?, error_code=NULL "
+                "WHERE session_id=? AND status IN ('writing','failed') AND NOT EXISTS ("
+                "SELECT 1 FROM recording_drafts WHERE session_id=? AND stage NOT IN ('done','failed','dismissed'))",
+                (now_iso(), snapshot, rules_hash, model, session_id, session_id),
+            )
+            if not result.rowcount:
+                raise ApiError(status_code=409, code="SESSION_BUSY", message="이 날짜의 초안을 만드는 작업이 이미 있어요.")
+
     def set_status(self, session_id: str, status: str, **fields) -> None:
         allowed = {"snapshot", "common_paragraph", "review_json", "rules_hash", "model", "error_code"}
         assignments = ["status=?", "updated_at=?"]

@@ -17,6 +17,7 @@ import { recordingLabel } from '../recording/files';
 import type { SavedRecording } from '../recording/storage';
 import { colors } from '../ui/theme';
 import { JournalArchive } from './JournalArchive';
+import { playbackTime } from './playbackTime';
 import type { JournalListItem, LibraryViewProps } from './types';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -28,16 +29,6 @@ function dateText(dateKey: string) {
   return parts.length === 3
     ? parts[0] + '년 ' + Number(parts[1]) + '월 ' + Number(parts[2]) + '일'
     : dateKey;
-}
-
-function timeText(seconds: number) {
-  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = String(Math.floor(safeSeconds / 60) % 60).padStart(2, '0');
-  const remaining = String(safeSeconds % 60).padStart(2, '0');
-  return hours > 0
-    ? [String(hours).padStart(2, '0'), minutes, remaining].join(':')
-    : [minutes, remaining].join(':');
 }
 
 function journalTitle(journal: JournalListItem) {
@@ -340,7 +331,7 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
   if (state.route === 'journals') {
     if (state.journalArchive) {
       const archive = state.journalArchive;
-      const header = <Header title="작성한 관찰일지" subtitle="날짜를 좌우로 넘겨 기록을 확인해요."
+      const header = <Header title="작성한 관찰일지" subtitle="날짜를 누르거나 좌우로 넘겨 기록을 확인해요."
         onBack={actions.back} onRefresh={actions.refresh} busy={locked} />;
       return archive.status === 'ready' && archive.data.length > 0 ? (
         <View style={styles.fill}>
@@ -429,15 +420,15 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
             <View
               accessibilityRole="progressbar" accessibilityLabel="녹음 재생 진행"
               accessibilityValue={player.duration === null ? { text: '전체 길이 확인 중' }
-                : { min: 0, max: player.duration, now: Math.min(player.currentTime, player.duration), text: timeText(player.currentTime) + ' / ' + timeText(player.duration) }}
+                : { min: 0, max: player.duration, now: Math.min(player.currentTime, player.duration), text: playbackTime(player.currentTime) + ' / ' + playbackTime(player.duration) }}
               style={styles.progressTrack}
             >
               <View style={[styles.progressFill, { width: (String(progress * 100) + '%') as DimensionValue }]} />
             </View>
             <View style={styles.timeRow}>
-              <Text style={styles.timeText} testID="library-current-time">{timeText(player.currentTime)}</Text>
+              <Text style={styles.timeText} testID="library-current-time">{playbackTime(player.currentTime)}</Text>
               <Text style={styles.timeText} testID="library-duration">
-                {player.duration === null ? '길이 확인 중' : timeText(player.duration)}
+                {player.duration === null ? '길이 확인 중' : playbackTime(player.duration)}
               </Text>
             </View>
             {player.message && <Text accessibilityRole="alert" style={styles.playerMessage}>{player.message}</Text>}

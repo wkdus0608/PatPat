@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { JournalArchiveEntry } from '../api/v2';
-import { DateArrow } from '../ui/DatePicker';
+import { DateArrow, DatePicker } from '../ui/DatePicker';
 import { WorkMessage, workStyles } from '../ui/WorkFields';
 
 type Page = { date: string; records: JournalArchiveEntry[] };
@@ -16,17 +16,26 @@ export function JournalArchive({ records }: { records: JournalArchiveEntry[] }) 
     }
     return Array.from(groups, ([date, items]) => ({ date, records: items }));
   }, [records]);
+  const dates = useMemo(() => new Set(pages.map(page => page.date)), [pages]);
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(pages.length - 1);
   const list = useRef<FlatList<Page>>(null);
   const move = (next: number) => list.current?.scrollToOffset({ offset: next * width, animated: true });
+
+  function chooseDate(date: string | null) {
+    const next = pages.findIndex(page => page.date === date);
+    if (next < 0 || next === index) return;
+    list.current?.scrollToOffset({ offset: next * width, animated: false });
+    setIndex(next);
+  }
 
   return <View style={styles.fill}>
     <View style={styles.dateRow}>
       <DateArrow name="chevron-back" label="이전 관찰일지 날짜" disabled={!width || index === 0}
         onPress={() => move(index - 1)} />
       <View style={styles.dateLabel} accessibilityLiveRegion="polite">
-        <Text style={workStyles.title}>{pages[index].date}</Text>
+        <DatePicker label="관찰일지 날짜" value={pages[index].date} onChange={chooseDate} compact
+          min={pages[0].date} max={pages[pages.length - 1].date} availableDates={dates} disabled={!width} />
         <Text style={workStyles.hint}>{index + 1} / {pages.length}</Text>
       </View>
       <DateArrow name="chevron-forward" label="다음 관찰일지 날짜" disabled={!width || index === pages.length - 1}

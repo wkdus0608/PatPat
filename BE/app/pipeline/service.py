@@ -125,18 +125,20 @@ class PipelineService:
         jobs.register_recovery("draft", self._recover_session_job)
 
     # --- context -------------------------------------------------------------------------------------------------------
-    def _load(self, teacher_id: str, session_id: str) -> DraftContext:
+    def _load(self, teacher_id: str, session_id: str, *, input_blocks: list[dict] | None = None) -> DraftContext:
         session = self.sessions.require(teacher_id, session_id)
         classroom = self.profile.get_classroom(teacher_id, session["classroom_id"])
         cls = ClassCtx(age_label=classroom["age_label"], band=age_band_from_label(classroom["age_label"]))
-        blocks = self.sessions.list_blocks(session_id)
+        blocks = self.sessions.list_blocks(session_id) if input_blocks is None else input_blocks
         common_block = next((block for block in blocks if block["is_common"]), None)
         roster, absent, child_blocks, missing = [], set(), {}, []
         for block in blocks:
             if block["is_common"]:
                 continue
             traits, _ = self.profile.get_characteristics(block["child_id"])
-            roster.append(ChildCtx(child_id=block["child_id"], name=block["child_name"], characteristics=traits))
+            profile = self.profile.get_child(teacher_id, block["child_id"]) if input_blocks is not None else None
+            roster.append(ChildCtx(child_id=block["child_id"], name=block["child_name"], characteristics=traits,
+                                   birth_date=(profile or {}).get("birth_date"), gender=(profile or {}).get("gender")))
             if block["absent"]:
                 absent.add(block["child_id"])
             child_blocks[block["child_id"]] = replace(
@@ -198,9 +200,9 @@ class PipelineService:
         self.sessions.ensure_blocks(teacher_id, session_id)
         ctx = self._load(teacher_id, session_id)
         self._check_inputs(ctx, allow_missing_areas=manual_areas or ask_missing_areas)
-        self.sessions.set_status(
-            session_id, "analyzing", snapshot=json.dumps({"common": common_snapshot(ctx.common)}, ensure_ascii=False),
-            rules_hash=self.rules.rules_hash, model=self.ai.model, error_code=None,
+        self.sessions.begin_generation(
+            session_id, snapshot=json.dumps({"common": common_snapshot(ctx.common)}, ensure_ascii=False),
+            rules_hash=self.rules.rules_hash, model=self.ai.model,
         )
         return self.jobs.start(
             teacher_id, "generate", session_id,
@@ -211,10 +213,10 @@ class PipelineService:
             on_error=lambda code: self.sessions.set_status(session_id, "failed", error_code=code),
         )
 
-    def _run_generate(
-        self, teacher_id: str, session_id: str, *, ask_missing_areas: bool, prepare_journals: bool, manual_areas: bool,
+    def review_context(
+        self, ctx: DraftContext, *, prepare_journals: bool, previous_answers: list[dict] | None = None,
+        include_profiles: bool = False,
     ) -> dict:
-        ctx = self._load(teacher_id, session_id)
         valid_ids = {child.child_id for child in ctx.present}
         sources = {}
         if prepare_journals:
@@ -230,12 +232,19 @@ class PipelineService:
         review_request = prompts.build_review(
             self.rules, cls=ctx.cls, roster=ctx.present, common=ctx.common,
             blocks=[ctx.blocks[child.child_id] for child in ctx.present],
-            metadata_sources=list(sources.values()),
+            metadata_sources=list(sources.values()), previous_answers=previous_answers, include_profiles=include_profiles,
         )
         data = self._call(review_request, ctx).data
         review = schemas.parse_review(data, valid_ids, allow_common=ctx.common is not None)
         review["prepare_journals"] = prepare_journals
         review["flags"].extend(self._metadata_questions(ctx, data, sources))
+        return review
+
+    def _run_generate(
+        self, teacher_id: str, session_id: str, *, ask_missing_areas: bool, prepare_journals: bool, manual_areas: bool,
+    ) -> dict:
+        ctx = self._load(teacher_id, session_id)
+        review = self.review_context(ctx, prepare_journals=prepare_journals)
         if manual_areas:
             review["manual_areas"] = True
         elif ask_missing_areas and ctx.areas_missing:
@@ -387,20 +396,27 @@ class PipelineService:
         text = schemas.require_text(self._call(request, ctx).data, "text")
         return mask_names(text, ctx.other_names(child.child_id))
 
-    def _save_notice(self, ctx: DraftContext, inputs: dict, individual: str, incident: bool) -> dict:
-        child, block = inputs["child"], inputs["block"]
+    @staticmethod
+    def draft_payload(ctx: DraftContext, inputs: dict, individual: str, incident: bool) -> dict:
+        block = inputs["block"]
         text = "\n\n".join(part for part in (inputs["common_paragraph"], individual) if part)
         source = " ".join([block.text, ctx.common.text if ctx.common else "", *(item["answer"] for item in inputs["answers"])])
+        return {"text": text, "needs_check": not block.text.strip(), "incident": incident, "warnings": lint_notice(text, source)}
+
+    def _save_notice(self, ctx: DraftContext, inputs: dict, individual: str, incident: bool) -> dict:
         return self.notices.save_generated(
-            teacher_id=ctx.teacher_id, session_id=ctx.session["session_id"], child_id=child.child_id,
-            target_date=ctx.session["target_date"], text=text, needs_check=not block.text.strip(), incident=incident,
-            warnings=lint_notice(text, source), rules_hash=self.rules.rules_hash, model=self.ai.model,
+            teacher_id=ctx.teacher_id, session_id=ctx.session["session_id"], child_id=inputs["child"].child_id,
+            target_date=ctx.session["target_date"], rules_hash=self.rules.rules_hash, model=self.ai.model,
+            **self.draft_payload(ctx, inputs, individual, incident),
         )
 
-    def _draft_all(self, ctx: DraftContext, *, flags: list[dict], review: dict, common_paragraph: str) -> dict:
-        incident_ids = incident_ids_of(review, flags)
+    def draft_outcomes(
+        self, ctx: DraftContext, *, flags: list[dict], review: dict, common_paragraph: str, targets: set[str] | None = None,
+    ) -> list[tuple[dict, str | AIError]]:
         work: list[dict] = []
         for child in ctx.present:
+            if targets is not None and child.child_id not in targets:
+                continue
             has_input = bool(ctx.blocks[child.child_id].text.strip())
             if not has_input and not common_paragraph:
                 continue  # nothing to say about this child today
@@ -418,13 +434,17 @@ class PipelineService:
 
         with ThreadPoolExecutor(max_workers=self.parallelism, thread_name_prefix="patpat-draft") as pool:
             outcomes = list(pool.map(run, work))
+        return list(zip(work, outcomes))
 
-        errors = [outcome for outcome in outcomes if isinstance(outcome, AIError)]
-        attempted = sum(1 for inputs in work if inputs["has_input"])
+    def _draft_all(self, ctx: DraftContext, *, flags: list[dict], review: dict, common_paragraph: str) -> dict:
+        incident_ids = incident_ids_of(review, flags)
+        work = self.draft_outcomes(ctx, flags=flags, review=review, common_paragraph=common_paragraph)
+        errors = [outcome for _, outcome in work if isinstance(outcome, AIError)]
+        attempted = sum(1 for inputs, _ in work if inputs["has_input"])
         if attempted and len(errors) == attempted:
             raise errors[0]  # the AI answered nobody: fail the session instead of saving half-empty drafts
         drafted, failed = 0, []
-        for inputs, outcome in zip(work, outcomes):
+        for inputs, outcome in work:
             child_id = inputs["child"].child_id
             if isinstance(outcome, AIError):
                 failed.append({"child_id": child_id, "error_code": outcome.code})

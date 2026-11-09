@@ -1,4 +1,5 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { errorMessage } from '../api/client';
 import { colors } from './theme';
@@ -24,15 +25,18 @@ export function useWorkAction() {
   return { busy, error, setError, run };
 }
 
-export function WorkButton({ label, onPress, disabled, secondary, busy }: {
+export function WorkButton({ label, onPress, disabled, secondary, busy, icon }: {
   label: string; onPress(): void; disabled?: boolean; secondary?: boolean; busy?: boolean;
+  icon?: ComponentProps<typeof Ionicons>['name'];
 }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label}
       accessibilityState={{ disabled: disabled || busy, busy }} onPress={onPress} disabled={disabled || busy}
-      style={({ pressed }) => [workStyles.button, secondary && workStyles.secondary,
+      style={({ pressed }) => [workStyles.button, icon && workStyles.iconButton, secondary && workStyles.secondary,
         (disabled || busy) && workStyles.disabled, pressed && workStyles.pressed]}>
-      {busy ? <ActivityIndicator color={colors.ink} /> : <Text style={workStyles.buttonText}>{label}</Text>}
+      {busy ? <ActivityIndicator color={colors.ink} />
+        : icon ? <Ionicons name={icon} size={20} color={colors.ink} accessible={false} />
+        : <Text style={workStyles.buttonText}>{label}</Text>}
     </Pressable>
   );
 }
@@ -84,6 +88,7 @@ export const workStyles = StyleSheet.create({
   multiline: { minHeight: 86, textAlignVertical: 'top' },
   button: { minHeight: 44, backgroundColor: colors.yellow, paddingHorizontal: 14, paddingVertical: 9,
     borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  iconButton: { width: 44, paddingHorizontal: 0, paddingVertical: 0 },
   buttonText: { color: colors.ink, fontSize: 14, fontWeight: '700', textAlign: 'center' },
   secondary: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
   disabled: { opacity: 0.55 },

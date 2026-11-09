@@ -12,3 +12,13 @@ class SpeechToTextClient(Protocol):
         Credentials remain server-side. No child assignment or diary generation.
         """
         ...
+
+
+class DemoSpeechToTextClient:
+    """Explicit fixture for local demos. Never use it to infer what the audio says."""
+
+    def __init__(self, text: str):
+        self.text = text
+
+    async def transcribe(self, *, audio: AsyncIterator[bytes], content_type: str) -> SpeechToTextResult:
+        return SpeechToTextResult(text=self.text)

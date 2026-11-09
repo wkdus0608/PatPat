@@ -129,7 +129,8 @@ def test_json_schemas_close_every_object():
         elif isinstance(node, list):
             for value in node:
                 walk(value)
-    for schema in (schemas.REVIEW_SCHEMA, schemas.TEXT_SCHEMA, schemas.CONTENT_SCHEMA, schemas.AREAS_SCHEMA):
+    for schema in (schemas.REVIEW_SCHEMA, schemas.TEXT_SCHEMA, schemas.CONTENT_SCHEMA,
+                   schemas.AREAS_SCHEMA, schemas.RECORDING_OBSERVATIONS_SCHEMA):
         walk(schema)
 
 
@@ -150,6 +151,7 @@ def test_every_task_shares_one_byte_identical_system_block(bundle):
         prompts.build_journal_common(bundle, cls=CLS, text="공통", common=common),
         prompts.build_journal_individual(bundle, cls=CLS, child=child, text="개별", block=block, common=common, incident=False),
         prompts.build_areas(bundle, text="낙엽"),
+        prompts.build_recording_observations(bundle, transcripts={"r1": "다온이가 낙엽을 주웠어요."}, roster=[child]),
     ]
     assert len({request.system_text for request in requests}) == 1
     assert requests[0].system_text.startswith(prompts.SYSTEM_PREFACE)

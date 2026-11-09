@@ -1,4 +1,6 @@
 """One whole evening, end to end, with the scripted stand-in for the AI (fictional children only)."""
+from collections import Counter
+
 from app.ai.types import AITask
 from tests.flow_helpers import V2, add_children, block_of, fill, get_session, open_session, running_env
 
@@ -84,7 +86,7 @@ def test_the_whole_evening_from_quick_notes_to_the_journal(tmp_path):
         assert len(shared) == 1
         own = rows["이든"]["items"][1]
         assert (own["place"], own["time_text"], own["areas"]) == ("미끄럼틀 앞", "10:30~11:00", ["사회관계"])
-        task_counts = {task: len(fake.calls_for(task)) for task in AITask}
+        task_counts = Counter(call.task for call in fake.calls)
         assert task_counts[AITask.JOURNAL_COMMON] == 1 and task_counts[AITask.JOURNAL_INDIVIDUAL] == 3
 
         export = client.get(f"{V2}/children/{ids['다온']}/journal/export", headers=auth)

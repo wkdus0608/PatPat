@@ -20,6 +20,7 @@ class Services:
     journal: Any = None  # JournalService
     journal_store: Any = None
     quicknote_store: Any = None
+    recording_drafts: Any = None
 
 
 def get_services(request: Request) -> Services:

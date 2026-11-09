@@ -4,6 +4,7 @@ from typing import Any, Protocol
 
 
 class AITask(StrEnum):
+    RECORDING_OBSERVATIONS = "recording_observations"
     REVIEW = "review"
     COMMON = "common"
     INDIVIDUAL = "individual"

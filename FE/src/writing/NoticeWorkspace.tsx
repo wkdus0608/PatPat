@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { errorMessage } from '../api/client';
-import { OBSERVATION_AREAS, type Area, type Block, type BlockEdit, type Flag, type ReviewAnswer, type V2Api,
+import { ApiError } from '../api/client';
+import { OBSERVATION_AREAS, type Area, type Block, type BlockEdit, type Flag, type NoticeSummary,
+  type RecordingDraftState, type ReviewAnswer, type V2Api,
   type WritingPreferences, type WritingSession } from '../api/v2';
+import type { Account } from '../auth/controller';
 import { DateArrow, DatePicker, shiftDate, todayDate } from '../ui/DatePicker';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import { colors } from '../ui/theme';
 import { NoticeReview, jobMessage, waitForJob } from './NoticeReview';
-import { RecordingComingSoon } from './RecordingComingSoon';
+import { NoticeRecordingList, useNoticeRecordings } from './NoticeRecordings';
+import { RecordingRunPanel, recordingRunWorking } from './RecordingRunPanel';
 import { PresetField, usePresetMenu, type PresetMenu } from './WritingPreferences';
 
 function isGenerating(status: WritingSession['status']) {
@@ -67,6 +70,7 @@ function ReviewQuestions({ flags, busy, onAnswer, onReopen, onDirty }: {
   const [answers, setAnswers] = useState<Record<string, string | null>>({});
   // Existing sessions may still have pending area flags. Submit them as skipped.
   const questions = flags.filter(flag => flag.kind !== 'area');
+  const assigningRecording = questions.some(flag => flag.kind === 'recording_scope');
   const ready = questions.every(flag => answers[flag.flag_id] === null || answers[flag.flag_id]?.trim());
   function answer(flagId: string, value: string | null) {
     setAnswers(old => ({ ...old, [flagId]: value }));
@@ -90,13 +94,14 @@ function ReviewQuestions({ flags, busy, onAnswer, onReopen, onDirty }: {
               <WorkChoice label={metadata ? '비워 두기' : '건너뛰기'} selected={answers[flag.flag_id] === null}
                 disabled={busy} onPress={() => answer(flag.flag_id, null)} />
             </View>
-            <WorkField label={'질문 ' + (index + 1) + ' 답변'} placeholder="답변을 직접 입력할 수 있어요."
+            {flag.kind !== 'recording_scope' && <WorkField label={'질문 ' + (index + 1) + ' 답변'} placeholder="답변을 직접 입력할 수 있어요."
               value={answers[flag.flag_id] ?? ''} maxLength={metadata ? 100 : 500} editable={!busy}
-              onChangeText={value => answer(flag.flag_id, value)} />
+              onChangeText={value => answer(flag.flag_id, value)} />}
           </View>
         );
       })}
-      <WorkButton label={questions.length > 0 ? '답변하고 초안 만들기' : '초안 만들기'} busy={busy} disabled={!ready}
+      <WorkButton label={assigningRecording ? '확인하고 계속' : questions.length > 0 ? '답변하고 초안 만들기' : '초안 만들기'}
+        busy={busy} disabled={!ready}
         onPress={() => onAnswer(flags.map(flag => flag.kind === 'area'
           ? { flag_id: flag.flag_id, areas: [] }
           : { flag_id: flag.flag_id, answer: answers[flag.flag_id] }))} />
@@ -105,19 +110,25 @@ function ReviewQuestions({ flags, busy, onAnswer, onReopen, onDirty }: {
   );
 }
 
-export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }: {
-  api: V2Api; active: boolean; rosterVersion: number; onJournalUpdated(): void;
+export function NoticeWorkspace({ account, api, active, rosterVersion, onJournalUpdated }: {
+  account: Account; api: V2Api; active: boolean; rosterVersion: number; onJournalUpdated(): void;
 }) {
   const [session, setSession] = useState<WritingSession | null>(null);
   const [edits, setEdits] = useState<Record<string, Partial<BlockEdit>>>({});
   const [checkingAreas, setCheckingAreas] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [attempt, setAttempt] = useState(0);
   const action = useWorkAction();
   const menu = usePresetMenu(active);
   const [day, setDay] = useState(todayDate);
   const [preferences, setPreferences] = useState<WritingPreferences>({ places: [], times: [] });
+  const [audio, setAudio] = useState<RecordingDraftState>({ run: null, used_recordings: {} });
+  const [audioReady, setAudioReady] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [audioAttempt, setAudioAttempt] = useState(0);
+  const [recordingChoices, setRecordingChoices] = useState<Record<string, boolean>>({});
+  const [targetChoices, setTargetChoices] = useState<string[]>([]);
+  const recordings = useNoticeRecordings(account, day, active);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const dirtyEditors = useRef(new Set<string>());
   const onDirty = useCallback((id: string, dirty: boolean) => {
@@ -126,17 +137,58 @@ export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }
   }, []);
   const sessionId = session?.session_id;
   const generating = !!session && isGenerating(session.status);
+  const run = audio.run;
+  const audioWorking = recordingRunWorking(run);
 
   useEffect(() => {
     if (!active) return;
     let current = true;
-    setLoadError(null);
+    setLoadFailed(false);
     void Promise.all([api.openSession(day), api.writingPreferences()]).then(([value, choices]) => {
-      if (current) { setSession(value); setPreferences(choices); }
-    })
-      .catch(error => { if (current) setLoadError(errorMessage(error)); });
+      if (!current) return;
+      setSession(value);
+      setPreferences(choices);
+    }).catch(() => { if (current) setLoadFailed(true); });
     return () => { current = false; };
-  }, [api, active, rosterVersion, attempt, day]);
+  }, [api, active, rosterVersion, day]);
+
+  useEffect(() => {
+    if (!active || !sessionId) return;
+    let current = true;
+    setAudioReady(false);
+    setAudioError(null);
+    void api.recordingDraft(sessionId).then(state => {
+      if (current) { setAudio(state); setAudioReady(true); }
+    }).catch(error => {
+      if (current && !(error instanceof ApiError && error.status === 404)) {
+        setAudioError('녹음 작성 상태를 불러오지 못했어요.');
+      }
+    });
+    return () => { current = false; };
+  }, [api, active, sessionId, audioAttempt]);
+
+  useEffect(() => {
+    if (!active || !sessionId || !audioWorking) return;
+    let current = true;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll(id: string) {
+      try {
+        const state = await api.recordingDraft(id);
+        const updated = state.run ? null : await api.session(id);
+        if (!current) return;
+        setAudio(state);
+        setAudioError(null);
+        if (recordingRunWorking(state.run)) timer = setTimeout(() => { void poll(id); }, 1000);
+        else if (updated) { setSession(updated); onJournalUpdated(); }
+      } catch {
+        if (!current) return;
+        setAudioError('녹음 작성 상태를 다시 확인하고 있어요.');
+        timer = setTimeout(() => { void poll(id); }, 3000);
+      }
+    }
+    timer = setTimeout(() => { void poll(sessionId); }, 750);
+    return () => { current = false; clearTimeout(timer); };
+  }, [api, active, audioWorking, sessionId, onJournalUpdated]);
 
   useEffect(() => {
     if (!active || !generating || !sessionId) return;
@@ -147,20 +199,57 @@ export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }
         const value = await api.session(id);
         if (!current) return;
         setSession(value);
-        setLoadError(null);
         if (isGenerating(value.status)) timer = setTimeout(() => { void poll(id); }, 1000);
-      } catch (error) {
-        if (current) setLoadError(errorMessage(error));
+      } catch {
+        if (current) timer = setTimeout(() => { void poll(id); }, 3000);
       }
     }
     timer = setTimeout(() => { void poll(sessionId); }, 800);
     return () => { current = false; clearTimeout(timer); };
-  }, [api, active, generating, sessionId, attempt]);
+  }, [api, active, generating, sessionId]);
 
   const blocks = session?.blocks.map(block => ({ ...block, ...edits[block.block_id] })) ?? [];
   const common = blocks.find(block => block.is_common);
   const presentChildren = blocks.filter(block => !block.is_common && !block.absent);
   const observedChildren = presentChildren.filter(block => block.text.trim());
+  const reviewing = session?.status === 'reviewing';
+  const eligible = presentChildren.filter(block => !session?.notices.some(notice => notice.child_id === block.child_id && notice.status === '완료'));
+  const targets = eligible.flatMap(block => block.child_id && targetChoices.includes(block.child_id) ? [block.child_id] : []);
+  const availableRecordingIds = new Set(recordings.rows.flatMap(row => row.draftId ? [row.draftId] : []));
+  const defaults = new Set(targets.flatMap(child => audio.used_recordings[child] ?? [])
+    .filter(id => availableRecordingIds.has(id)));
+  const used = new Set(Object.values(audio.used_recordings).flat());
+  const checkedRecordings = recordings.rows.filter(row => recordingChoices[row.uri] ?? (!!row.draftId && defaults.has(row.draftId)));
+  const selected = checkedRecordings.flatMap(row => row.draftId ? [row.draftId] : []);
+  const canRegenerate = audioReady && !action.busy && !run && reviewing && eligible.length > 0;
+
+  function selectRecordings(uris: string[], checked: boolean) {
+    setRecordingChoices(values => ({ ...values, ...Object.fromEntries(uris.map(uri => [uri, checked])) }));
+  }
+
+  function canUseSelectedRecordings() {
+    if (!selected.length || audioReady) return true;
+    action.setError('녹음 작성 상태를 확인하지 못했어요. 녹음 목록을 새로고침해 주세요.');
+    return false;
+  }
+
+  function noticeStatusChanged(notice: NoticeSummary) {
+    setSession(current => current && ({
+      ...current, notices: current.notices.map(item => item.notice_id === notice.notice_id ? notice : item),
+    }));
+  }
+
+  function recordingAction(work: () => Promise<RecordingDraftState>, refresh = false) {
+    if (!sessionId) return;
+    void action.run(async () => {
+      const state = await work();
+      setAudio(state);
+      if (refresh || !state.run) {
+        setSession(await api.session(sessionId));
+        onJournalUpdated();
+      }
+    });
+  }
 
   function editBlock(blockId: string, change: Partial<BlockEdit>) {
     setEdits(values => {
@@ -204,18 +293,21 @@ export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }
       action.setError('출석한 아이가 있어야 알림장을 만들 수 있어요.');
       return;
     }
-    if (!common?.text.trim() && !observedChildren.length) {
-      action.setError('공통 내용이나 아이의 관찰 내용을 적어 주세요.');
+    if (!common?.text.trim() && !observedChildren.length && !selected.length) {
+      action.setError('관찰 내용을 적거나 사용할 녹음을 골라 주세요.');
       return;
     }
+    if (!canUseSelectedRecordings()) return;
     action.setError(null);
     setCheckingAreas(true);
     scroll.current?.scrollTo({ y: 0, animated: false });
   }
 
   async function generate(current: WritingSession) {
+    if (!canUseSelectedRecordings()) return;
     await saveInputs(current);
-    await api.generate(current.session_id);
+    if (selected.length) setAudio(await api.startRecordingDraft(current.session_id, selected));
+    else await api.generate(current.session_id);
     setSession(await api.session(current.session_id));
     setCheckingAreas(false);
     scroll.current?.scrollTo({ y: 0, animated: false });
@@ -231,6 +323,10 @@ export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }
       if (session && Object.keys(edits).length) await saveInputs(session);
       setSession(null);
       setEdits({});
+      setAudio({ run: null, used_recordings: {} });
+      setAudioReady(false);
+      setRecordingChoices({});
+      setTargetChoices([]);
       setCheckingAreas(false);
       setSaved(false);
       setDay(next);
@@ -244,16 +340,12 @@ export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }
         <DatePicker label="알림장 날짜" value={day} onChange={changeDay} compact disabled={action.busy} />
         <DateArrow name="chevron-forward" label="다음 날짜" disabled={action.busy} onPress={() => changeDay(shiftDate(day, 1))} />
       </View>
-      {loadError && <>
-        <WorkMessage error>{loadError}</WorkMessage>
-        <WorkButton label="다시 불러오기" secondary disabled={action.busy}
-          onPress={() => setAttempt(value => value + 1)} />
-      </>}
-      {!session && !loadError && <ActivityIndicator color={colors.ink} accessibilityLabel="작성 내용 불러오는 중" />}
+      {!session && (loadFailed ? <WorkMessage error>알림장을 불러오지 못했어요.</WorkMessage>
+        : <ActivityIndicator color={colors.ink} accessibilityLabel="작성 내용 불러오는 중" />)}
       {session && <>
         <WorkMessage>{session.classroom.name}</WorkMessage>
         {action.error && <WorkMessage error>{action.error}</WorkMessage>}
-        {generating ? <View style={workStyles.panel}>
+        {run?.initial ? null : generating ? <View style={workStyles.panel}>
           <ActivityIndicator color={colors.ink} />
           <WorkMessage>{session.status === 'analyzing' ? '작성에 필요한 맥락을 확인하고 있어요.' : '알림장과 관찰일지 초안을 만들고 있어요.'}</WorkMessage>
         </View> : session.status === 'asking' ? <ReviewQuestions
@@ -265,7 +357,7 @@ export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }
           : session.status === 'reviewing' ? <>
             <Text style={workStyles.title}>아이별 알림장</Text>
             {session.notices.map(notice => <NoticeReview key={notice.notice_id} api={api} summary={notice}
-              onDirty={onDirty} onJournalUpdated={onJournalUpdated} />)}
+              onDirty={onDirty} onJournalUpdated={onJournalUpdated} onStatusChange={noticeStatusChanged} />)}
             {session.job?.result?.failed?.map(failed => {
               const block = blocks.find(item => item.child_id === failed.child_id);
               return <View key={failed.child_id} style={workStyles.panel}>
@@ -279,10 +371,12 @@ export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }
             })}
           </> : checkingAreas ? <>
             <Text style={workStyles.title}>아이별 영역 확인</Text>
-            <WorkMessage>{observedChildren.length > 0
+            <WorkMessage>{selected.length > 0
+              ? '녹음에서 확인할 관찰의 영역을 미리 고를 수 있어요. 비워 두어도 됩니다.'
+              : observedChildren.length > 0
               ? '아이별 관찰 내용을 보고 필요한 영역을 선택해 주세요. 비워 두어도 됩니다.'
               : '아이별 관찰 내용이 없어 선택할 영역이 없어요.'}</WorkMessage>
-            {observedChildren.map(block => <View key={block.block_id} style={workStyles.panel}>
+            {(selected.length > 0 ? presentChildren : observedChildren).map(block => <View key={block.block_id} style={workStyles.panel}>
               <Text style={workStyles.title}>{block.child_name}</Text>
               <Text style={workStyles.body}>{block.text}</Text>
               <Areas areas={block.areas} disabled={action.busy} onChange={areas => editBlock(block.block_id, { areas })} />
@@ -304,8 +398,44 @@ export function NoticeWorkspace({ api, active, rosterVersion, onJournalUpdated }
               }); }} />
               <WorkButton label="다음" disabled={action.busy} onPress={checkAreas} />
             </View>
-            {session.notices.length === 0 && <RecordingComingSoon />}
           </>}
+        {run && (run.stage === 'asking' ? <ReviewQuestions
+          key={run.flags.map(flag => flag.flag_id).join(',')} flags={run.flags} busy={action.busy} onDirty={onDirty}
+          onAnswer={answers => recordingAction(() => api.answerRecordingDraft(session.session_id, run.run_id,
+            Object.fromEntries(answers.flatMap(item => 'answer' in item ? [[item.flag_id, item.answer]] : []))))}
+          onReopen={() => recordingAction(() => api.dismissRecordingDraft(session.session_id, run.run_id))} />
+          : <RecordingRunPanel key={run.run_id} run={run} busy={action.busy}
+            recordings={new Map(recordings.rows.flatMap(row => row.serverId ? [[row.serverId, row.fileName]] : []))}
+            onRetry={choice => recordingAction(() => api.resolveTranscriptions(session.session_id, run.run_id, choice))}
+            onApply={childId => {
+              const notice = session.notices.find(item => item.child_id === childId);
+              if (notice && dirtyEditors.current.has(notice.notice_id)) {
+                action.setError('이 아이의 작성 중인 수정 내용을 먼저 마쳐 주세요.');
+                return;
+              }
+              recordingAction(() => api.applyRecordingDraft(session.session_id, run.run_id, childId), true);
+            }}
+            onDismiss={() => recordingAction(() => api.dismissRecordingDraft(session.session_id, run.run_id))} />)}
+        <NoticeRecordingList key={day} list={{ ...recordings, reload: () => {
+          recordings.reload();
+          if (!audioWorking && !action.busy) setAudioAttempt(value => value + 1);
+        } }} account={account} active={active} used={used} busy={action.busy} deleteBlocked={!!run}
+          selected={new Set(checkedRecordings.map(row => row.uri))} onSelect={selectRecordings}>
+          {audioError && <WorkMessage error>{audioError}</WorkMessage>}
+          {reviewing && !run && eligible.length > 0 && availableRecordingIds.size > 0 && <>
+            <Text style={workStyles.label}>재생성할 아이</Text>
+            <View style={workStyles.row}>
+              {eligible.map(block => <WorkChoice key={block.block_id} label={block.child_name ?? '아동'} checkbox
+                selected={targets.includes(block.child_id ?? '')} disabled={!canRegenerate}
+                onPress={() => setTargetChoices(values => values.includes(block.child_id!)
+                  ? values.filter(value => value !== block.child_id) : [...values, block.child_id!])} />)}
+            </View>
+            <View style={styles.regenerateAction}>
+              <WorkButton label="녹음으로 초안 다시 만들기" disabled={!canRegenerate || !targets.length || (!selected.length && !defaults.size)}
+                onPress={() => recordingAction(() => api.startRecordingDraft(session.session_id, selected, targets))} />
+            </View>
+          </>}
+        </NoticeRecordingList>
       </>}
     </ScrollView>
   );
@@ -316,4 +446,5 @@ const styles = StyleSheet.create({
   presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   absentShade: { borderRadius: 17, backgroundColor: '#211D1926' },
   areaLabel: { color: colors.blueInk, fontSize: 13, fontWeight: '700' },
+  regenerateAction: { alignSelf: 'flex-end' },
 });

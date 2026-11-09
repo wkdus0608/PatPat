@@ -90,7 +90,25 @@ def _areas(request: AIRequest) -> dict:
     return {"areas": default_areas(request.payload["text"])}
 
 
+def _recording_observations(request: AIRequest) -> dict:
+    observations = []
+    roster = request.payload["roster"]
+    for recording_id, transcript in request.payload["transcripts"].items():
+        for quote in transcript.splitlines():
+            if not quote.strip():
+                continue
+            matches = [child for child in roster if child["name"] in quote]
+            if len(matches) == 1:
+                scope, child_id = "individual", matches[0]["child_id"]
+            else:
+                scope = "common" if not matches and quote.startswith(("반 공통", "우리 반")) else "unresolved"
+                child_id = ""
+            observations.append({"recording_id": recording_id, "quote": quote, "scope": scope, "child_id": child_id})
+    return {"observations": observations}
+
+
 DEFAULT_HANDLERS: dict[AITask, Callable[[AIRequest], dict]] = {
+    AITask.RECORDING_OBSERVATIONS: _recording_observations,
     AITask.REVIEW: _review,
     AITask.COMMON: _common,
     AITask.INDIVIDUAL: _individual,

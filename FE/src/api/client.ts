@@ -42,11 +42,14 @@ export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fe
   const base = baseUrl.trim().replace(/\/+$/, '');
   return async function request(
     path: string, token: string | null, method = 'GET', body?: unknown,
-    responseType: 'json' | 'text' = 'json',
+    responseType: 'json' | 'text' | 'blob' = 'json', signal?: AbortSignal,
   ): Promise<unknown> {
     if (!/^https?:\/\//.test(base)) throw new ApiError(0, 'CONNECTION', '서버에 연결할 수 없어요.');
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), 12000);
+    const stop = () => abort.abort();
+    signal?.addEventListener('abort', stop, { once: true });
+    if (signal?.aborted) stop();
+    const timer = setTimeout(stop, responseType === 'blob' ? 120000 : 12000);
     try {
       const response = await fetcher(base + prefix + path, {
         method, signal: abort.signal,
@@ -69,11 +72,12 @@ export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fe
         throw new ApiError(response.status, code, prefix === '/api/v2' && response.status !== 401 && serverMessage ? serverMessage : fallback);
       }
       if (response.status === 204) return undefined;
+      if (responseType === 'blob') return await response.blob();
       return responseType === 'text' ? await response.text() : await response.json();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       throw new ApiError(0, 'CONNECTION', '서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); signal?.removeEventListener('abort', stop); }
   };
 }
 
@@ -82,12 +86,16 @@ export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
   const request = createRequest(base, '/api/v1', fetcher);
   return {
     baseUrl: base,
-    async listRecordings(token: string, offset = 0) {
-      const row = record(await request('/recordings?limit=100&offset=' + offset, token));
+    async listRecordings(token: string, offset = 0, date?: string) {
+      const day = date ? '&date_from=' + encodeURIComponent(date) + '&date_to=' + encodeURIComponent(date) : '';
+      const row = record(await request('/recordings?limit=100&offset=' + offset + day, token));
       if (!Array.isArray(row.items) || !Number.isInteger(row.total) || (row.total as number) < 0) throw new Error('Invalid page');
       return { items: row.items.map(serverRecording), total: row.total as number };
     },
     async getRecording(token: string, id: string) { return serverRecording(await request('/recordings/' + encodeURIComponent(id), token)); },
+    async recordingAudio(token: string, id: string, signal: AbortSignal) {
+      return await request('/recordings/' + encodeURIComponent(id) + '/audio', token, 'GET', undefined, 'blob', signal) as Blob;
+    },
     async deleteRecording(token: string, id: string) { await request('/recordings/' + encodeURIComponent(id), token, 'DELETE'); },
     async login(login_id: string, password: string): Promise<Login> {
       const row = record(await request('/auth/login', null, 'POST', { login_id, password }));

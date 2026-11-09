@@ -84,6 +84,31 @@ export interface WritingSession {
   job: Job | null;
 }
 
+export interface RecordingCandidate {
+  child_id: string;
+  child_name: string;
+  text: string;
+  replaces_notice: boolean;
+}
+
+export interface RecordingRun {
+  run_id: string;
+  stage: 'transcribing' | 'transcription_failed' | 'analyzing' | 'asking' | 'drafting' | 'ready' | 'failed';
+  initial: boolean;
+  recording_ids: string[];
+  child_ids: string[];
+  flags: Flag[];
+  failed_recordings: { recording_id: string; code: string }[];
+  candidates: RecordingCandidate[];
+  missing_children: string[];
+  error_code: string | null;
+}
+
+export interface RecordingDraftState {
+  used_recordings: Record<string, string[]>;
+  run: RecordingRun | null;
+}
+
 export interface JournalEntry {
   entry_id: string;
   observed_date: string;
@@ -127,6 +152,8 @@ export interface Journal {
 export type JournalEdit = Pick<JournalEntry, 'content' | 'place' | 'time_text'>;
 
 const id = encodeURIComponent;
+const recordingDraftPath = (sessionId: string, runId?: string) =>
+  '/sessions/' + id(sessionId) + '/recording-drafts' + (runId ? '/' + id(runId) : '');
 function journalQuery(range?: DateRange, text = false) {
   const parts = text ? ['format=text'] : [];
   if (range?.from) parts.push('from=' + id(range.from));
@@ -177,6 +204,17 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
       send<Block>('/sessions/' + id(sessionId) + '/blocks/' + id(blockId), 'PATCH', edit),
     generate: (sessionId: string) =>
       send<Job>('/sessions/' + id(sessionId) + '/generate?manual_areas=true&prepare_journals=true', 'POST'),
+    recordingDraft: (sessionId: string) => send<RecordingDraftState>(recordingDraftPath(sessionId)),
+    startRecordingDraft: (sessionId: string, recording_ids: string[], child_ids?: string[]) =>
+      send<RecordingDraftState>(recordingDraftPath(sessionId), 'POST', { recording_ids, child_ids }),
+    resolveTranscriptions: (sessionId: string, runId: string, action: 'retry' | 'exclude') =>
+      send<RecordingDraftState>(recordingDraftPath(sessionId, runId) + '/transcriptions/' + action, 'POST'),
+    answerRecordingDraft: (sessionId: string, runId: string, answers: Record<string, string | null>) =>
+      send<RecordingDraftState>(recordingDraftPath(sessionId, runId) + '/answers', 'POST', { answers }),
+    applyRecordingDraft: (sessionId: string, runId: string, childId: string) =>
+      send<RecordingDraftState>(recordingDraftPath(sessionId, runId) + '/children/' + id(childId) + '/apply', 'POST'),
+    dismissRecordingDraft: (sessionId: string, runId: string) =>
+      send<RecordingDraftState>(recordingDraftPath(sessionId, runId), 'DELETE'),
     answer: (sessionId: string, answers: ReviewAnswer[]) =>
       send<Job>('/sessions/' + id(sessionId) + '/answers', 'POST', { answers }),
     reopen: (sessionId: string) => send<WritingSession>('/sessions/' + id(sessionId) + '/reopen', 'POST'),

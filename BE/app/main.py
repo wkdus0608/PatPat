@@ -17,6 +17,7 @@ from app.auth.service import SQLiteAuthService
 from app.children.repository import SQLiteChildrenRepository
 from app.children.service import SQLiteChildrenService
 from app.recordings.storage import SQLiteRecordingService
+from app.transcriptions.client import SpeechToTextClient
 from app.core.exception_handlers import (
     api_error_handler,
     http_error_handler,
@@ -25,7 +26,7 @@ from app.core.exception_handlers import (
 )
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, speech_to_text: SpeechToTextClient | None = None) -> FastAPI:
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -52,7 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.auth_service = SQLiteAuthService(SQLiteAuthRepository(database), settings.session_ttl_seconds)
     application.state.children_service = SQLiteChildrenService(SQLiteChildrenRepository(database))
     application.state.recording_service = SQLiteRecordingService(database, settings)
-    install_services(application, settings, database)
+    install_services(application, settings, database, speech_to_text=speech_to_text)
     application.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                                allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
                                allow_headers=["Authorization", "Content-Type", "Idempotency-Key"])

@@ -81,19 +81,22 @@ class JournalService:
         jobs.register_recovery("journal", lambda job: self.store.fail_all_pending_for_notice(job["ref_id"], "SERVER_RESTART"))
 
     # --- planning ------------------------------------------------------------------------------------------------------
-    def _specs(self, session_id: str, child_id: str, notice_text: str) -> list[dict]:
-        blocks = self.sessions.list_blocks(session_id, only_active=False)
-        child_block = next((block for block in blocks if block["child_id"] == child_id), None)
+    def _specs(self, notice: dict, notice_text: str) -> list[dict]:
+        source = self.notices.recording_source(notice["notice_id"])
+        blocks = source["blocks"] if source else self.sessions.list_blocks(notice["session_id"], only_active=False)
+        child_block = next((block for block in blocks if block["child_id"] == notice["child_id"]), None)
         common_block = next((block for block in blocks if block["is_common"]), None)
         return plan_rows(notice_text, child_block, common_block)
 
     def _input_specs(self, notice: dict, flags: list[dict], review: dict) -> list[dict]:
-        blocks = self.sessions.list_blocks(notice["session_id"], only_active=False)
+        roster_blocks = self.sessions.list_blocks(notice["session_id"], only_active=False)
+        source_context = self.notices.recording_source(notice["notice_id"])
+        blocks = source_context["blocks"] if source_context else roster_blocks
         child_id = notice["child_id"]
         common = next((block for block in blocks if block["is_common"]), None)
         child = next((block for block in blocks if block["child_id"] == child_id), None)
-        all_names = [block["child_name"] for block in blocks if block["child_id"] is not None]
-        other_names = [block["child_name"] for block in blocks if block["child_id"] not in (None, child_id)]
+        all_names = [block["child_name"] for block in roster_blocks if block["child_id"] is not None]
+        other_names = [block["child_name"] for block in roster_blocks if block["child_id"] not in (None, child_id)]
 
         def source(block: dict | None, scoped_id: str | None, names: list[str]) -> str:
             if not block or not block["filled"]:
@@ -127,14 +130,15 @@ class JournalService:
     def on_confirm(self, teacher_id: str, notice: dict) -> dict | None:
         if self.store.has_input_rows(notice["notice_id"]):
             return None
-        specs = self._specs(notice["session_id"], notice["child_id"], notice["edited_text"])
+        source = self.notices.recording_source(notice["notice_id"])
+        specs = self._input_specs(notice, source["flags"], source["review"]) if source else self._specs(notice, notice["edited_text"])
         entry_ids = self.store.sync_rows(teacher_id=teacher_id, notice=notice, specs=specs)
         if not entry_ids:
             return None
         return self._start(teacher_id, notice, entry_ids, {spec["block_id"]: spec["text"] for spec in specs}, notice["version"])
 
     def refresh_from_notice(self, teacher_id: str, notice: dict) -> dict | None:
-        specs = self._specs(notice["session_id"], notice["child_id"], notice["edited_text"])
+        specs = self._specs(notice, notice["edited_text"])
         if not specs:
             return None
         expected_edits = self.store.edit_versions(notice)
@@ -170,15 +174,19 @@ class JournalService:
                            message="AI 연결 키가 아직 등록되지 않았습니다. 직접 고치거나 키가 등록된 뒤에 요청해 주세요.")
         notice = self.notices.require(teacher_id, entry["notice_id"])
         if entry["from_inputs"]:
-            session = self.sessions.require(teacher_id, notice["session_id"])
-            review = json.loads(session["review_json"] or "{}")
-            specs = self._input_specs(notice, self.sessions.list_flags(notice["session_id"]), review)
+            audio = self.notices.recording_source(notice["notice_id"])
+            if audio:
+                flags, review = audio["flags"], audio["review"]
+            else:
+                session = self.sessions.require(teacher_id, notice["session_id"])
+                flags, review = self.sessions.list_flags(notice["session_id"]), json.loads(session["review_json"] or "{}")
+            specs = self._input_specs(notice, flags, review)
             source_version = notice["version"]
         else:
             confirmed = self.notices.last_confirmed(notice["notice_id"])
             if confirmed is None:
                 raise ApiError(status_code=409, code="NOT_CONFIRMED", message="확정한 알림장이 있어야 관찰일지 행을 만들 수 있어요.")
-            specs = self._specs(notice["session_id"], notice["child_id"], confirmed["text"])
+            specs = self._specs(notice, confirmed["text"])
             source_version = confirmed["version"]
         spec = next((item for item in specs if item["block_id"] == entry["block_id"]), None)
         if spec is None:

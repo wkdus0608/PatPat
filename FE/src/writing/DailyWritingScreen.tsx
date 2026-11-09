@@ -32,7 +32,8 @@ export const DailyWritingScreen = forwardRef<WritingHandle, {
         </View>
       </View>
       <View style={[styles.workspace, mode !== '알림장' && styles.hidden]}>
-        <NoticeWorkspace api={api} active={active && mode === '알림장'} rosterVersion={rosterVersion} onJournalUpdated={onJournalUpdated} />
+        <NoticeWorkspace account={account} api={api} active={active && mode === '알림장'} rosterVersion={rosterVersion}
+          onJournalUpdated={onJournalUpdated} />
       </View>
       <View style={[styles.workspace, mode !== '관찰일지' && styles.hidden]}>
         <JournalWorkspace account={account} api={api} active={active && mode === '관찰일지'} rosterVersion={rosterVersion}

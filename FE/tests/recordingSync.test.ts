@@ -94,6 +94,19 @@ test('offline combined deletion never removes the local original', async () => {
   assert.equal(s.files.length, 1); assert.equal(s.rows.size, 1);
 });
 
+test('deletion includes a server copy uploaded after the device recording was selected', async () => {
+  const s = setup();
+  const selected = (await s.library.list()).find(row => row.uri === s.saved.uri)!;
+  assert.equal(selected.location, 'device');
+  s.connect();
+  await s.library.autoSync();
+  await s.library.remove(selected);
+  await s.library.synchronize!();
+  assert.equal(s.files.length, 0);
+  assert.equal(s.rows.size, 0);
+  assert.equal(s.writes(), 1);
+});
+
 test('remote deletion is reconciled instead of uploading the local copy again', async () => {
   const s = setup(); s.connect(); await s.library.synchronize!(); s.rows.clear();
   await s.library.synchronize!();

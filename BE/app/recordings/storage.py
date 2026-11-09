@@ -153,6 +153,7 @@ class SQLiteRecordingService:
                     raise missing()
                 # Pending deletion stays inaccessible, but can be retried after IO failure.
                 connection.execute("UPDATE recordings SET deleted=1 WHERE recording_id=?", (recording_id,))
+                connection.execute("DELETE FROM recording_transcripts WHERE recording_id=?", (recording_id,))
             self.path(recording_id).unlink(missing_ok=True)
             with self.database.connect() as connection:
                 connection.execute("UPDATE recordings SET deleted=2 WHERE recording_id=?", (recording_id,))

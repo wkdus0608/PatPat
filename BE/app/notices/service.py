@@ -84,6 +84,9 @@ class NoticeService:
         base_text = notice["edited_text"]  # the text of base_version, fixed now
         other_names = self.sessions.other_child_names(notice["session_id"], notice["child_id"])
         source = self.sessions.child_source_text(notice["session_id"], notice["child_id"])
+        audio = self.store.recording_source(notice_id)
+        if audio:
+            source = "\n\n".join(block["text"] for block in audio["blocks"] if block["filled"])
         child = ChildCtx(child_id=notice["child_id"], name=notice["child_name"])
 
         def work() -> dict:

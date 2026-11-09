@@ -59,6 +59,21 @@ TEXT_SCHEMA = {
     "properties": {"text": _STR},
 }
 
+RECORDING_OBSERVATIONS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["observations"],
+    "properties": {"observations": {"type": "array", "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["recording_id", "quote", "scope", "child_id"],
+        "properties": {
+            "recording_id": _STR, "quote": _STR, "child_id": _STR,
+            "scope": {"type": "string", "enum": ["common", "individual", "unresolved"]},
+        },
+    }}},
+}
+
 REVIEW_WITH_METADATA_SCHEMA = {
     **REVIEW_SCHEMA,
     "required": [*REVIEW_SCHEMA["required"], "metadata"],

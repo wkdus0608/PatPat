@@ -7,7 +7,7 @@ from tests.flow_helpers import V2, add_children, fill, get_session, open_session
 NAMES = ["다온", "이든", "서윤"]
 
 
-def day(env, ids=None, date="2026-11-06", extra=None):
+def day(env, ids=None, date="2026-11-06", extra=None, *, prepare_journals=False):
     """A class day: shared note + 다온 and 이든 with their own notes, 서윤 without."""
     ids = ids or dict(zip(NAMES, add_children(env, NAMES)))
     session = open_session(env, date)
@@ -16,14 +16,25 @@ def day(env, ids=None, date="2026-11-06", extra=None):
     fill(env, session, "이든", "이든이는 미끄럼틀을 여러 번 탔어요.", ("신체운동·건강",), place="미끄럼틀", time_text="11:10")
     if extra:
         extra(session)
-    job = env.client.post(f"{V2}/sessions/{session['session_id']}/generate", headers=env.headers)
+    query = "?prepare_journals=true" if prepare_journals else ""
+    job = env.client.post(f"{V2}/sessions/{session['session_id']}/generate{query}", headers=env.headers)
     assert job.status_code == 202 and job.json()["status"] == "completed", job.text
     notices = {n["child_name"]: n for n in get_session(env, session["session_id"])["notices"]}
     return ids, session, notices
 
 
-def confirm(env, notice_id, version):
-    response = env.client.post(f"{V2}/notices/{notice_id}/confirm", headers=env.headers, json={"expected_version": version})
+def confirm(env, notice_id, version, **options):
+    response = env.client.post(
+        f"{V2}/notices/{notice_id}/confirm", headers=env.headers, json={"expected_version": version, **options},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def unconfirm(env, notice_id, version):
+    response = env.client.post(
+        f"{V2}/notices/{notice_id}/unconfirm", headers=env.headers, json={"expected_version": version},
+    )
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -131,6 +142,83 @@ def test_reconfirming_an_unchanged_notice_keeps_the_rows_and_a_changed_one_rewri
         final = journal(env, ids["다온"])["items"]
         assert [e["content"] for e in final] == [e["content"] for e in after]
         assert all(not e["outdated"] and e["source_notice_version"] == 7 for e in final)
+
+
+def test_reconfirming_an_edited_notice_requires_a_choice_and_only_refreshes_when_requested(tmp_path):
+    with running_env(tmp_path) as env:
+        ids, _, notices = day(env, prepare_journals=True)
+        notice_id = notices["다온"]["notice_id"]
+        path = f"{V2}/notices/{notice_id}"
+        child_path = f"{V2}/children/{ids['다온']}/journal"
+        first = confirm(env, notice_id, 1)
+        assert first["journal_job"] is None
+        same = unconfirm(env, notice_id, first["notice"]["version"])
+        assert not same["needs_journal_update_choice"]
+        restored = confirm(env, notice_id, same["version"])
+        assert restored["journal_job"] is None
+        confirm(env, notices["이든"]["notice_id"], 1)
+        other = journal(env, ids["이든"])
+
+        original_day = journal(env, ids["다온"])["days"][0]
+        old_text = "교사가 직접 쓴 이전 관찰내용입니다."
+        response = env.client.patch(child_path, headers=env.headers, json={"days": [{
+            "observed_date": original_day["observed_date"], "expected_revision": original_day["revision"],
+            "content": old_text,
+        }]})
+        assert response.status_code == 200
+        undone = unconfirm(env, notice_id, restored["notice"]["version"])
+        edited = env.client.patch(path, headers=env.headers, json={
+            "expected_version": undone["version"], "edited_text": "다온이는 낙엽으로 그림을 그렸어요.",
+        }).json()
+        assert edited["needs_journal_update_choice"]
+        assert env.client.get(path, headers=env.headers).json()["needs_journal_update_choice"]
+        missing_choice = env.client.post(path + "/confirm", headers=env.headers, json={"expected_version": edited["version"]})
+        assert missing_choice.status_code == 409 and missing_choice.json()["error"]["code"] == "JOURNAL_UPDATE_CHOICE_REQUIRED"
+        kept = confirm(env, notice_id, edited["version"], update_journal=False)
+        assert kept["journal_job"] is None and kept["notice"]["text"] == edited["text"]
+        assert journal(env, ids["다온"])["days"][0]["content"] == old_text
+
+        undone = unconfirm(env, notice_id, kept["notice"]["version"])
+        edited = env.client.patch(path, headers=env.headers, json={
+            "expected_version": undone["version"], "edited_text": "다온이는 낙엽을 크기별로 분류했어요.",
+        }).json()
+        refreshed = confirm(env, notice_id, edited["version"], update_journal=True)
+        assert refreshed["journal_job"]["status"] == "completed"
+        updated = journal(env, ids["다온"])
+        assert updated["days"][0]["edit_version"] == 0 and "크기별로 분류" in updated["days"][0]["content"]
+        assert [row["block_kind"] for row in updated["items"]] == ["individual"]
+        assert updated["items"][0]["source_notice_version"] == refreshed["notice"]["version"]
+        assert journal(env, ids["이든"]) == other
+        archived = env.client.get(f"{V2}/journal/archive", headers=env.headers).json()
+        assert archived[0]["content"] == updated["days"][0]["content"]
+        exported = env.client.get(child_path + "/export", headers=env.headers).text
+        assert "크기별로 분류" in exported and old_text not in exported
+        calls = len(env.app.state.ai_client.calls)
+        assert confirm(env, notice_id, edited["version"], update_journal=True)["journal_job"] is None
+        assert len(env.app.state.ai_client.calls) == calls
+
+
+def test_failed_refresh_keeps_the_complete_previous_journal(tmp_path):
+    with running_env(tmp_path) as env:
+        ids, _, notices = day(env, prepare_journals=True)
+        notice_id = notices["다온"]["notice_id"]
+        first = confirm(env, notice_id, 1)["notice"]
+        before = journal(env, ids["다온"])
+        undone = unconfirm(env, notice_id, first["version"])
+        edited = env.client.patch(f"{V2}/notices/{notice_id}", headers=env.headers, json={
+            "expected_version": undone["version"],
+            "edited_text": "가을 놀이를 했어요.\n\n낙엽을 크기별로 분류했어요.",
+        }).json()
+
+        def down(_request):
+            raise AIUnavailable("가상 테스트 오류")
+
+        env.app.state.ai_client.handlers[AITask.JOURNAL_INDIVIDUAL] = down
+        refreshed = confirm(env, notice_id, edited["version"], update_journal=True)
+        assert refreshed["notice"]["status"] == "완료"
+        assert refreshed["journal_job"]["status"] == "failed"
+        assert journal(env, ids["다온"])["items"] == before["items"]
+        assert journal(env, ids["다온"])["days"][0]["content"] == before["days"][0]["content"]
 
 
 def test_rows_the_teacher_edited_are_never_overwritten(tmp_path):

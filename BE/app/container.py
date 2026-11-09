@@ -16,6 +16,9 @@ from app.notices.router import notices_router
 from app.notices.service import NoticeService
 from app.notices.store import NoticeStore
 from app.pipeline.router import pipeline_router
+from app.pipeline.recording_router import router as recording_drafts_router
+from app.pipeline.recording_runs import RecordingDrafts
+from app.pipeline.recording_store import RecordingDraftStore
 from app.pipeline.service import PipelineService
 from app.profile.router import profile_router
 from app.profile.store import ProfileStore
@@ -25,10 +28,14 @@ from app.rules.loader import load_rules
 from app.services import Services
 from app.sessions.router import sessions_router
 from app.sessions.store import SessionStore
+from app.transcriptions.cache import RecordingTranscripts
+from app.transcriptions.client import DemoSpeechToTextClient, SpeechToTextClient
 from app.usage.router import usage_router
 
 
-def install_services(application: FastAPI, settings: Settings, database: Database) -> None:
+def install_services(
+    application: FastAPI, settings: Settings, database: Database, *, speech_to_text: SpeechToTextClient | None = None,
+) -> None:
     rules = load_rules(settings.rules_path)  # raises if a rule file is missing: the server must not run without them
     ai_client = create_ai_client(settings)
     gateway = AIGateway(ai_client, database, rules.rules_hash)
@@ -45,15 +52,20 @@ def install_services(application: FastAPI, settings: Settings, database: Databas
         journal=journal, parallelism=settings.ai_parallelism,
     )
     notice_service = NoticeService(rules=rules, store=notices, sessions=sessions, jobs=jobs, ai=gateway, journal=journal)
+    if speech_to_text is None and settings.ai_provider == "fake" and settings.demo_transcript.strip():
+        speech_to_text = DemoSpeechToTextClient(settings.demo_transcript)
+    transcripts = RecordingTranscripts(database, application.state.recording_service, speech_to_text)
+    recording_store = RecordingDraftStore(database, notices)
+    recording_drafts = RecordingDrafts(recording_store, pipeline, transcripts)
     services = Services(
         settings=settings, database=database, rules=rules, profile=profile, sessions=sessions, ai=gateway,
         jobs=jobs, pipeline=pipeline, notices=notices, notice_service=notice_service, journal=journal,
-        journal_store=journal_store, quicknote_store=QuickNoteStore(database),
+        journal_store=journal_store, quicknote_store=QuickNoteStore(database), recording_drafts=recording_drafts,
     )
 
     v2 = build_v2_app(
         settings,
-        [profile_router, sessions_router, pipeline_router, notices_router, journal_router, quicknotes_router,
+        [profile_router, sessions_router, pipeline_router, recording_drafts_router, notices_router, journal_router, quicknotes_router,
          usage_router, jobs_router],
     )
     v2.mount("/auth", build_signup_app(database))
@@ -67,6 +79,6 @@ def install_services(application: FastAPI, settings: Settings, database: Databas
     application.state.ai_client = ai_client
     application.state.v2_app = v2
     # The main app's lifespan runs these (a mounted sub-app has no lifespan of its own).
-    application.state.startup_hooks = [jobs.recover]
+    application.state.startup_hooks = [jobs.recover, transcripts.recover, recording_store.recover]
     application.state.shutdown_hooks = [jobs.shutdown]
     application.mount("/api/v2", v2)

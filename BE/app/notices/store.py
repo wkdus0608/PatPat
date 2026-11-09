@@ -157,32 +157,49 @@ class NoticeStore:
         model: str | None,
     ) -> dict:
         """Create the child's notice, or replace the draft (as a new version; older versions stay in the history)."""
-        stamp = now_iso()
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT notice_id, version FROM notices WHERE session_id=? AND child_id=?", (session_id, child_id)
-            ).fetchone()
-            if row is None:
-                notice_id, version, kind = new_id(), 1, "generated"
-                connection.execute(
-                    "INSERT INTO notices(notice_id, teacher_id, session_id, child_id, target_date, version, status, "
-                    "generated_text, edited_text, needs_check, incident, warnings, rules_hash, model, created_at, updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (notice_id, teacher_id, session_id, child_id, target_date, version, REVIEWING, text, text,
-                     1 if needs_check else 0, 1 if incident else 0, json.dumps(warnings, ensure_ascii=False),
-                     rules_hash, model, stamp, stamp),
-                )
-            else:
-                notice_id, version, kind = row["notice_id"], row["version"] + 1, "regenerated"
-                connection.execute(
-                    "UPDATE notices SET version=?, status=?, generated_text=?, edited_text=?, needs_check=?, incident=?, "
-                    "warnings=?, rules_hash=?, model=?, updated_at=?, confirmed_at=NULL WHERE notice_id=?",
-                    (version, REVIEWING, text, text, 1 if needs_check else 0, 1 if incident else 0,
-                     json.dumps(warnings, ensure_ascii=False), rules_hash, model, stamp, notice_id),
-                )
-            self._add_history(connection, notice_id, version, kind, text, REVIEWING)
+            notice_id = self.write_generated(
+                connection, teacher_id=teacher_id, session_id=session_id, child_id=child_id, target_date=target_date,
+                text=text, needs_check=needs_check, incident=incident, warnings=warnings, rules_hash=rules_hash, model=model,
+            )
+            connection.execute("DELETE FROM notice_recording_sources WHERE notice_id=?", (notice_id,))
         return self.require(teacher_id, notice_id)
+
+    def write_generated(
+        self, connection, *, teacher_id: str, session_id: str, child_id: str, target_date: str, text: str,
+        needs_check: bool, incident: bool, warnings: list[dict], rules_hash: str | None, model: str | None,
+    ) -> str:
+        stamp = now_iso()
+        row = connection.execute(
+            "SELECT notice_id, version FROM notices WHERE session_id=? AND child_id=?", (session_id, child_id),
+        ).fetchone()
+        warning_json = json.dumps(warnings, ensure_ascii=False)
+        if row is None:
+            notice_id, version, kind = new_id(), 1, "generated"
+            connection.execute(
+                "INSERT INTO notices(notice_id, teacher_id, session_id, child_id, target_date, version, status, "
+                "generated_text, edited_text, needs_check, incident, warnings, rules_hash, model, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (notice_id, teacher_id, session_id, child_id, target_date, version, REVIEWING, text, text,
+                 int(needs_check), int(incident), warning_json, rules_hash, model, stamp, stamp),
+            )
+        else:
+            notice_id, version, kind = row["notice_id"], row["version"] + 1, "regenerated"
+            connection.execute(
+                "UPDATE notices SET version=?, status=?, generated_text=?, edited_text=?, needs_check=?, incident=?, "
+                "warnings=?, rules_hash=?, model=?, updated_at=?, confirmed_at=NULL WHERE notice_id=?",
+                (version, REVIEWING, text, text, int(needs_check), int(incident), warning_json, rules_hash, model, stamp, notice_id),
+            )
+        self._add_history(connection, notice_id, version, kind, text, REVIEWING)
+        return notice_id
+
+    def recording_source(self, notice_id: str) -> dict | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM notice_recording_sources WHERE notice_id=?", (notice_id,),
+            ).fetchone()
+        return json.loads(row["payload"]) if row else None
 
     def _locked(self, connection, teacher_id: str, notice_id: str):
         connection.execute("BEGIN IMMEDIATE")

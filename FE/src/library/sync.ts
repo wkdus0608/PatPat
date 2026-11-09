@@ -168,19 +168,28 @@ export function createSyncedLibrary(local: RecordingLibrary, legacy: RecordingLi
       transfer = new AbortController();
       return remote.playback(file.serverId, transfer.signal);
     },
-    async remove(file, target: DeleteTarget = file.location === 'both' ? 'both' : file.location === 'server' ? 'server' : 'device') {
+    async remove(file, target?: DeleteTarget) {
       if (syncing) throw new Error('Sync in progress');
-      const entry = (await store.entries()).find(e => e.saved.uri === file.uri || !!file.serverId && e.serverId === file.serverId);
-      if (target !== 'device') {
-        if (!file.serverId) throw new Error('Missing recording ID');
-        await remote.remove(file.serverId);
-        // Retain the tombstone so a local copy is never uploaded again implicitly.
-        if (entry) await store.put({ ...entry, serverId: undefined, serverDeleted: true });
-        await store.cache((await store.cache()).filter(r => r.recording_id !== file.serverId));
-      }
-      if (target !== 'server') {
-        if (file.location === 'server') throw new Error('No device file');
-        await (file.syncLabel === '기존 기기 녹음' ? legacy : local).remove(file);
+      syncing = true;
+      try {
+        const entry = (await store.entries()).find(e => e.saved.uri === file.uri || !!file.serverId && e.serverId === file.serverId);
+        // An upload may have completed since the user selected the device file.
+        const serverId = entry?.serverId ?? file.serverId;
+        const scope = target ?? (file.location === 'server' ? 'server' : serverId ? 'both' : 'device');
+        if (scope !== 'device') {
+          if (!serverId) throw new Error('Missing recording ID');
+          await remote.remove(serverId);
+          // Retain the tombstone so a local copy is never uploaded again implicitly.
+          if (entry) await store.put({ ...entry, serverId: undefined, serverDeleted: true });
+          await store.cache((await store.cache()).filter(r => r.recording_id !== serverId));
+        }
+        if (scope !== 'server') {
+          if (file.location === 'server') throw new Error('No device file');
+          await (file.syncLabel === '기존 기기 녹음' ? legacy : local).remove(file);
+        }
+      } finally {
+        syncing = false;
+        runQueued();
       }
     },
     async releasePlayback() {

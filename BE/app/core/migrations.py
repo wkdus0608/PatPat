@@ -268,6 +268,26 @@ MIGRATIONS: tuple[tuple[str, str], ...] = (
         );
         """,
     ),
+    (
+        "011_recording_drafts",
+        """
+        CREATE TABLE recording_transcripts (
+            recording_id TEXT PRIMARY KEY REFERENCES recordings(recording_id),
+            status TEXT NOT NULL CHECK(status IN ('running','ready','failed')),
+            text TEXT
+        );
+        CREATE TABLE recording_drafts (
+            session_id TEXT PRIMARY KEY REFERENCES writing_sessions(session_id),
+            run_id TEXT NOT NULL UNIQUE,
+            stage TEXT NOT NULL,
+            payload TEXT NOT NULL
+        );
+        CREATE TABLE notice_recording_sources (
+            notice_id TEXT PRIMARY KEY REFERENCES notices(notice_id),
+            payload TEXT NOT NULL
+        );
+        """,
+    ),
 )
 
 
