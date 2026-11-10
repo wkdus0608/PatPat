@@ -81,8 +81,8 @@ RECORDING_OBSERVATIONS_SCHEMA = {
             "scope": {"type": "string", "enum": ["common", "individual", "unresolved"]},
             "corrections": {"type": "array", "items": {
                 "type": "object", "additionalProperties": False,
-                "required": ["original", "replacement"],
-                "properties": {"original": _STR, "replacement": _STR},
+                "required": ["original", "replacement", "occurrence"],
+                "properties": {"original": _STR, "replacement": _STR, "occurrence": {"type": "integer"}},
             }},
         },
     }}},

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Account } from '../auth/controller';
-import { ImportError } from './importCommon';
-import { importAudioFile } from './importAudio';
+import { ImportError, importSummary } from './importCommon';
+import { importAudioFiles } from './importAudio';
 
 /** 녹음 화면의 '녹음 파일 올리기' 상태. */
 export function useAudioImport(account?: Account) {
@@ -14,8 +14,8 @@ export function useAudioImport(account?: Account) {
     setBusy(true);
     setResult(null);
     try {
-      const uploaded = await importAudioFile(account);
-      if (alive.current && uploaded) setResult({ text: '녹음 파일을 서버에 저장했어요. 보관함에서 확인할 수 있어요.', error: false });
+      const outcome = await importAudioFiles(account);
+      if (alive.current && outcome) setResult(importSummary(outcome));
     } catch (error) {
       const text = error instanceof ImportError ? error.message : '녹음 파일을 올리지 못했어요. 다시 시도해 주세요.';
       if (alive.current) setResult({ text, error: true });

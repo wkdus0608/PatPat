@@ -47,9 +47,13 @@ def correct_transcription_typos(quote: str, corrections: object, names: set[str]
         if not all(isinstance(part, str) and re.fullmatch(r"[가-힣]+(?: [가-힣]+)?", part)
                    and len(part) <= 12 for part in (original, replacement)):
             continue
-        start = quote.find(original)
-        if start < 0 or quote.find(original, start + 1) >= 0 or original == replacement:
+        if original == replacement:
             continue
+        starts = [match.start() for match in re.finditer(r"(?=" + re.escape(original) + r")", quote)]
+        occurrence = correction.get("occurrence", 1 if len(starts) == 1 else None)
+        if type(occurrence) is not int or not 1 <= occurrence <= len(starts):
+            continue
+        start = starts[occurrence - 1]
         edits.append((start, start + len(original), replacement))
     result = quote
     previous_start = len(quote)

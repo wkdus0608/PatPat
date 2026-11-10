@@ -197,7 +197,7 @@ def test_recording_typos_are_corrected_before_review_without_changing_source(tmp
         memo = "놀이터에서 낙엽을 살펴봤어요."
         fill(env, session, None, memo, (), place="놀이터", time_text="오전 자유놀이")
         recording = seed_audio(env, "spoken-typos")
-        quote = "화준이가 나겹을 주어 바구니에 2장 담았어요."
+        quote = "화준이가 나겹을 주어 바구니에 2장 담았어요. 친구에게 ‘손님 알래요, 빵 만드는 사람 알래요?’라고 물었어요."
         stt = FixtureTranscriber()
         stt.texts["spoken-typos"] = quote
         env.app.state.services.recording_drafts.transcripts.client = stt
@@ -212,6 +212,9 @@ def test_recording_typos_are_corrected_before_review_without_changing_source(tmp
                     {"original": "주어", "replacement": "주워"},
                     {"original": "2장", "replacement": "3장"},
                     {"original": "바닥", "replacement": "잔디"},
+                    {"original": "알래요", "replacement": "할래요", "occurrence": 1},
+                    {"original": "알래요", "replacement": "할래요", "occurrence": 2},
+                    {"original": "알래요", "replacement": "했어요", "occurrence": 3},
                 ],
             }]}
 
@@ -220,7 +223,10 @@ def test_recording_typos_are_corrected_before_review_without_changing_source(tmp
         assert result["run"] is None
         assert len(env.app.state.ai_client.calls_for(AITask.RECORDING_OBSERVATIONS)) == 1
         review, = env.app.state.ai_client.calls_for(AITask.REVIEW)
-        assert review.payload["blocks"][0]["text"] == "하준이가 낙엽을 주워 바구니에 2장 담았어요."
+        corrected = "하준이가 낙엽을 주워 바구니에 2장 담았어요. 친구에게 ‘손님 할래요, 빵 만드는 사람 할래요?’라고 물었어요."
+        assert review.payload["blocks"][0]["text"] == corrected
+        journal, = env.app.state.ai_client.calls_for(AITask.JOURNAL_INDIVIDUAL)
+        assert journal.payload["text"] == corrected
         with env.app.state.database.connect() as connection:
             cached = connection.execute("SELECT text FROM recording_transcripts WHERE recording_id=?", (recording,)).fetchone()
         assert cached["text"] == quote

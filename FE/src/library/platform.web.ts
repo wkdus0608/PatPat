@@ -4,6 +4,8 @@ import type { SavedRecording } from '../recording/storage';
 import { serverItem } from './sync';
 import type { PlayerFactory, RecordingLibrary } from './types';
 import { createWebLibraryPlayer } from './webPlayer';
+import { importAudioFiles } from '../recording/importAudio';
+import { importSummary } from '../recording/importCommon';
 
 export function createLibraryPlatform(account?: Account): { recordings: RecordingLibrary; createPlayer: PlayerFactory } {
   let playback: AbortController | null = null;
@@ -28,6 +30,11 @@ export function createLibraryPlatform(account?: Account): { recordings: Recordin
   return {
     recordings: {
       available: !!account,
+      async importFiles() {
+        if (!account) return null;
+        const outcome = await importAudioFiles(account);
+        return outcome && importSummary(outcome).text;
+      },
       list: () => signedIn(async ({ api, session }) => {
         const items = new Map<string, SavedRecording>();
         let offset = 0;

@@ -291,6 +291,12 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
         ListHeaderComponent={<>
           <Header title="녹음 파일" subtitle="연결되어 있으면 새 녹음은 자동으로 서버에 저장돼요. 새로고침으로 바로 확인할 수 있어요."
             onBack={actions.back} onRefresh={actions.refresh} busy={locked} />
+          {actions.importFiles && state.recordings.status !== 'unavailable' && (
+            <View style={{ marginBottom: 12 }}>
+              <Button label="녹음 파일 올리기 (여러 개 선택 가능)" icon="cloud-upload-outline" secondary
+                onPress={actions.importFiles} disabled={locked} busy={!!state.syncing} testID="library-import" />
+            </View>
+          )}
           {notice}
         </>}
         ListEmptyComponent={recordingListPanel()}

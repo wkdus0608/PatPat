@@ -5,6 +5,8 @@ import type { Account } from '../auth/controller';
 import { createSyncStore } from '../recording/syncStore';
 import { createSyncedLibrary, type SyncedRecordingLibrary } from './sync';
 import { createRecordingRemote } from './remote';
+import { importAudioFiles } from '../recording/importAudio';
+import { importSummary } from '../recording/importCommon';
 
 let shared: { key: string; library: SyncedRecordingLibrary } | null = null;
 
@@ -25,6 +27,13 @@ export function getAccountLibrary(account: Account): SyncedRecordingLibrary {
 }
 
 export function createLibraryPlatform(account?: Account) {
-  const recordings = account ? getAccountLibrary(account) : createRecordingLibrary(createExpoFilePort());
+  const recordings = account
+    ? Object.assign({}, getAccountLibrary(account), {
+      async importFiles() {
+        const outcome = await importAudioFiles(account);
+        return outcome && importSummary(outcome).text;
+      },
+    })
+    : createRecordingLibrary(createExpoFilePort());
   return { recordings, createPlayer: createExpoLibraryPlayer };
 }
