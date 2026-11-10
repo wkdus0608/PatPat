@@ -43,6 +43,7 @@ export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fe
   return async function request(
     path: string, token: string | null, method = 'GET', body?: unknown,
     responseType: 'json' | 'text' | 'blob' | 'arrayBuffer' = 'json', signal?: AbortSignal, timeoutMs?: number,
+    headers?: Record<string, string>,
   ): Promise<unknown> {
     if (!/^https?:\/\//.test(base)) throw new ApiError(0, 'CONNECTION', '서버에 연결할 수 없어요.');
     const abort = new AbortController();
@@ -50,13 +51,14 @@ export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fe
     signal?.addEventListener('abort', stop, { once: true });
     if (signal?.aborted) stop();
     const binary = body instanceof ArrayBuffer;
+    const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
     const timer = setTimeout(stop, timeoutMs ?? (responseType === 'blob' || responseType === 'arrayBuffer' ? 120000 : 12000));
     try {
       const response = await fetcher(base + prefix + path, {
         method, signal: abort.signal,
-        headers: { ...(body === undefined ? {} : { 'Content-Type': binary ? 'application/octet-stream' : 'application/json' }),
+        headers: { ...headers, ...(body === undefined || multipart ? {} : { 'Content-Type': binary ? 'application/octet-stream' : 'application/json' }),
           ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        ...(body === undefined ? {} : { body: binary ? body : JSON.stringify(body) }),
+        ...(body === undefined ? {} : { body: binary || multipart ? body : JSON.stringify(body) }),
       });
       if (!response.ok) {
         let code = '';
@@ -81,6 +83,12 @@ export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fe
       throw new ApiError(0, 'CONNECTION', '서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
     } finally { clearTimeout(timer); signal?.removeEventListener('abort', stop); }
   };
+}
+
+export async function uploadWebRecording(baseUrl: string, token: string, form: FormData, key: string, signal: AbortSignal) {
+  const request = createRequest(baseUrl, '/api/v1');
+  return serverRecording(await request('/recordings', token, 'POST', form, 'json', signal, 120000,
+    { 'Idempotency-Key': key }));
 }
 
 export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {

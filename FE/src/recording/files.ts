@@ -32,7 +32,7 @@ export function describeRecording(startedAt: Date, sequence = 1): RecordingFileN
 
 /** 1 for the first take of a minute, 2+ for later takes in the same minute. */
 export function recordingSequence(fileName: string): number {
-  const match = /_(\d{1,2})\.m4a$/.exec(fileName);
+  const match = /_(\d{1,2})\.(?:m4a|webm)$/.exec(fileName);
   return match && /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_/.test(fileName) ? Number(match[1]) : 1;
 }
 

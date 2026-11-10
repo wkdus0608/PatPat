@@ -49,10 +49,21 @@ class SQLiteRecordingService:
             expected = {"audio/mp4": {"mov", "mp4", "m4a"}, "audio/m4a": {"mov", "mp4", "m4a"},
                         "audio/x-m4a": {"mov", "mp4", "m4a"}, "audio/mpeg": {"mp3"},
                         "audio/wav": {"wav"}, "audio/x-wav": {"wav"}, "audio/webm": {"webm", "matroska"}, "audio/aac": {"aac"}}
-            if not formats.intersection(expected.get(content_type, set())) or float(info["format"]["duration"]) <= 0:
+            duration = info["format"].get("duration")
+            # Browser MediaRecorder can omit WebM duration metadata. In that case,
+            # require positive decoded audio time instead of trusting the upload form.
+            browser_webm = content_type == "audio/webm" and duration in (None, "N/A")
+            if not formats.intersection(expected.get(content_type, set())) or (not browser_webm and float(duration or 0) <= 0):
                 raise ValueError()
-            subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", str(path), "-map", "0:a:0", "-f", "null", "-"],
-                           capture_output=True, timeout=self.settings.audio_validation_seconds, check=True)
+            command = ["ffmpeg", "-v", "error", "-xerror", "-i", str(path), "-map", "0:a:0"]
+            if browser_webm:
+                command += ["-progress", "pipe:1", "-nostats"]
+            decoded = subprocess.run(command + ["-f", "null", "-"], capture_output=True,
+                                     timeout=self.settings.audio_validation_seconds, check=True)
+            if browser_webm and not any(line.removeprefix(b"out_time_us=").isdigit()
+                                       and int(line.removeprefix(b"out_time_us=")) > 0
+                                       for line in decoded.stdout.splitlines() if line.startswith(b"out_time_us=")):
+                raise ValueError()
         except FileNotFoundError:
             raise ApiError(status_code=503, code="AUDIO_VALIDATOR_UNAVAILABLE", message="서버 오디오 검증 도구를 확인해 주세요.") from None
         except (ValueError, KeyError, subprocess.SubprocessError):

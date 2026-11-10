@@ -45,7 +45,7 @@ function isPermanentRejection(error: unknown): boolean {
     && ![401, 408, 429].includes(error.status);
 }
 
-function serverItem(row: ServerRecording): SavedRecording {
+export function serverItem(row: ServerRecording): SavedRecording {
   const date = new Date(row.recorded_at);
   const two = (n: number) => String(n).padStart(2, '0');
   const dateKey = `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`;
