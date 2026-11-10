@@ -152,6 +152,8 @@ erDiagram
 
 `POST /api/v2/children/{child_id}/journal/output`은 아동·조회 기간별 텍스트 미리보기와 양식 등록 여부를 반환한다. `POST /api/v2/children/{child_id}/journal/output/word`를 요청하면 미리보기의 기간과 `revision`에 맞는 Word 파일을 생성하거나 저장된 파일을 반환한다. AI는 Word 파일을 처음 생성할 때만 `record_format`과 양식의 항목·빈칸을 보고 입력 위치를 고르고, 서버가 저장된 값을 채운다. 본문이나 양식이 바뀌면 관찰일지 조회에서 `output_stale`을 반환한다. 텍스트 재출력은 기존 Word 파일에 영향을 주지 않으며, Word 출력이 성공하면 Word 파일을 교체한다. `GET /api/v2/children/{child_id}/journal/output/word`는 저장된 파일만 내려준다.
 
+테스트 문장 모드는 정해진 항목명과 바로 옆 또는 다음 문단의 빈칸을 연결한다. 관찰내용 입력 위치를 확인할 수 없으면 Word 파일을 생성하지 않는다.
+
 ## 문서 적용 범위와 남은 구현
 
 사용자의 MVP 결정(외부 STT, 가명 처리 생략, 서버 명단/원음, 관찰일지 우선)은 SPEC 3·5-1절과 AGENTS 및 이 계약을 따른다. 초기 알림장/로컬 처리 도메인은 후속 설계 기록이다. AC4의 알림장 special_notes와 AC6의 로컬 가명 처리 범위를 현재 관찰일지 계약에 그대로 적용하지 않는다. 생성 사실 보존·아동 분리·교사 확정 기준과 기존 golden_cases.yaml 기대값은 유지했다.

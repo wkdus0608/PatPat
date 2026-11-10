@@ -55,6 +55,26 @@ def test_raw_word_upload_preserves_file_bytes_and_handles_missing_payload(tmp_pa
         assert env.client.get(TEMPLATE, headers=env.headers).json() == {"filename": filename}
 
 
+def test_demo_mode_exports_word_with_standard_labeled_fields(tmp_path):
+    with running_env(tmp_path) as env:
+        ids, _, notices = day(env)
+        confirm(env, notices["다온"]["notice_id"], 1)
+        child = ids["다온"]
+        route = f"{V2}/children/{child}/journal"
+        upload = env.client.post(TEMPLATE, params={"filename": "시연 양식.docx"},
+                                 content=form("시연 양식"), headers={**env.headers, "Content-Type": WORD_MIME})
+        assert upload.is_success, upload.text
+        preview = env.client.post(route + "/output", headers=env.headers)
+        assert preview.is_success, preview.text
+        response = env.client.post(route + "/output/word", headers=env.headers,
+                                   params={"revision": preview.json()["revision"]})
+        assert response.is_success, response.text
+        table = Document(BytesIO(response.content)).tables[0]
+        assert table.cell(0, 1).text == "다온"
+        assert table.cell(1, 1).text == "2026-11-06"
+        assert "낙엽" in table.cell(2, 1).text
+
+
 def test_word_output_is_an_editable_snapshot_replaced_only_by_reoutput(tmp_path):
     with running_env(tmp_path, ai_handlers={AITask.JOURNAL_WORD_LAYOUT: choose_fields}) as env:
         ids, _, notices = day(env)

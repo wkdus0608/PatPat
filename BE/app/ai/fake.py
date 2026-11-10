@@ -8,6 +8,7 @@ import re
 from collections.abc import Callable
 
 from app.ai.privacy import mask_names
+from app.ai.schemas import JOURNAL_WORD_FIELDS
 from app.ai.types import AIRequest, AIResult, AITask, AIUnavailable, AIUsage
 from app.rules.loader import AREAS
 
@@ -86,6 +87,39 @@ def _journal(request: AIRequest) -> dict:
     return {"content": f"{MARK}{request.payload['text'].strip()} 관찰함."}
 
 
+def _journal_word_layout(request: AIRequest) -> dict:
+    """Match labeled fields to inline slots or immediately adjacent blanks."""
+    fields_by_label = {field: (field,) for field in JOURNAL_WORD_FIELDS}
+    fields_by_label.update({
+        "아동명": ("이름",), "유아명": ("이름",), "영아명": ("이름",), "성명": ("이름",),
+        "이름/성별": ("이름", "성별"), "이름(성별)": ("이름", "성별"),
+        "반명": ("반",), "관찰일자": ("관찰일",), "관찰날짜": ("관찰일",),
+    })
+    layout = request.payload["layout"]
+    paragraph_groups = [layout]
+    for block in layout:
+        for row in block.get("table", []):
+            paragraph_groups.append([paragraph for cell in row for paragraph in cell["paragraphs"]])
+
+    placements = []
+    used_fields = set()
+    for paragraphs in paragraph_groups:
+        for index, paragraph in enumerate(paragraphs):
+            label = re.sub(r"\s+", "", paragraph.get("text", "")).rstrip(":：")
+            fields = fields_by_label.get(label, ())
+            if not fields or used_fields.intersection(fields):
+                continue
+            slot = paragraph.get("slot")
+            if not slot and index + 1 < len(paragraphs):
+                next_paragraph = paragraphs[index + 1]
+                if not next_paragraph.get("text"):
+                    slot = next_paragraph.get("slot")
+            if slot:
+                placements.append({"slot": slot, "fields": list(fields)})
+                used_fields.update(fields)
+    return {"placements": placements if "관찰내용" in used_fields else []}
+
+
 def _areas(request: AIRequest) -> dict:
     return {"areas": default_areas(request.payload["text"])}
 
@@ -116,6 +150,7 @@ DEFAULT_HANDLERS: dict[AITask, Callable[[AIRequest], dict]] = {
     AITask.REVISE: _revise,
     AITask.JOURNAL_COMMON: _journal,
     AITask.JOURNAL_INDIVIDUAL: _journal,
+    AITask.JOURNAL_WORD_LAYOUT: _journal_word_layout,
     AITask.AREAS: _areas,
 }
 
