@@ -59,6 +59,7 @@ function statusText(phase: RecorderViewProps['phase'], canRetry: boolean) {
 
 function RecordingScreen(props: RecorderViewProps) {
   const recording = props.phase === 'recording';
+  const duration = formatDuration(recording ? props.durationMillis : 0);
   const busy = props.phase === 'preparing' || props.phase === 'saving';
   const retry = props.canRetry && !busy;
   const disabled = busy || (!recording && !retry && !props.canStart);
@@ -88,11 +89,11 @@ function RecordingScreen(props: RecorderViewProps) {
           </View>
         </View>
         <Text
-          accessibilityLabel={'녹음 시간 ' + formatDuration(props.durationMillis)}
+          accessibilityLabel={'녹음 시간 ' + duration}
           adjustsFontSizeToFit minimumFontScale={0.65} numberOfLines={1}
           style={styles.timer} testID="recording-duration"
         >
-          {formatDuration(props.durationMillis)}
+          {duration}
         </Text>
         <View style={styles.statusLine}>
           {recording && <View style={styles.recordingDot} />}
