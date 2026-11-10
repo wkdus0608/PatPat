@@ -34,3 +34,32 @@ def corrected_quote(quote: str, heard: str, registered: str) -> str:
     if not canonical or canonical == heard:
         return quote
     return _name_pattern(heard).sub(canonical, quote)
+
+
+def correct_transcription_typos(quote: str, corrections: object, names: set[str]) -> str:
+    if not isinstance(corrections, list):
+        return quote
+    edits = []
+    for correction in corrections:
+        if not isinstance(correction, dict):
+            continue
+        original, replacement = correction.get("original"), correction.get("replacement")
+        if not all(isinstance(part, str) and re.fullmatch(r"[가-힣]+(?: [가-힣]+)?", part)
+                   and len(part) <= 12 for part in (original, replacement)):
+            continue
+        start = quote.find(original)
+        if start < 0 or quote.find(original, start + 1) >= 0 or original == replacement:
+            continue
+        edits.append((start, start + len(original), replacement))
+    result = quote
+    previous_start = len(quote)
+    for start, end, replacement in sorted(edits, reverse=True):
+        if end > previous_start:
+            return quote
+        result = result[:start] + replacement + result[end:]
+        previous_start = start
+    for name in names:
+        pattern = _name_pattern(name)
+        if len(pattern.findall(quote)) != len(pattern.findall(result)):
+            return quote
+    return result

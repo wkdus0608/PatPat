@@ -75,10 +75,15 @@ RECORDING_OBSERVATIONS_SCHEMA = {
     "properties": {"observations": {"type": "array", "items": {
         "type": "object",
         "additionalProperties": False,
-        "required": ["recording_id", "quote", "scope", "child_id", "heard_name"],
+        "required": ["recording_id", "quote", "scope", "child_id", "heard_name", "corrections"],
         "properties": {
             "recording_id": _STR, "quote": _STR, "child_id": _STR, "heard_name": _STR,
             "scope": {"type": "string", "enum": ["common", "individual", "unresolved"]},
+            "corrections": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["original", "replacement"],
+                "properties": {"original": _STR, "replacement": _STR},
+            }},
         },
     }}},
 }

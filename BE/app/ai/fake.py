@@ -138,7 +138,7 @@ def _recording_observations(request: AIRequest) -> dict:
                 scope = "common" if not matches and quote.startswith(("반 공통", "우리 반")) else "unresolved"
                 child_id = ""
             observations.append({"recording_id": recording_id, "quote": quote, "scope": scope, "child_id": child_id,
-                                 "heard_name": matches[0]["name"] if len(matches) == 1 else ""})
+                                 "heard_name": matches[0]["name"] if len(matches) == 1 else "", "corrections": []})
     return {"observations": observations}
 
 

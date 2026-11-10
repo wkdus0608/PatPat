@@ -105,6 +105,7 @@ def _request(task: AITask, bundle: RulesBundle, user_text: str, schema: dict, pa
 # --- review ------------------------------------------------------------------------------------------------
 def build_recording_observations(
     bundle: RulesBundle, *, transcripts: dict[str, str], roster: list[ChildCtx],
+    common: BlockCtx | None = None, blocks: tuple[BlockCtx, ...] = (),
 ) -> AIRequest:
     children = [
         {"child_id": child.child_id, "name": child.name, "characteristics": child.characteristics,
@@ -116,12 +117,21 @@ def build_recording_observations(
         "선택한 녹음에서 오늘의 관찰만 원문 그대로 인용한다. 녹음별 recording_id와 원문에 연속해 들어 있는 quote를 쓴다.",
         "heard_name에는 관찰 대상의 이름을 quote에 나온 글자 그대로, 성과 이름이 있으면 모두, 조사나 호칭은 빼고 쓴다. 명시된 이름이 없거나 여러 명 중 대상을 고를 수 없으면 빈 문자열로 둔다.",
         "아동 이름이 명확하면 scope=individual과 그 한 아이의 child_id를 쓴다. 발음이 가까운 단순 전사 오기도 명단에서 후보가 한 명으로 명확하면 그 아이의 child_id를 제안하되 heard_name과 quote는 원문 그대로 둔다. 비슷한 이름·동명이인·대상 불명은 scope=unresolved다.",
+        "예를 들어 관찰의 주어가 '화준이가'이고 명단에 하준만 가까운 후보라면 scope=individual, child_id는 하준의 ID, heard_name은 '화준'이다. 글자가 다르다는 이유만으로 unresolved를 선택하지 않는다. 화준과 하준처럼 후보가 여럿이거나 주어가 불분명하면 unresolved를 쓴다.",
         "반 전체 관찰임이 명확한 경우에만 scope=common을 쓴다. common과 unresolved의 child_id는 빈 문자열이다.",
         "여러 아이가 나온 사건은 원문에 구분되는 사실만 각각 인용한다. 대상이나 사실을 추측하지 않는다.",
+        "corrections에는 문맥상 확실한 한국어 전사 오기만 짧은 original/replacement 쌍으로 쓴다. 예: '나겹' → '낙엽', '주어' → '주워'. original은 quote에 정확히 한 번 나오는 연속된 글자다.",
+        "당일 교사 메모는 전사 오기를 해석하는 참고 자료다. 메모의 사실을 녹음에 옮기거나 메모에 맞추어 불일치를 지우지 않는다.",
+        "이름은 child_id와 heard_name으로만 처리한다. 행동, 당사자, 순서, 부정, 수량, 부상이나 조치가 달라지는 교정은 하지 않는다. 확실한 오기가 없으면 corrections는 빈 배열이다.",
         "명단과 특성은 아동을 알아보는 참고 자료이며 관찰 근거로 쓰지 않는다. 질문이나 초안은 여기서 작성하지 않는다.",
         "[아동 정보]",
         _wrap(json.dumps(children, ensure_ascii=False)),
     ]
+    if common is not None and common.text.strip():
+        lines.extend(("[당일 반 공통 메모]", _wrap(common.text)))
+    for block in blocks:
+        if block.text.strip():
+            lines.extend((f"[당일 아동 메모 {block.child_id}]", _wrap(block.text)))
     for recording_id, text in transcripts.items():
         lines.extend((f"[녹음 {recording_id}]", _wrap(text)))
     return _request(AITask.RECORDING_OBSERVATIONS, bundle, "\n".join(lines), schemas.RECORDING_OBSERVATIONS_SCHEMA,

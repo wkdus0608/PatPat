@@ -24,6 +24,11 @@ export interface RecorderViewProps {
   /** Increases each time a side-button request asks to show the recording screen. */
   startSignal?: number;
   dateLabel: string;
+  /** 업로드 결과가 오류인지(없으면 phase로 판단). */
+  messageIsError?: boolean;
+  importBusy?: boolean;
+  /** 기기의 녹음 파일을 서버에 올린다. 로그인 전에는 없다. */
+  onImport?: () => void;
   onStart: () => void;
   onStop: () => void;
   onRetry: () => void;
@@ -69,6 +74,8 @@ function RecordingScreen(props: RecorderViewProps) {
         : retry ? '저장 다시 시도' : '녹음 시작';
   const action = recording ? props.onStop : retry ? props.onRetry : props.onStart;
   const iconName: IconName = recording ? 'stop' : retry ? 'refresh' : 'mic';
+  const failed = props.messageIsError ?? props.phase === 'error';
+  const canImport = !!props.onImport && !props.importBusy && !busy && !recording && !retry;
 
   return (
     <>
@@ -118,6 +125,19 @@ function RecordingScreen(props: RecorderViewProps) {
             {actionLabel}
           </Text>
         </Pressable>
+        {props.onImport && (
+          <Pressable
+            accessibilityRole="button" accessibilityLabel="녹음 파일 올리기"
+            accessibilityState={{ disabled: !canImport, busy: props.importBusy }}
+            disabled={!canImport} onPress={props.onImport}
+            style={({ pressed }) => [styles.importButton, !canImport && styles.disabledButton, pressed && canImport && styles.pressedButton]}
+            testID="import-audio"
+          >
+            {props.importBusy ? <ActivityIndicator color={colors.muted} />
+              : <Ionicons name="cloud-upload-outline" size={18} color={colors.ink} />}
+            <Text style={styles.importButtonText}>{props.importBusy ? '올리는 중…' : '녹음 파일 올리기'}</Text>
+          </Pressable>
+        )}
         <Text style={styles.recorderHint}>
           {props.canRetry ? '아직 저장하지 못한 녹음이 있어요. 먼저 저장을 마쳐 주세요.'
             : recording ? '말을 마치면 중지하고 저장해 주세요.'
@@ -127,12 +147,12 @@ function RecordingScreen(props: RecorderViewProps) {
 
       {props.message && (
         <View
-          accessibilityLiveRegion="polite" accessibilityRole={props.phase === 'error' ? 'alert' : undefined}
-          style={[styles.notice, props.phase === 'error' ? styles.errorNotice : styles.successNotice]}
+          accessibilityLiveRegion="polite" accessibilityRole={failed ? 'alert' : undefined}
+          style={[styles.notice, failed ? styles.errorNotice : styles.successNotice]}
           testID="recording-message"
         >
-          <Ionicons name={props.phase === 'error' ? 'information-circle-outline' : 'checkmark-circle-outline'} color={props.phase === 'error' ? colors.rose : colors.greenInk} size={20} />
-          <Text style={[styles.noticeText, props.phase === 'error' && styles.errorNoticeText]}>{props.message}</Text>
+          <Ionicons name={failed ? 'information-circle-outline' : 'checkmark-circle-outline'} color={failed ? colors.rose : colors.greenInk} size={20} />
+          <Text style={[styles.noticeText, failed && styles.errorNoticeText]}>{props.message}</Text>
         </View>
       )}
 
@@ -333,6 +353,8 @@ const styles = StyleSheet.create({
   pressedButton: { opacity: 0.8, transform: [{ scale: 0.985 }] },
   recordButtonText: { fontSize: 15, fontWeight: '800', color: colors.ink, flexShrink: 1 },
   stopButtonText: { color: colors.white }, disabledButtonText: { color: colors.muted },
+  importButton: { minHeight: 46, marginTop: 10, borderRadius: 17, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  importButtonText: { fontSize: 14, fontWeight: '600', color: colors.ink, flexShrink: 1 },
   recorderHint: { color: colors.muted, fontSize: 10, lineHeight: 18, textAlign: 'center', marginTop: 11 },
   notice: { borderRadius: 17, paddingHorizontal: 15, paddingVertical: 13, flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 14 },
   successNotice: { backgroundColor: colors.green }, errorNotice: { backgroundColor: '#FFF0EC' },

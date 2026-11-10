@@ -188,3 +188,39 @@ def test_two_close_roster_names_require_confirmation_even_if_ai_picks_one(tmp_pa
         assert result["run"] is None and second in result["used_recordings"] and first not in result["used_recordings"]
         review, = env.app.state.ai_client.calls_for(AITask.REVIEW)
         assert review.payload["blocks"][0]["text"] == quote.replace("정화준", "정화진")
+
+
+def test_recording_typos_are_corrected_before_review_without_changing_source(tmp_path):
+    with running_env(tmp_path) as env:
+        child_id, = add_children(env, ["하준"])
+        session = open_session(env)
+        memo = "놀이터에서 낙엽을 살펴봤어요."
+        fill(env, session, None, memo, (), place="놀이터", time_text="오전 자유놀이")
+        recording = seed_audio(env, "spoken-typos")
+        quote = "화준이가 나겹을 주어 바구니에 2장 담았어요."
+        stt = FixtureTranscriber()
+        stt.texts["spoken-typos"] = quote
+        env.app.state.services.recording_drafts.transcripts.client = stt
+
+        def extract(request):
+            assert memo in request.user_text
+            return {"observations": [{
+                "recording_id": recording, "quote": quote, "scope": "individual",
+                "child_id": child_id, "heard_name": "화준",
+                "corrections": [
+                    {"original": "나겹", "replacement": "낙엽"},
+                    {"original": "주어", "replacement": "주워"},
+                    {"original": "2장", "replacement": "3장"},
+                    {"original": "바닥", "replacement": "잔디"},
+                ],
+            }]}
+
+        env.app.state.ai_client.handlers[AITask.RECORDING_OBSERVATIONS] = extract
+        result = post(env, path_for(session), {"recording_ids": [recording]})
+        assert result["run"] is None
+        assert len(env.app.state.ai_client.calls_for(AITask.RECORDING_OBSERVATIONS)) == 1
+        review, = env.app.state.ai_client.calls_for(AITask.REVIEW)
+        assert review.payload["blocks"][0]["text"] == "하준이가 낙엽을 주워 바구니에 2장 담았어요."
+        with env.app.state.database.connect() as connection:
+            cached = connection.execute("SELECT text FROM recording_transcripts WHERE recording_id=?", (recording,)).fetchone()
+        assert cached["text"] == quote

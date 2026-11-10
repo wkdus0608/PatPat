@@ -3,6 +3,7 @@ import { ApiError, uploadWebRecording } from '../api/client';
 import type { Account } from '../auth/controller';
 import { serverItem } from '../library/sync';
 import type { RecorderViewProps } from '../ui/PatPatAppView';
+import { useAudioImport } from './useAudioImport';
 import { createRecordingController, type RecordingEngine } from './controller';
 import { describeRecording, formatDateKey, MAX_RECORDINGS_PER_MINUTE } from './files';
 import { RecordingStorageError, type RecordingStorage } from './storage';
@@ -137,6 +138,7 @@ export function useRecording(account?: Account): RecorderViewProps {
   const { controller, dispose } = useMemo(() => createWebRecorder(account, format),
     [account?.api, account?.session.token, format]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const importer = useAudioImport(account);
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => { controller.poll(); setClock(new Date()); }, 250);
@@ -145,11 +147,14 @@ export function useRecording(account?: Account): RecorderViewProps {
 
   return {
     phase: state.phase, durationMillis: state.durationMillis,
-    message: !format ? '이 브라우저에서는 녹음을 사용할 수 없어요. 마이크를 지원하는 브라우저에서 열어 주세요.'
-      : state.phase === 'saved' ? '서버에 저장했어요. 같은 계정의 보관함에서 다시 들을 수 있어요.' : state.message,
+    message: importer.result?.text ?? (!format ? '이 브라우저에서는 녹음을 사용할 수 없어요. 마이크를 지원하는 브라우저에서 열어 주세요.'
+      : state.phase === 'saved' ? '서버에 저장했어요. 같은 계정의 보관함에서 다시 들을 수 있어요.' : state.message),
     canStart: !!account && !!format && state.canStart, canRetry: state.canRetry,
     dateLabel: clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' }),
-    onStart: () => { void controller.start(); },
+    messageIsError: importer.result ? importer.result.error : undefined,
+    importBusy: importer.busy,
+    onImport: account ? () => { void importer.run(); } : undefined,
+    onStart: () => { importer.clear(); void controller.start(); },
     onStop: () => { void controller.stop(); },
     onRetry: () => { void controller.retry(); },
   };
