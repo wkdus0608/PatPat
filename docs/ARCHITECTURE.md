@@ -2,11 +2,11 @@
 
 관찰일지 MVP의 설계다. 범위는 [SPEC](SPEC.md), 현재 MVP 입출력은 [API 계약](../BE/docs/API_CONTRACT.md), 도메인은 [온톨로지](ontology.yaml), 판정은 [골든 케이스](golden_cases.yaml)를 따른다. 외부 STT를 사용하고 가명 처리는 생략한다.
 
-로그인·세션 유지·아동 명단은 FE와 실제 SQLite 저장소를 연결했다. 녹음·일지의 서버 저장·작업자·외부 AI는 미연결이며 해당 구조는 구현할 설계다.
+로그인·세션 유지·아동 명단은 FE와 실제 SQLite 저장소를 연결했다. 녹음은 기기 저장 직후 자동 서버 업로드(실패 시 재시도·보관함 새로고침)·인증 재생·삭제를 연결했다. 일지 저장·작업자·외부 AI는 미연결이다.
 
 ## 1. 데이터 흐름
 
-앱 녹음·기기 저장 → 서버 업로드·외부 STT → 교사가 녹음 선택 → 선택 전사문·전체 활성 명단 고정 → 관찰 추출·검증 → 공통/아동별 초안 생성·검증 → 교사 수정·확정 → 복사·OS 공유
+앱 녹음·기기 저장 → 서버 자동 업로드(재시도·보관함 새로고침) → 외부 STT → 교사가 녹음 선택 → 선택 전사문·전체 활성 명단 고정 → 관찰 추출·검증 → 공통/아동별 초안 생성·검증 → 교사 수정·확정 → 복사·OS 공유
 
 생성 근거는 선택 녹음에 한정한다. 전사문은 확인된 관찰과 구분하며, 대상이 불명확한 내용은 아동에게 추측 배정하지 않는다. 녹음 시각을 실제 관찰일로 간주하지 않는다.
 
@@ -19,7 +19,7 @@
 | `FE/src/library/controller.ts`, `FE/src/library/journals.ts` | 녹음·일지 조회 | 서버 조회 연결 필요 |
 | `BE/app/auth/service.py`, `BE/app/children/service.py` | 인증 교사·아동 명단 | SQLite 실구현 |
 | `BE/app/core/database.py` | 계정·세션·명단 스키마와 트랜잭션 | 구현 |
-| `BE/app/recordings/service.py`, `BE/app/recordings/repository.py` | 업로드·비공개 재생·삭제 | 인터페이스 |
+| `BE/app/recordings/service.py`, `BE/app/recordings/repository.py` | 업로드·비공개 재생·삭제 | 실제 저장 연결 |
 | `BE/app/transcriptions/client.py`, `BE/app/transcriptions/service.py` | 외부 STT·전사 작업 | 인터페이스 |
 | `BE/app/writing/client.py`, `BE/app/writing/models.py` | 관찰 추출·초안·수정 후보, 불변 스냅샷 | AI 인터페이스·모델 |
 | `BE/app/writing/validation.py` | 선택 범위·근거·버전·상태 검사 | 순수 검증 코드 |

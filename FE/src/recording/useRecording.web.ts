@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import type { Account } from '../auth/controller';
 import type { RecorderViewProps } from '../ui/PatPatAppView';
 
 /** Browser preview renders the real UI; it never simulates a successful recording. */
-export function useRecording(): RecorderViewProps {
+export function useRecording(_account?: Account): RecorderViewProps {
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 30000);

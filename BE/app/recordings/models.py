@@ -40,6 +40,7 @@ class RecordingUpload:
     duration_seconds: float
     content_type: str
     stream: BinaryIO = field(repr=False)
+    upload_key: str | None = None
 
 
 @dataclass(frozen=True)

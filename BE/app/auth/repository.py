@@ -1,8 +1,23 @@
 from typing import Protocol
 from asyncio import to_thread
+from uuid import uuid4
 
 from app.auth.models import TeacherAccount, TeacherContext
+from app.auth.security import hasher
 from app.core.database import Database
+
+
+def create_teacher(database: Database, login_id: str, display_name: str, password: str) -> str:
+    if not login_id.strip() or not display_name.strip() or not password:
+        raise ValueError("계정 ID·표시 이름·비밀번호를 입력해 주세요.")
+    teacher_id = str(uuid4())
+    password_hash = hasher.hash(password)
+    with database.connect() as connection:
+        connection.execute(
+            "INSERT INTO teachers VALUES (?,?,?,?,1)",
+            (teacher_id, login_id, display_name, password_hash),
+        )
+    return teacher_id
 
 
 class AuthRepository(Protocol):

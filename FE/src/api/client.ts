@@ -1,3 +1,4 @@
+import type { ServerRecording } from '../library/sync';
 export interface Teacher { teacher_id: string; display_name: string }
 export interface Child { child_id: string; name: string; is_active: boolean }
 export interface Login { access_token: string; token_type: 'bearer'; expires_in: number; teacher: Teacher }
@@ -24,35 +25,80 @@ function child(value: unknown): Child {
   return { child_id: text(row.child_id), name: text(row.name), is_active: row.is_active };
 }
 
-export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
+
+export function serverRecording(value: unknown): ServerRecording {
+  const row = record(value);
+  for (const field of ['duration_seconds', 'size_bytes']) {
+    if (typeof row[field] !== 'number' || !Number.isFinite(row[field]) || (row[field] as number) <= 0) throw new Error('Invalid recording');
+  }
+  for (const field of ['recorded_at', 'created_at']) if (!Number.isFinite(Date.parse(text(row[field])))) throw new Error('Invalid date');
+  if (!['대기', '전사중', '완료', '실패'].includes(text(row.status))) throw new Error('Invalid recording status');
+  return { recording_id: text(row.recording_id), title: text(row.title), recorded_at: text(row.recorded_at),
+    created_at: text(row.created_at), duration_seconds: row.duration_seconds as number, size_bytes: row.size_bytes as number,
+    content_type: text(row.content_type), status: text(row.status) };
+}
+
+export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fetcher: typeof fetch = fetch) {
   const base = baseUrl.trim().replace(/\/+$/, '');
-  async function request(path: string, token: string | null, method = 'GET', body?: unknown): Promise<unknown> {
+  return async function request(
+    path: string, token: string | null, method = 'GET', body?: unknown,
+    responseType: 'json' | 'text' | 'blob' | 'arrayBuffer' = 'json', signal?: AbortSignal, timeoutMs?: number,
+  ): Promise<unknown> {
     if (!/^https?:\/\//.test(base)) throw new ApiError(0, 'CONNECTION', '서버에 연결할 수 없어요.');
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), 12000);
+    const stop = () => abort.abort();
+    signal?.addEventListener('abort', stop, { once: true });
+    if (signal?.aborted) stop();
+    const binary = body instanceof ArrayBuffer;
+    const timer = setTimeout(stop, timeoutMs ?? (responseType === 'blob' || responseType === 'arrayBuffer' ? 120000 : 12000));
     try {
-      const response = await fetcher(base + '/api/v1' + path, {
+      const response = await fetcher(base + prefix + path, {
         method, signal: abort.signal,
-        headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        headers: { ...(body === undefined ? {} : { 'Content-Type': binary ? 'application/octet-stream' : 'application/json' }),
           ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        ...(body === undefined ? {} : { body: binary ? body : JSON.stringify(body) }),
       });
       if (!response.ok) {
         let code = '';
-        try { code = text(record(record(await response.json()).error).code); } catch { /* Safe generic error below. */ }
-        const message = response.status === 401
+        let serverMessage = '';
+        try {
+          const error = record(record(await response.json()).error);
+          code = text(error.code);
+          if (typeof error.message === 'string') serverMessage = error.message;
+        } catch { /* Safe generic error below. */ }
+        const fallback = response.status === 401
           ? (path === '/auth/login' ? '계정 ID 또는 비밀번호를 확인해 주세요.' : '로그인이 만료됐어요. 다시 로그인해 주세요.')
-          : response.status === 404 ? '아동을 찾을 수 없어요. 명단을 새로고침해 주세요.'
+          : response.status === 404 ? '자료를 찾을 수 없어요. 목록을 새로고침해 주세요.'
             : response.status === 422 ? '입력한 내용을 확인해 주세요.' : '요청을 처리하지 못했어요. 다시 시도해 주세요.';
-        throw new ApiError(response.status, code, message);
+        throw new ApiError(response.status, code, prefix === '/api/v2' && response.status !== 401 && serverMessage ? serverMessage : fallback);
       }
-      return response.status === 204 ? undefined : await response.json();
+      if (response.status === 204) return undefined;
+      if (responseType === 'blob') return await response.blob();
+      if (responseType === 'arrayBuffer') return await response.arrayBuffer();
+      return responseType === 'text' ? await response.text() : await response.json();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       throw new ApiError(0, 'CONNECTION', '서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
-    } finally { clearTimeout(timer); }
-  }
+    } finally { clearTimeout(timer); signal?.removeEventListener('abort', stop); }
+  };
+}
+
+export function createApi(baseUrl: string, fetcher: typeof fetch = fetch) {
+  const base = baseUrl.trim().replace(/\/+$/, '');
+  const request = createRequest(base, '/api/v1', fetcher);
   return {
+    baseUrl: base,
+    async listRecordings(token: string, offset = 0, date?: string) {
+      const day = date ? '&date_from=' + encodeURIComponent(date) + '&date_to=' + encodeURIComponent(date) : '';
+      const row = record(await request('/recordings?limit=100&offset=' + offset + day, token));
+      if (!Array.isArray(row.items) || !Number.isInteger(row.total) || (row.total as number) < 0) throw new Error('Invalid page');
+      return { items: row.items.map(serverRecording), total: row.total as number };
+    },
+    async getRecording(token: string, id: string) { return serverRecording(await request('/recordings/' + encodeURIComponent(id), token)); },
+    async recordingAudio(token: string, id: string, signal: AbortSignal) {
+      return await request('/recordings/' + encodeURIComponent(id) + '/audio', token, 'GET', undefined, 'blob', signal) as Blob;
+    },
+    async deleteRecording(token: string, id: string) { await request('/recordings/' + encodeURIComponent(id), token, 'DELETE'); },
     async login(login_id: string, password: string): Promise<Login> {
       const row = record(await request('/auth/login', null, 'POST', { login_id, password }));
       if (row.token_type !== 'bearer' || typeof row.expires_in !== 'number' || row.expires_in <= 0) throw new Error('Invalid response');

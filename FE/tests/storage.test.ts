@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { describeRecording, parseRecordingFileName } from '../src/recording/files';
+import { describeRecording, parseRecordingFileName, recordingLabel } from '../src/recording/files';
 import {
   createRecordingStorage,
   RecordingStorageError,
@@ -88,6 +88,13 @@ test('uses local start date and minute only, including valid leap-day parsing', 
   assert.equal(parseRecordingFileName('2026-02-29_09-10.m4a', '2026-02-29'), null);
   assert.equal(parseRecordingFileName('2026-11-01_24-10.m4a', '2026-11-01'), null);
   assert.equal(parseRecordingFileName('2026-11-01_09-60.m4a', '2026-11-01'), null);
+  assert.deepEqual(describeRecording(start(), 2), { dateKey: '2026-11-01', fileName: '2026-11-01_09-10_2.m4a', startTime: '09:10' });
+  assert.ok(parseRecordingFileName('2026-11-01_09-10_2.m4a', '2026-11-01'));
+  assert.ok(parseRecordingFileName('2026-11-01_09-10_99.m4a', '2026-11-01'));
+  assert.equal(parseRecordingFileName('2026-11-01_09-10_1.m4a', '2026-11-01'), null);
+  assert.equal(parseRecordingFileName('2026-11-01_09-10_100.m4a', '2026-11-01'), null);
+  assert.equal(recordingLabel(describeRecording(start())), '09:10 녹음');
+  assert.equal(recordingLabel(describeRecording(start(), 3)), '09:10 녹음 3');
 });
 
 test('ten recordings in one day remain separate and survive storage re-creation', async () => {
@@ -109,15 +116,32 @@ test('ten recordings in one day remain separate and survive storage re-creation'
   assert.equal(files.files.get(first), 'synthetic-bytes-10');
 });
 
-test('minute collisions preserve both the existing file and unsaved new source', async () => {
+// User decision (2026-11-04): recording again in the same minute must not be blocked.
+// The earlier take is still never overwritten; the new take gets the next free `_N` name.
+test('same-minute takes are all kept: the new one gets the next free sequence name', async () => {
   const files = new MemoryFiles();
   const storage = createRecordingStorage(files);
-  const saved = await storage.save(files.source('first', 'original-bytes'), start());
-  const newSource = files.source('second', 'new-bytes');
-  await assert.rejects(storage.assertAvailable(start()), hasCode('COLLISION'));
-  await assert.rejects(storage.save(newSource, start()), hasCode('COLLISION'));
-  assert.equal(files.files.get(saved.uri), 'original-bytes');
-  assert.equal(files.files.get(newSource), 'new-bytes');
+  const first = await storage.save(files.source('first', 'original-bytes'), start());
+  await storage.assertAvailable(start());
+  const second = await storage.save(files.source('second', 'new-bytes'), start());
+  const third = await storage.save(files.source('third', 'third-bytes'), start());
+  const folder = `${files.rootUri}/2026-11-01`;
+  assert.equal(first.uri, `${folder}/2026-11-01_09-10.m4a`);
+  assert.equal(second.uri, `${folder}/2026-11-01_09-10_2.m4a`);
+  assert.equal(third.uri, `${folder}/2026-11-01_09-10_3.m4a`);
+  assert.equal(files.files.get(first.uri), 'original-bytes');
+  assert.equal(files.files.get(second.uri), 'new-bytes');
+  assert.equal(files.files.get(third.uri), 'third-bytes');
+  assert.equal((await storage.getSummary(start())).todayCount, 3);
+});
+
+test('a retry of the same source after success does not create a duplicate take', async () => {
+  const files = new MemoryFiles();
+  const storage = createRecordingStorage(files);
+  const source = files.source('only', 'once');
+  const first = await storage.save(source, start());
+  const again = await storage.save(source, start());
+  assert.deepEqual(again, first);
   assert.equal((await storage.getSummary(start())).todayCount, 1);
 });
 
@@ -174,18 +198,20 @@ test('cache cleanup failure does not turn a completed save into a failure', asyn
   assert.equal((await storage.getSummary(start())).todayCount, 1);
 });
 
-test('concurrent identical saves share one publication; another source cannot overwrite it', async () => {
+test('concurrent identical saves share one publication; another source is kept as its own take', async () => {
   const files = new MemoryFiles();
   const storage = createRecordingStorage(files);
   const source = files.source();
   const otherSource = files.source('other', 'other-bytes');
   const first = storage.save(source, start());
   const second = storage.save(source, start());
-  await assert.rejects(storage.save(otherSource, start()), hasCode('COLLISION'));
-  const [a, b] = await Promise.all([first, second]);
+  const other = storage.save(otherSource, start());
+  const [a, b, c] = await Promise.all([first, second, other]);
   assert.deepEqual(a, b);
-  assert.equal(files.copyCount, 1);
-  assert.equal(files.files.get(otherSource), 'other-bytes');
+  assert.notEqual(c.uri, a.uri);
+  assert.equal(files.files.get(a.uri), 'synthetic-recording-bytes');
+  assert.equal(files.files.get(c.uri), 'other-bytes');
+  assert.equal(files.copyCount, 2);
 });
 
 test('midnight uses recording start day while next-day count starts at zero', async () => {

@@ -1,4 +1,6 @@
 import {
+  MAX_RECORDINGS_PER_MINUTE,
+  compareRecordings,
   describeRecording,
   formatDateKey,
   isDateFolder,
@@ -11,6 +13,9 @@ export interface SavedRecording {
   fileName: string;
   dateKey: string;
   startTime: string;
+  serverId?: string;
+  location?: 'device' | 'server' | 'both';
+  syncLabel?: string;
 }
 
 export interface RecordingSummary {
@@ -42,7 +47,7 @@ export interface RecordingFilePort {
   remove(uri: string): Promise<void>;
 }
 
-export type RecordingStorageErrorCode = 'COLLISION' | 'EMPTY' | 'FORMAT' | 'IO';
+export type RecordingStorageErrorCode = 'COLLISION' | 'EMPTY' | 'FORMAT' | 'IO' | 'PERMISSION';
 
 export class RecordingStorageError extends Error {
   constructor(public readonly code: RecordingStorageErrorCode, message: string) {
@@ -53,13 +58,13 @@ export class RecordingStorageError extends Error {
 
 export interface RecordingStorage {
   assertAvailable(startedAt: Date): Promise<void>;
-  save(sourceUri: string, startedAt: Date): Promise<SavedRecording>;
+  save(sourceUri: string, startedAt: Date, durationMillis?: number): Promise<SavedRecording>;
   getSummary(now: Date): Promise<RecordingSummary>;
 }
 
 const collision = () => new RecordingStorageError(
   'COLLISION',
-  '같은 시작 시간의 녹음이 이미 있어요. 기존 파일은 그대로 보관했어요.',
+  '같은 분에 저장할 수 있는 녹음 수를 넘었어요. 잠시 뒤 다시 녹음해 주세요.',
 );
 
 function asStorageError(error: unknown): RecordingStorageError {
@@ -71,36 +76,45 @@ function asStorageError(error: unknown): RecordingStorageError {
 export function createRecordingStorage(port: RecordingFilePort): RecordingStorage {
   // These are only in-memory retry guards, not recording IDs or a persistent index.
   const completed = new Map<string, SavedRecording>();
-  const inFlight = new Map<string, { source: string; promise: Promise<SavedRecording> }>();
+  const inFlight = new Map<string, Promise<SavedRecording>>();
+  const reserved = new Set<string>();
 
-  function target(startedAt: Date): SavedRecording {
-    const name = describeRecording(startedAt);
+  function target(startedAt: Date, sequence: number): SavedRecording {
+    const name = describeRecording(startedAt, sequence);
     return {
       ...name,
       uri: joinFileUri(joinFileUri(port.rootUri, name.dateKey), name.fileName),
     };
   }
 
+  /** First free name for this start minute. Existing files are never replaced or blocked. */
+  async function reserve(startedAt: Date): Promise<SavedRecording> {
+    for (let sequence = 1; sequence <= MAX_RECORDINGS_PER_MINUTE; sequence += 1) {
+      const candidate = target(startedAt, sequence);
+      // Claim the name before awaiting so a concurrent save cannot pick the same one.
+      if (reserved.has(candidate.uri)) continue;
+      reserved.add(candidate.uri);
+      try {
+        if (!(await port.stat(candidate.uri)).exists) return candidate;
+      } catch (error) {
+        reserved.delete(candidate.uri);
+        throw error;
+      }
+      reserved.delete(candidate.uri);
+    }
+    throw collision();
+  }
+
+  /** Confirms device storage is readable before recording. A repeat start in the same minute is allowed. */
   async function assertAvailable(startedAt: Date): Promise<void> {
     try {
-      const destination = target(startedAt);
-      if ((await port.stat(destination.uri)).exists || inFlight.has(destination.uri)) {
-        throw collision();
-      }
+      await port.stat(target(startedAt, 1).uri);
     } catch (error) {
       throw asStorageError(error);
     }
   }
 
-  async function performSave(sourceUri: string, saved: SavedRecording): Promise<SavedRecording> {
-    const retryKey = `${sourceUri}\n${saved.uri}`;
-    const existingSuccess = completed.get(retryKey);
-    if (existingSuccess && (await port.stat(saved.uri)).size > 0) return existingSuccess;
-
-    if (!/^file:\/\//i.test(sourceUri) || !/\.m4a$/i.test(sourceUri)) {
-      throw new RecordingStorageError('FORMAT', '기기의 M4A 녹음 파일만 저장할 수 있어요.');
-    }
-    if ((await port.stat(saved.uri)).exists) throw collision();
+  async function publish(sourceUri: string, saved: SavedRecording): Promise<SavedRecording> {
     const source = await port.stat(sourceUri);
     if (!source.exists || source.isDirectory || source.size <= 0) {
       throw new RecordingStorageError('EMPTY', '저장할 녹음 파일이 없어요. 다시 녹음해 주세요.');
@@ -119,22 +133,34 @@ export function createRecordingStorage(port: RecordingFilePort): RecordingStorag
     }
     if ((await port.stat(saved.uri)).exists) throw collision();
     await port.moveNoReplace(staging, saved.uri);
-    completed.set(retryKey, saved);
+    completed.set(sourceUri, saved);
     // Cache cleanup cannot turn a successful save into a failure.
     try { await port.remove(sourceUri); } catch { /* The OS can reclaim the cache later. */ }
     return saved;
   }
 
-  function save(sourceUri: string, startedAt: Date): Promise<SavedRecording> {
-    const saved = target(startedAt);
-    const running = inFlight.get(saved.uri);
-    if (running) {
-      return running.source === sourceUri ? running.promise : Promise.reject(collision());
+  async function performSave(sourceUri: string, startedAt: Date): Promise<SavedRecording> {
+    const existingSuccess = completed.get(sourceUri);
+    if (existingSuccess && (await port.stat(existingSuccess.uri)).size > 0) return existingSuccess;
+
+    if (!/^file:\/\//i.test(sourceUri) || !/\.m4a$/i.test(sourceUri)) {
+      throw new RecordingStorageError('FORMAT', '기기의 M4A 녹음 파일만 저장할 수 있어요.');
     }
-    const promise = performSave(sourceUri, saved)
+    const saved = await reserve(startedAt);
+    try {
+      return await publish(sourceUri, saved);
+    } finally {
+      reserved.delete(saved.uri);
+    }
+  }
+
+  function save(sourceUri: string, startedAt: Date): Promise<SavedRecording> {
+    const running = inFlight.get(sourceUri);
+    if (running) return running;
+    const promise = performSave(sourceUri, startedAt)
       .catch((error: unknown) => { throw asStorageError(error); })
-      .finally(() => { inFlight.delete(saved.uri); });
-    inFlight.set(saved.uri, { source: sourceUri, promise });
+      .finally(() => { inFlight.delete(sourceUri); });
+    inFlight.set(sourceUri, promise);
     return promise;
   }
 
@@ -152,7 +178,7 @@ export function createRecordingStorage(port: RecordingFilePort): RecordingStorag
           const name = parseRecordingFileName(file.name, folder.name);
           if (!name) continue;
           if (name.dateKey === today) todayCount += 1;
-          if (!latest || name.fileName > latest.fileName) latest = { ...name, uri: file.uri };
+          if (!latest || compareRecordings(name, latest) < 0) latest = { ...name, uri: file.uri };
         }
       }
       return { todayCount, latest };

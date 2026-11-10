@@ -1,10 +1,10 @@
 # MVP API 계약 통합 (BE-10)
 
-이 문서는 현재 `/openapi.json`과 함께 앱 연결에 사용하는 계약 정본이다. `SPEC.md` 3·5-1절의 MVP 결정과 BE-00~10의 기능 계약을 정리한다. 로그인·세션·아동 명단은 실제 SQLite와 연결했다. 원음 저장·작업 큐·외부 STT/일지 AI는 미연결이며 해당 업무 서비스는 501이다.
+이 문서는 현재 `/openapi.json`과 함께 앱 연결에 사용하는 계약 정본이다. `SPEC.md` 3·5-1절의 MVP 결정과 BE-00~10의 기능 계약을 정리한다. 로그인·세션·아동 명단은 실제 SQLite와 연결했다. 원음 저장·인증 재생·삭제도 실제 연결했다. 작업 큐·외부 STT/일지 AI는 미연결이며 해당 업무 서비스는 501이다.
 
 ## 전체 경로
 
-다음 정상 상태 코드는 실제 업무 서비스 연결 후 사용할 응답 계약이다. 현재 `/health`는 200이고, 보호 경로의 인증 누락은 401이다. 등록 계정의 로그인·명단 API는 정상 응답을 반환한다. 만료·변조·폐기 토큰은 401이며 녹음·일지의 기본 업무 서비스는 501이다. 올바르지 않은 입력은 공통 422 계약을 따른다. 가짜 서비스의 정상 응답을 실기능 완료로 해석하지 않는다.
+다음 정상 상태 코드는 실제 업무 서비스 연결 후 사용할 응답 계약이다. 현재 `/health`는 200이고, 보호 경로의 인증 누락은 401이다. 등록 계정의 로그인·명단 API는 정상 응답을 반환한다. 만료·변조·폐기 토큰은 401이며 녹음은 실제 저장소를 사용하며 전사·일지의 기본 업무 서비스는 501이다. 올바르지 않은 입력은 공통 422 계약을 따른다. 가짜 서비스의 정상 응답을 실기능 완료로 해석하지 않는다.
 
 | 메서드 | 경로 | 정상 상태 계약 | 인증 | 기능 |
 |---|---|---|---|---|
@@ -39,7 +39,7 @@ Swagger UI는 `/docs`, OpenAPI JSON은 `/openapi.json`에서 제공한다. 알�
 
 ## 인증과 오류
 
-로그인은 JSON `{login_id,password}`를 받으며, 이후 `Authorization: Bearer <access_token>`을 사용한다. 비밀번호는 Argon2id 해시, 접근 토큰은 해시와 만료 시각으로 SQLite에 보관한다. 기본 세션은 7일이며 `POST /auth/logout`은 현재 토큰을 폐기하고 204를 반환한다. 계정 준비는 [BE 실행 안내](../README.md)를 따른다. 정상 로그인 응답 모델은 `{access_token,token_type:"bearer",expires_in,teacher:{teacher_id,display_name}}`이다. 아래 계정/토큰/이름/ID는 문서용 가상 데이터다.
+로그인은 JSON `{login_id,password}`를 받으며, 이후 `Authorization: Bearer <access_token>`을 사용한다. 비밀번호는 Argon2id 해시, 접근 토큰은 해시와 만료 시각으로 SQLite에 보관한다. 기본 세션은 7일이며 `POST /auth/logout`은 현재 토큰을 폐기하고 204를 반환한다. 계정 준비는 [BE 실행 안내](../../README.md)를 따른다. 정상 로그인 응답 모델은 `{access_token,token_type:"bearer",expires_in,teacher:{teacher_id,display_name}}`이다. 아래 계정/토큰/이름/ID는 문서용 가상 데이터다.
 
 ```json
 {"login_id":"teacher-demo","password":"demo-password-only"}
@@ -60,10 +60,10 @@ Swagger UI는 `/docs`, OpenAPI JSON은 `/openapi.json`에서 제공한다. 알�
 | 401 | UNAUTHENTICATED / INVALID_CREDENTIALS / INVALID_TOKEN; WWW-Authenticate: Bearer 유지 |
 | 404 | 없는 자료·삭제된 녹음·다른 교사 자료·다른 일지의 수정 후보 |
 | 409 | 미완료 녹음 선택·중복 전사·오래된 버전/후보·미완료 후보 채택 |
-| 415 | 업로드 선언 MIME 미지원; 실제 파일 형식 검증은 저장 구현의 책임 |
+| 415 | 선언 MIME 미지원·실제 오디오 형식 불일치·해독 실패 |
 | 422 | 요청/날짜/페이지/추가 입력 오류; 잘못된 생성 참조는 작업에서 validation 실패로 처리 |
 | 500 | 예상하지 못한 서버 오류; 입력 원문을 본문에 복사하지 않음 |
-| 501 | 녹음·전사·일지 업무 서비스 미연결 또는 미구현 경로 |
+| 501 | 전사·일지 업무 서비스 미연결 또는 미구현 경로 |
 
 ## BE-08 이전 기록 목록
 
@@ -134,11 +134,29 @@ erDiagram
 
 생성 스냅샷은 명단·선택 전사문·근거를 불변 값으로 보존한다. 원음 삭제와 이미 만든 일지/근거 보존을 구분한다. 직접 수정/확정은 제출 문구를 그대로 저장하고, AI 재요청은 새 후보만 만든다. 후보 채택은 base/current 버전을 검사하고 검토 상태로 되돌린다. 작업 예약/claim/완료/실패 및 일지 이력은 실제 저장소에서 원자적으로 구현해야 한다.
 
+## 알림장 기반 관찰일지 v2
+
+알림장 날짜와 녹음 시작일(Asia/Seoul)이 일치하는 원음만 선택할 수 있다. 목록·재생은 인증된 v1 녹음 경로를 재사용한다. `/api/v2/sessions/{session_id}/recording-drafts` 작업을 시작하면 선택한 녹음만 전사하고, 이미 전사한 파일은 결과를 재사용한다. 직접 입력·아동 정보·전사문을 검토해 필요한 질문만 낸다. 최초 생성은 검토용 초안을 만들고, 기존 알림장의 재생성은 아이별 후보를 보관했다가 명시적 반영 요청에서만 현재 본문을 교체한다. 반영할 때 아동과 본문 버전을 검증하고 이전 버전은 이력에 남긴다.
+
+관찰 추출은 원문 인용과 전사문에 적힌 이름을 함께 돌려준다. 이름이 한글 자모 하나만 다른 경우에도 출석한 후보 한 명으로 좁혀지고 AI가 제안한 대상과 일치하면 그 아이로 연결한다. 결석을 포함한 반 명단에 비슷한 후보가 여럿이거나 대상이 불명확하면 확인을 받는다. 원본 전사문과 근거 인용을 보존하고, 검토·작성에 전달하는 관찰 문장에서만 등록 이름으로 정리한다. 같은 녹음의 근거는 전사문에 등장한 순서대로 전달한다.
+
+서버의 `PATPAT_STT_URL`에 전사 API 주소를 설정한다. 제공자가 요구할 경우 `PATPAT_STT_API_KEY`와 `PATPAT_STT_MODEL`도 서버에 설정한다. 요청은 녹음 파일을 multipart의 `file`로 보내고 응답의 `text`를 사용한다. 테스트는 `create_app(speech_to_text=...)`로 제공자를 주입할 수 있다. 가상 데이터 검증에서는 `PATPAT_AI_PROVIDER=fake`와 `PATPAT_DEMO_TRANSCRIPT`를 함께 설정해 고정 전사문을 사용할 수 있다. 전사 제공자와 가상 전사문이 모두 없으면 `STT_NOT_CONFIGURED`를 반환한다.
+
+앱에서 관찰영역은 초안 요청 전 교사가 확인한다. `POST /api/v2/sessions/{session_id}/generate?manual_areas=true&prepare_journals=true`는 영역을 비워 두어도 작성에 필요한 맥락과 장소·시간을 검토하며, 영역을 추천하거나 역질문으로 묻지 않는다. 같은 세션에서 아이별 초안을 다시 만들 때도 교사가 확인한 영역을 사용한다.
+
+확정을 취소한 알림장의 본문이 직전 확정문과 다르면 상세 응답의 `needs_journal_update_choice`가 true다. `POST /api/v2/notices/{notice_id}/confirm`에는 `update_journal`로 교사의 선택을 보낸다. false이면 관찰일지 본문을 유지하고, true이면 새 확정문으로 해당 아동·날짜의 본문을 다시 작성한다. 새 본문을 작성하는 데 성공하면 직접 수정한 날짜별 본문도 교체된다.
+
+교사가 날짜별로 이어진 본문을 편집할 수 있도록 `GET /api/v2/children/{child_id}/journal`의 `days`는 확정된 관찰을 아이와 날짜별로 모아 돌려준다. `PATCH /api/v2/children/{child_id}/journal`은 수정한 날짜의 `observed_date`, `content`, `expected_revision`을 받아 한 번에 저장한다. 날짜별 수정문은 원본 관찰 행과 별도로 보관하므로 장소·시간·영역과 알림장 근거를 유지한다. 저장한 수정문은 텍스트 출력과 `GET /api/v2/journal/archive`의 날짜별 보관함에 반영된다. 보관함은 확정 취소된 기록을 제외하고 명단에서 비활성화한 아이의 과거 기록을 포함한다.
+
+`GET|POST|DELETE /api/v2/teacher/journal-template`은 교사 계정의 공통 Word 양식 하나를 조회·교체·제거한다. 업로드는 `POST ?filename=...`에 5MB 이하의 원본 파일 바이트를 보낸다. 이전 `PUT` multipart의 `file`도 받는다. 일반 `.docx`는 원본을 저장하고 `.doc`, `.dotx`, `.dot`, `.docm`, `.dotm`, `.rtf`, `.odt`, `.ott`, Word `.xml`, `.fodt`는 LibreOffice Writer로 `.docx`로 변환한다. `.word` 파일은 내부 형식이 지원되는 경우에 받는다. 서버의 `PATH`에서 `soffice`를 찾으며, 실행 파일은 `PATPAT_WORD_CONVERTER`로 지정할 수 있다.
+
+`POST /api/v2/children/{child_id}/journal/output`은 아동·조회 기간별 텍스트 미리보기와 양식 등록 여부를 반환한다. `POST /api/v2/children/{child_id}/journal/output/word`를 요청하면 미리보기의 기간과 `revision`에 맞는 Word 파일을 생성하거나 저장된 파일을 반환한다. AI는 Word 파일을 처음 생성할 때만 `record_format`과 양식의 항목·빈칸을 보고 입력 위치를 고르고, 서버가 저장된 값을 채운다. 본문이나 양식이 바뀌면 관찰일지 조회에서 `output_stale`을 반환한다. 텍스트 재출력은 기존 Word 파일에 영향을 주지 않으며, Word 출력이 성공하면 Word 파일을 교체한다. `GET /api/v2/children/{child_id}/journal/output/word`는 저장된 파일만 내려준다.
+
 ## 문서 적용 범위와 남은 구현
 
 사용자의 MVP 결정(외부 STT, 가명 처리 생략, 서버 명단/원음, 관찰일지 우선)은 SPEC 3·5-1절과 AGENTS 및 이 계약을 따른다. 초기 알림장/로컬 처리 도메인은 후속 설계 기록이다. AC4의 알림장 special_notes와 AC6의 로컬 가명 처리 범위를 현재 관찰일지 계약에 그대로 적용하지 않는다. 생성 사실 보존·아동 분리·교사 확정 기준과 기존 golden_cases.yaml 기대값은 유지했다.
 
-기능별 상세: [명단](CHILDREN.md), [녹음](RECORDINGS.md), [전사](TRANSCRIPTIONS.md), [작성/수정/확정](WRITING.md). 실행은 [README](../README.md)를 따른다. OpenAPI는 앱에서 직접 생성하므로 별도 JSON 사본을 저장하지 않는다.
+기능별 상세: [명단](CHILDREN.md), [녹음](RECORDINGS.md), [전사](TRANSCRIPTIONS.md), [작성/수정/확정](WRITING.md). 실행은 [README](../../README.md)를 따른다. OpenAPI는 앱에서 직접 생성하므로 별도 JSON 사본을 저장하지 않는다.
 
 인증·명단의 SQLite 저장과 앱 연결은 구현했다. 아직 실제 구현이 필요한 항목은 녹음·일지 저장소와 트랜잭션, 비공개 원음 보관/삭제/검증, 작업 큐, STT 공급자, 관찰 추출/일지 AI 공급자, 앱의 녹음·측면 버튼·공유 UI다. 골든 케이스의 실제 AI 품질/독립 의미 판정도 미실행이다.
 

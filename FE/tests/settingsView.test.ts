@@ -30,6 +30,8 @@ before(async () => {
         path: require.resolve(args.path === 'react-native' ? 'react-native-web' : args.path), external: true,
       }));
       build.onResolve({ filter: /^@expo\/vector-icons$/ }, () => ({ path: 'icons', namespace: 'stub' }));
+      build.onResolve({ filter: /^\.\.\/writing\/wordFiles$/ },
+        () => ({ path: path.resolve('src/writing/wordFiles.web.ts') }));
       build.onLoad({ filter: /icons/, namespace: 'stub' }, () => ({ contents: 'exports.Ionicons = function(){return null;};' }));
       build.onResolve({ filter: /^react-native-safe-area-context$/ }, () => ({ path: 'safe-area', namespace: 'stub' }));
       build.onLoad({ filter: /safe-area/, namespace: 'stub' }, () => ({ contents: 'exports.useSafeAreaInsets = () => ({top:0,bottom:0,left:0,right:0});' }));
@@ -147,8 +149,8 @@ test('characteristics screen shows the named child, exact multiline draft, and e
   assert.ok(html.includes('아동 특성') && html.includes('가람가상'));
   assert.ok(html.includes('아동에 대해 알려주세요.'));
   assert.ok(html.includes('좋아하는 놀이, 평소 표현 방식, 도움이 필요한 상황을 자유롭게 적어주세요.'));
-  assert.ok(html.includes('작성한 뒤 저장하기를 눌러주세요.'));
-  assert.ok(html.includes('아직 저장하지 않은 내용이 있어요.'));
+  assert.ok(!html.includes('작성한 뒤 저장하기를 눌러주세요.'));
+  assert.ok(!html.includes('아직 저장하지 않은 내용이 있어요.'));
   assert.equal(disabled(html, 'settings-characteristics-save'), false);
   assert.ok(html.indexOf('settings-characteristics-input') < html.indexOf('settings-characteristics-save'));
   const input = tag(html, 'settings-characteristics-input');
@@ -260,7 +262,7 @@ test('teacher buttons follow the teacher name in order and remain usable without
   const html = render();
   const ids = ['settings-teacher-name', 'settings-teacher-open-writing_examples', 'settings-teacher-open-record_format', 'settings-logout'];
   for (let index = 0; index < ids.length - 1; index++) assert.ok(html.indexOf(ids[index]) < html.indexOf(ids[index + 1]));
-  assert.ok(html.includes('내 글쓰기 예시') && html.includes('우리 원 기록 양식'));
+  assert.ok(html.includes('내 글쓰기 예시') && html.includes('관찰일지 기록 양식'));
   for (const patch of [{ items: [] }, { items: [], loaded: false, notice: '가상 명단 연결 실패' }]) {
     for (const kind of ['writing_examples', 'record_format']) {
       assert.equal(disabled(render(patch), 'settings-teacher-open-' + kind), false);
@@ -276,8 +278,9 @@ test('teacher buttons follow the teacher name in order and remain usable without
 const teacherScreens: { kind: TeacherDocumentKind; title: string; prompt: string; hint: string; placeholder: string; success: string }[] = [
   { kind: 'writing_examples', title: '내 글쓰기 예시', prompt: '선생님이 작성한 글을 남겨주세요.',
     hint: '이전에 작성한 관찰일지나 알림장 내용을 붙여 넣어주세요.', placeholder: '작성했던 글을 붙여 넣어주세요.', success: '글쓰기 예시를 저장했어요.' },
-  { kind: 'record_format', title: '우리 원 기록 양식', prompt: '우리 원에서는 어떻게 기록하나요?',
-    hint: '관찰일지나 알림장의 항목, 순서, 제목, 작성 규칙을 자유롭게 적어주세요.', placeholder: '우리 원의 기록 형식을 적어주세요.', success: '기록 양식을 저장했어요.' },
+  { kind: 'record_format', title: '관찰일지 기록 양식', prompt: '우리 원에서는 어떻게 기록하나요?',
+    hint: '관찰일지의 항목과 작성 규칙을 적어 주세요. Word 양식을 올렸다면 어떤 칸을 채울지 지정할 수 있어요.',
+    placeholder: '우리 원의 관찰일지 기록 형식을 적어 주세요.', success: '기록 양식을 저장했어요.' },
 ];
 for (const screen of teacherScreens) {
   test(screen.kind + ' uses its own dedicated text editor with the planned copy and preserved draft', () => {

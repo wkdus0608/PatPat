@@ -1,12 +1,14 @@
 import { Directory, File, Paths } from 'expo-file-system';
+import type { Account } from '../auth/controller';
+import { accountDirectory, createSyncStore } from './syncStore';
 import {
   createRecordingStorage,
   RecordingStorageError,
   type RecordingFilePort,
 } from './storage';
 
-export function createExpoFilePort(): RecordingFilePort {
-  const root = new Directory(Paths.document, 'recordings');
+export function createExpoFilePort(account?: Account): RecordingFilePort {
+  const root = account ? accountDirectory(account) : new Directory(Paths.document, 'recordings');
   return {
     rootUri: root.uri,
     async stat(uri) {
@@ -35,7 +37,7 @@ export function createExpoFilePort(): RecordingFilePort {
     async moveNoReplace(sourceUri, destinationUri) {
       const destination = new File(destinationUri);
       if (destination.exists) {
-        throw new RecordingStorageError('COLLISION', '같은 시작 시간의 녹음이 이미 있어요.');
+        throw new RecordingStorageError('COLLISION', '같은 이름의 녹음 파일이 이미 있어요. 기존 파일은 그대로 보관했어요.');
       }
       await new File(sourceUri).move(destination, { overwrite: false });
     },
@@ -46,6 +48,20 @@ export function createExpoFilePort(): RecordingFilePort {
   };
 }
 
-export function createExpoRecordingStorage() {
-  return createRecordingStorage(createExpoFilePort());
+/** `onSaved` runs after the file and its upload record are safely on the device. */
+export function createExpoRecordingStorage(account?: Account, onSaved?: () => void) {
+  const storage = createRecordingStorage(createExpoFilePort(account));
+  if (!account) return storage;
+  const store = createSyncStore(account);
+  return { ...storage, async save(uri: string, startedAt: Date, durationMillis = 0) {
+    const saved = await storage.save(uri, startedAt);
+    const existing = (await store.entries()).find(entry => entry.saved.uri === saved.uri);
+    if (!existing) {
+      if (durationMillis <= 0) throw new Error('Missing duration');
+      await store.put({ saved, key: startedAt.toISOString() + '-' + Math.random().toString(36).slice(2),
+        recordedAt: startedAt.toISOString(), duration: durationMillis / 1000 });
+    }
+    try { onSaved?.(); } catch { /* A listener failure never undoes a saved recording. */ }
+    return saved;
+  } };
 }

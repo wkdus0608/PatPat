@@ -17,7 +17,7 @@ function memory(initial: string | null = null) {
   return store;
 }
 function api(overrides: Partial<Api> = {}): Api {
-  return { async login() { return login; }, async me() { return teacher; }, async logout() {},
+  return { ...createApi('http://unused.test'), async login() { return login; }, async me() { return teacher; }, async logout() {},
     async listChildren() { return []; }, async createChild() { throw new Error('unused'); },
     async renameChild() { throw new Error('unused'); }, async deactivateChild() { throw new Error('unused'); },
     async deleteChild() { throw new Error('unused'); }, ...overrides };

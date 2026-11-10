@@ -11,7 +11,7 @@ export interface NativeRecorder {
 }
 
 export interface NativeEnginePorts {
-  /** Read permission only. This adapter never requests microphone access. */
+  /** The platform checks/requests permission; this adapter only consumes its result. */
   getPermission(): Promise<boolean>;
   setMode(recording: boolean): Promise<void>;
   wait?(milliseconds: number): Promise<void>;

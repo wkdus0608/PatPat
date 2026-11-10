@@ -1,4 +1,5 @@
 import type { SavedRecording } from '../recording/storage';
+import type { JournalArchiveEntry } from '../api/v2';
 
 export type LoadState<T> =
   | { status: 'idle' | 'loading' }
@@ -27,11 +28,16 @@ export interface JournalSource {
   get(recordId: string): Promise<unknown>;
 }
 
+export type DeleteTarget = 'device' | 'server' | 'both';
+
 export interface RecordingLibrary {
   available: boolean;
   list(): Promise<SavedRecording[]>;
   validate(recording: SavedRecording): Promise<void>;
-  remove(recording: SavedRecording): Promise<void>;
+  remove(recording: SavedRecording, target?: DeleteTarget): Promise<void>;
+  synchronize?(): Promise<string>;
+  playbackUri?(recording: SavedRecording): Promise<string>;
+  releasePlayback?(): Promise<void>;
 }
 
 export interface PlaybackStatus {
@@ -64,6 +70,7 @@ export interface LibraryState {
   route: 'home' | 'recordings' | 'recording' | 'journals' | 'journal';
   recordings: LoadState<readonly SavedRecording[]>;
   journals: LoadState<readonly JournalListItem[]>;
+  journalArchive?: LoadState<JournalArchiveEntry[]>;
   journalDetail: LoadState<JournalDetail>;
   selectedRecording: SavedRecording | null;
   selectedJournal: JournalListItem | null;
@@ -71,6 +78,7 @@ export interface LibraryState {
   deletePrompt: boolean;
   deleting: boolean;
   navigationBusy: boolean;
+  syncing?: boolean;
   notice: string | null;
 }
 
@@ -86,7 +94,7 @@ export interface LibraryActions {
   retryPlayback(): void;
   requestDelete(): void;
   cancelDelete(): void;
-  confirmDelete(): void;
+  confirmDelete(target?: DeleteTarget): void;
 }
 
 export interface LibraryViewProps {

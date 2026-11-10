@@ -64,7 +64,7 @@ export function createRecordingController(
     update({ phase: 'preparing', durationMillis: 0, message: null, canStart: false, canRetry: false });
     const startedAt = now();
     try {
-      // Reject a minute-name collision before the teacher records another clip.
+      // Check device storage is readable first. Repeat starts in one minute are allowed.
       await storage.assertAvailable(startedAt);
       if (stopRequested) {
         update({ phase: 'idle', canStart: true, message: '녹음을 시작하기 전에 화면이 전환되었어요.' });
@@ -102,7 +102,7 @@ export function createRecordingController(
       if (!clip.uri || clip.durationMillis <= 0) {
         throw new RecordingStorageError('EMPTY', '저장할 녹음이 없어요. 다시 녹음해 주세요.');
       }
-      const saved = await storage.save(clip.uri, clip.startedAt);
+      const saved = await storage.save(clip.uri, clip.startedAt, clip.durationMillis);
       pending = null;
       update({
         phase: 'saved', durationMillis: clip.durationMillis,

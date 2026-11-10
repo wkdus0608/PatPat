@@ -13,8 +13,11 @@ import {
   type DimensionValue,
 } from 'react-native';
 
+import { recordingLabel } from '../recording/files';
 import type { SavedRecording } from '../recording/storage';
 import { colors } from '../ui/theme';
+import { JournalArchive } from './JournalArchive';
+import { playbackTime } from './playbackTime';
 import type { JournalListItem, LibraryViewProps } from './types';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -26,16 +29,6 @@ function dateText(dateKey: string) {
   return parts.length === 3
     ? parts[0] + '년 ' + Number(parts[1]) + '월 ' + Number(parts[2]) + '일'
     : dateKey;
-}
-
-function timeText(seconds: number) {
-  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = String(Math.floor(safeSeconds / 60) % 60).padStart(2, '0');
-  const remaining = String(safeSeconds % 60).padStart(2, '0');
-  return hours > 0
-    ? [String(hours).padStart(2, '0'), minutes, remaining].join(':')
-    : [minutes, remaining].join(':');
 }
 
 function journalTitle(journal: JournalListItem) {
@@ -98,10 +91,11 @@ function Header({
           {onRefresh && (
             <Pressable accessibilityRole="button" accessibilityLabel="목록 새로고침"
               accessibilityState={{ disabled: busy }} disabled={busy} onPress={onRefresh}
-              style={({ pressed }) => [styles.iconButton, busy && styles.disabledOpacity, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.iconButton, { flexDirection: 'row', gap: 5, minWidth: 105 }, busy && styles.disabledOpacity, pressed && styles.pressed]}
               testID="library-refresh"
             >
-              <Ionicons name="refresh-outline" size={19} color={colors.muted} />
+              {busy ? <ActivityIndicator size="small" color={colors.muted} /> : <Ionicons name="refresh-outline" size={19} color={colors.muted} />}
+              <Text style={styles.backLabel}>새로고침</Text>
             </Pressable>
           )}
         </View>
@@ -204,7 +198,7 @@ function JournalRow({ item, onPress, disabled }: {
 }
 
 export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProps) {
-  const locked = state.navigationBusy || state.deleting;
+  const locked = state.navigationBusy || state.deleting || !!state.syncing;
   const recordings = state.recordings.status === 'ready' ? state.recordings.data : emptyRecordings;
   const recordingsOffset = useRef(0);
   const recordingsList = useRef<SectionList<SavedRecording, RecordingSection>>(null);
@@ -258,7 +252,7 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
   }
 
   function journalListPanel() {
-    const load = state.journals;
+    const load = state.journalArchive ?? state.journals;
     if (load.status === 'idle' || load.status === 'loading') {
       return <StatePanel icon="document-text-outline" title="관찰일지를 불러오고 있어요" message="작성된 기록을 확인하고 있어요." loading />;
     }
@@ -295,7 +289,7 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
         style={styles.fill} contentContainerStyle={styles.content}
         sections={sections} keyExtractor={(item) => item.uri}
         ListHeaderComponent={<>
-          <Header title="녹음 파일" subtitle="날짜별로 모아 둔 관찰을 다시 들어요."
+          <Header title="녹음 파일" subtitle="연결되어 있으면 새 녹음은 자동으로 서버에 저장돼요. 새로고침으로 바로 확인할 수 있어요."
             onBack={actions.back} onRefresh={actions.refresh} busy={locked} />
           {notice}
         </>}
@@ -308,7 +302,7 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
         )}
         renderItem={({ item }) => (
           <Pressable accessibilityRole="button"
-            accessibilityLabel={dateText(item.dateKey) + ' ' + item.startTime + ' 녹음 열기'}
+            accessibilityLabel={dateText(item.dateKey) + ' ' + recordingLabel(item) + ' 열기'}
             accessibilityState={{ disabled: locked }} disabled={locked} onPress={() => actions.openRecording(item)}
             style={({ pressed }) => [styles.listCard, locked && styles.disabledOpacity, pressed && styles.pressed]}
             testID={'library-recording-' + item.fileName}
@@ -317,8 +311,9 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
               <Ionicons name="mic-outline" size={23} color={colors.ink} />
             </View>
             <View style={styles.cardContent}>
-              <Text style={styles.itemTitle}>{item.startTime} 녹음</Text>
+              <Text style={styles.itemTitle}>{recordingLabel(item)}</Text>
               <Text style={styles.itemFileName}>{item.fileName}</Text>
+              {item.syncLabel && <Text style={styles.itemSubtitle}>{item.syncLabel}</Text>}
             </View>
             <Ionicons name="play-circle-outline" size={25} color={colors.muted} />
           </Pressable>
@@ -334,6 +329,21 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
   }
 
   if (state.route === 'journals') {
+    if (state.journalArchive) {
+      const archive = state.journalArchive;
+      const header = <Header title="작성한 관찰일지" subtitle="날짜를 누르거나 좌우로 넘겨 기록을 확인해요."
+        onBack={actions.back} onRefresh={actions.refresh} busy={locked} />;
+      return archive.status === 'ready' && archive.data.length > 0 ? (
+        <View style={styles.fill}>
+          <View style={styles.archiveHeader}>{header}{notice}</View>
+          <JournalArchive records={archive.data} />
+        </View>
+      ) : (
+        <ScrollView style={styles.fill} contentContainerStyle={styles.content}>
+          {header}{notice}{journalListPanel()}
+        </ScrollView>
+      );
+    }
     const data = state.journals.status === 'ready' ? state.journals.data : [];
     return (
       <FlatList
@@ -405,20 +415,20 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
           <View style={styles.playerCard}>
             <View style={styles.playerIllustration}><Ionicons name="musical-notes-outline" size={45} color={colors.ink} /></View>
             <Text style={styles.recordingDate}>{dateText(recording.dateKey)}</Text>
-            <Text accessibilityRole="header" style={styles.detailTitle}>{recording.startTime} 녹음</Text>
+            <Text accessibilityRole="header" style={styles.detailTitle}>{recordingLabel(recording)}</Text>
             <Text selectable style={styles.detailFileName}>{recording.fileName}</Text>
             <View
               accessibilityRole="progressbar" accessibilityLabel="녹음 재생 진행"
               accessibilityValue={player.duration === null ? { text: '전체 길이 확인 중' }
-                : { min: 0, max: player.duration, now: Math.min(player.currentTime, player.duration), text: timeText(player.currentTime) + ' / ' + timeText(player.duration) }}
+                : { min: 0, max: player.duration, now: Math.min(player.currentTime, player.duration), text: playbackTime(player.currentTime) + ' / ' + playbackTime(player.duration) }}
               style={styles.progressTrack}
             >
               <View style={[styles.progressFill, { width: (String(progress * 100) + '%') as DimensionValue }]} />
             </View>
             <View style={styles.timeRow}>
-              <Text style={styles.timeText} testID="library-current-time">{timeText(player.currentTime)}</Text>
+              <Text style={styles.timeText} testID="library-current-time">{playbackTime(player.currentTime)}</Text>
               <Text style={styles.timeText} testID="library-duration">
-                {player.duration === null ? '길이 확인 중' : timeText(player.duration)}
+                {player.duration === null ? '길이 확인 중' : playbackTime(player.duration)}
               </Text>
             </View>
             {player.message && <Text accessibilityRole="alert" style={styles.playerMessage}>{player.message}</Text>}
@@ -450,10 +460,14 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
             <Text selectable style={styles.modalFileName}>{recording?.fileName}</Text>
             <Text style={styles.modalDescription}>삭제한 녹음은 복구할 수 없어요.{'\n'}파일을 확인한 뒤 삭제해 주세요.</Text>
             <Notice message={state.notice} />
+            {recording?.location === 'both' && <View style={{ gap: 8 }}>
+              <Button label="기기에서만 삭제" secondary disabled={locked} onPress={() => actions.confirmDelete('device')} />
+              <Button label="서버에서만 삭제" secondary disabled={locked} onPress={() => actions.confirmDelete('server')} />
+            </View>}
             <View style={styles.modalActions}>
               <Button label="취소" secondary disabled={locked} onPress={actions.cancelDelete} testID="library-delete-cancel" />
-              <Button label={state.deleting ? '삭제 중…' : '삭제'} danger busy={state.deleting}
-                disabled={locked} onPress={actions.confirmDelete} testID="library-delete-confirm" />
+              <Button label={state.deleting ? '삭제 중…' : recording?.location === 'both' ? '기기·서버 모두 삭제' : recording?.location === 'server' ? '서버에서 삭제' : '기기에서 삭제'} danger busy={state.deleting}
+                disabled={locked} onPress={() => actions.confirmDelete(recording?.location === 'both' ? 'both' : recording?.location === 'server' ? 'server' : 'device')} testID="library-delete-confirm" />
             </View>
           </View>
         </View>
@@ -465,6 +479,7 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 5, paddingBottom: 30, flexGrow: 1 },
+  archiveHeader: { paddingHorizontal: 24, paddingTop: 5 },
   header: { marginBottom: 24 },
   navigationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   backButton: { flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 44, paddingRight: 12 },

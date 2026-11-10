@@ -114,7 +114,7 @@ def test_only_hashes_are_stored_and_reinitialization_preserves_data(real_app):
         assert account["password_hash"].startswith("$argon2id$")
         assert "fictional-password-one" not in account["password_hash"]
         assert verify_password(account["password_hash"], "fictional-password-one")
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
     with pytest.raises(sqlite3.IntegrityError):
         create_teacher(app.state.database, "fictional-one", "중복 가상 계정", "another-password")
 
