@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from app.ai import prompts, schemas
 from app.ai.anthropic_client import NotConfiguredAIClient
 from app.ai.gateway import AIGateway
-from app.ai.lint import lint_notice
+from app.ai.lint import keep_example_emoticons, lint_notice
 from app.ai.privacy import mask_names
 from app.ai.prompts import BlockCtx, ChildCtx, ClassCtx
 from app.ai.types import AIError
@@ -401,6 +401,7 @@ class PipelineService:
         block = inputs["block"]
         text = "\n\n".join(part for part in (inputs["common_paragraph"], individual) if part)
         source = " ".join([block.text, ctx.common.text if ctx.common else "", *(item["answer"] for item in inputs["answers"])])
+        text = keep_example_emoticons(text, ctx.writing_examples, source)
         return {"text": text, "needs_check": not block.text.strip(), "incident": incident, "warnings": lint_notice(text, source)}
 
     def _save_notice(self, ctx: DraftContext, inputs: dict, individual: str, incident: bool) -> dict:

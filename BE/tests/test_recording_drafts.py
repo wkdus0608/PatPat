@@ -133,3 +133,58 @@ def test_exclude_and_regenerate_preserve_other_notices_and_require_a_current_ver
         assert "블록 높이를 비교했어요" in env.client.get(first_path, headers=env.headers).json()["text"]
         assert env.client.get(second_path, headers=env.headers).json() == original_second
         assert stt.calls == ["good", "bad"]
+
+
+def test_unique_transcribed_name_is_corrected_and_observations_follow_source_order(tmp_path):
+    with running_env(tmp_path) as env:
+        child_id, _ = add_children(env, ["정하준", "이도윤"])
+        session = open_session(env)
+        recording = seed_audio(env, "name-typo")
+        early = "정화준이 초록색 블록을 골랐어요."
+        late = "정화준이가 블록 두 개를 나란히 놓았어요."
+        transcript = early + "\n" + late
+        stt = FixtureTranscriber()
+        stt.texts["name-typo"] = transcript
+        env.app.state.services.recording_drafts.transcripts.client = stt
+        env.app.state.ai_client.handlers[AITask.RECORDING_OBSERVATIONS] = lambda _: {"observations": [
+            {"recording_id": recording, "quote": quote, "scope": "individual",
+             "child_id": child_id, "heard_name": "정화준"}
+            for quote in (late, early)
+        ]}
+
+        result = post(env, path_for(session), {"recording_ids": [recording]})
+        assert result["run"] is None and child_id in result["used_recordings"]
+        review, = env.app.state.ai_client.calls_for(AITask.REVIEW)
+        block, = review.payload["blocks"]
+        assert block["child_id"] == child_id
+        assert block["text"] == transcript.replace("정화준", "정하준")
+        with env.app.state.database.connect() as connection:
+            cached = connection.execute("SELECT text FROM recording_transcripts WHERE recording_id=?", (recording,)).fetchone()
+        assert cached["text"] == transcript
+
+
+def test_two_close_roster_names_require_confirmation_even_if_ai_picks_one(tmp_path):
+    with running_env(tmp_path) as env:
+        first, second = add_children(env, ["정하준", "정화진"])
+        session = open_session(env)
+        recording = seed_audio(env, "similar-names")
+        quote = "정화준이 초록색 블록을 골랐어요."
+        stt = FixtureTranscriber()
+        stt.texts["similar-names"] = quote
+        env.app.state.services.recording_drafts.transcripts.client = stt
+        env.app.state.ai_client.handlers[AITask.RECORDING_OBSERVATIONS] = lambda _: {"observations": [
+            {"recording_id": recording, "quote": quote, "scope": "individual",
+             "child_id": first, "heard_name": "정화준"}
+        ]}
+
+        path = path_for(session)
+        run = post(env, path, {"recording_ids": [recording]})["run"]
+        assert run["stage"] == "asking"
+        flag, = run["flags"]
+        assert flag["kind"] == "recording_scope"
+        assert "정하준" in flag["options"] and "정화진" in flag["options"]
+        assert not env.app.state.ai_client.calls_for(AITask.REVIEW)
+        result = post(env, f"{path}/{run['run_id']}/answers", {"answers": {flag["flag_id"]: "정화진"}})
+        assert result["run"] is None and second in result["used_recordings"] and first not in result["used_recordings"]
+        review, = env.app.state.ai_client.calls_for(AITask.REVIEW)
+        assert review.payload["blocks"][0]["text"] == quote.replace("정화준", "정화진")

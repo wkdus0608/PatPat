@@ -1,10 +1,20 @@
-"""Cheap, rule-based checks on generated text. They flag; they never block or rewrite."""
+"""Rule-based checks and narrowly scoped style cleanup for generated notices."""
+import re
+
+_TEXT_EMOTICON = re.compile(r"\^{2,}|[:;]-?[)(DPp](?!\w)")
 
 # Words that read as teacher-led (rules/common/trend.md). Stems, so conjugations match.
 TEACHER_LED_STEMS = ("유도했", "시켰", "하게 했", "가르쳤", "지도했", "이끌었", "진행했")
 
 # Feelings the notice must not add unless the teacher's own input already says so.
 UNSUPPORTED_FEELING_STEMS = ("즐거워", "신나", "신이 나", "뿌듯", "기뻐", "행복해", "재미있어", "재밌어", "집중했", "집중하는")
+
+
+def keep_example_emoticons(text: str, examples: str | None, source: str) -> str:
+    if not examples or not examples.strip():
+        return text
+    allowed = set(_TEXT_EMOTICON.findall(examples + "\n" + source))
+    return _TEXT_EMOTICON.sub(lambda match: match.group() if match.group() in allowed else "", text).strip()
 
 
 def lint_notice(text: str, source_text: str = "") -> list[dict]:
