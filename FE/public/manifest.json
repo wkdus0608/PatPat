@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "PatPat 쓰담쓰담",
+  "short_name": "PatPat",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFFDF7",
+  "theme_color": "#FFFDF7",
+  "icons": [
+    { "src": "/patpat-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/patpat-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
