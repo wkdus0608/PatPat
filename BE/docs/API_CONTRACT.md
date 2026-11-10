@@ -138,13 +138,17 @@ erDiagram
 
 알림장 날짜와 녹음 시작일(Asia/Seoul)이 일치하는 원음만 선택할 수 있다. 목록·재생은 인증된 v1 녹음 경로를 재사용한다. `/api/v2/sessions/{session_id}/recording-drafts` 작업을 시작하면 선택한 녹음만 전사하고, 이미 전사한 파일은 결과를 재사용한다. 직접 입력·아동 정보·전사문을 검토해 필요한 질문만 낸다. 최초 생성은 검토용 초안을 만들고, 기존 알림장의 재생성은 아이별 후보를 보관했다가 명시적 반영 요청에서만 현재 본문을 교체한다. 반영할 때 아동과 본문 버전을 검증하고 이전 버전은 이력에 남긴다.
 
-실제 전사 제공자는 `create_app(speech_to_text=...)`에 `SpeechToTextClient`를 주입해 연결한다. 가상 데이터 검증에서는 `PATPAT_AI_PROVIDER=fake`와 `PATPAT_DEMO_TRANSCRIPT`를 함께 설정해 고정 전사문을 사용할 수 있다. 전사 제공자와 가상 전사문이 모두 없으면 `STT_NOT_CONFIGURED`를 반환한다.
+서버의 `PATPAT_STT_URL`에 전사 API 주소를 설정한다. 제공자가 요구할 경우 `PATPAT_STT_API_KEY`와 `PATPAT_STT_MODEL`도 서버에 설정한다. 요청은 녹음 파일을 multipart의 `file`로 보내고 응답의 `text`를 사용한다. 테스트는 `create_app(speech_to_text=...)`로 제공자를 주입할 수 있다. 가상 데이터 검증에서는 `PATPAT_AI_PROVIDER=fake`와 `PATPAT_DEMO_TRANSCRIPT`를 함께 설정해 고정 전사문을 사용할 수 있다. 전사 제공자와 가상 전사문이 모두 없으면 `STT_NOT_CONFIGURED`를 반환한다.
 
 앱에서 관찰영역은 초안 요청 전 교사가 확인한다. `POST /api/v2/sessions/{session_id}/generate?manual_areas=true&prepare_journals=true`는 영역을 비워 두어도 작성에 필요한 맥락과 장소·시간을 검토하며, 영역을 추천하거나 역질문으로 묻지 않는다. 같은 세션에서 아이별 초안을 다시 만들 때도 교사가 확인한 영역을 사용한다.
 
 확정을 취소한 알림장의 본문이 직전 확정문과 다르면 상세 응답의 `needs_journal_update_choice`가 true다. `POST /api/v2/notices/{notice_id}/confirm`에는 `update_journal`로 교사의 선택을 보낸다. false이면 관찰일지 본문을 유지하고, true이면 새 확정문으로 해당 아동·날짜의 본문을 다시 작성한다. 새 본문을 작성하는 데 성공하면 직접 수정한 날짜별 본문도 교체된다.
 
 교사가 날짜별로 이어진 본문을 편집할 수 있도록 `GET /api/v2/children/{child_id}/journal`의 `days`는 확정된 관찰을 아이와 날짜별로 모아 돌려준다. `PATCH /api/v2/children/{child_id}/journal`은 수정한 날짜의 `observed_date`, `content`, `expected_revision`을 받아 한 번에 저장한다. 날짜별 수정문은 원본 관찰 행과 별도로 보관하므로 장소·시간·영역과 알림장 근거를 유지한다. 저장한 수정문은 텍스트 출력과 `GET /api/v2/journal/archive`의 날짜별 보관함에 반영된다. 보관함은 확정 취소된 기록을 제외하고 명단에서 비활성화한 아이의 과거 기록을 포함한다.
+
+`GET|POST|DELETE /api/v2/teacher/journal-template`은 교사 계정의 공통 Word 양식 하나를 조회·교체·제거한다. 업로드는 `POST ?filename=...`에 5MB 이하의 원본 파일 바이트를 보낸다. 이전 `PUT` multipart의 `file`도 받는다. 일반 `.docx`는 원본을 저장하고 `.doc`, `.dotx`, `.dot`, `.docm`, `.dotm`, `.rtf`, `.odt`, `.ott`, Word `.xml`, `.fodt`는 LibreOffice Writer로 `.docx`로 변환한다. `.word` 파일은 내부 형식이 지원되는 경우에 받는다. 서버의 `PATH`에서 `soffice`를 찾으며, 실행 파일은 `PATPAT_WORD_CONVERTER`로 지정할 수 있다.
+
+AI는 `record_format`과 양식의 항목·빈칸을 보고 입력 위치만 고르고, 서버가 저장된 값을 채운다. `POST /api/v2/children/{child_id}/journal/output`은 아동·조회 기간별 텍스트와 Word 출력본을 저장한다. 본문이나 양식이 바뀌면 기존 출력본을 유지하며, 관찰일지 조회에서 `output_stale`을 반환한다. 재출력 요청이 성공하면 출력본을 교체한다. `GET /api/v2/children/{child_id}/journal/output/word`는 같은 기간과 `revision`으로 저장된 Word 파일을 내려준다.
 
 ## 문서 적용 범위와 남은 구현
 

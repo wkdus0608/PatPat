@@ -12,9 +12,9 @@ export const TEACHER_DOCUMENTS: Record<TeacherDocumentKind, {
     placeholder: '작성했던 글을 붙여 넣어주세요.', successMessage: '글쓰기 예시를 저장했어요.',
   },
   record_format: {
-    title: '우리 원 기록 양식', prompt: '우리 원에서는 어떻게 기록하나요?',
-    hint: '관찰일지나 알림장의 항목, 순서, 제목, 작성 규칙을 자유롭게 적어주세요.',
-    placeholder: '우리 원의 기록 형식을 적어주세요.', successMessage: '기록 양식을 저장했어요.',
+    title: '관찰일지 기록 양식', prompt: '우리 원에서는 어떻게 기록하나요?',
+    hint: '관찰일지의 항목과 작성 규칙을 적어 주세요. Word 양식을 올렸다면 어떤 칸을 채울지 지정할 수 있어요.',
+    placeholder: '우리 원의 관찰일지 기록 형식을 적어 주세요.', successMessage: '기록 양식을 저장했어요.',
   },
 };
 

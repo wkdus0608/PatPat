@@ -146,7 +146,7 @@ async def delete_child(child_id: str, teacher: CurrentTeacher, request: Request)
     "/teacher/documents/{kind}",
     response_model=DocumentResponse,
     summary="교사 문서 조회",
-    description="writing_examples(내가 쓴 글 예시)와 record_format(기록 양식 메모)를 저장합니다. 후자는 저장만 하고 생성에는 쓰지 않습니다.",
+    description="writing_examples는 글쓰기 예시이며, record_format은 관찰일지 Word 양식의 칸을 채울 때 참고하는 규칙입니다.",
 )
 def get_document(kind: DocumentKind, teacher: CurrentTeacher, store: StoreDependency) -> DocumentResponse:
     text, updated_at = store.get_document(teacher.teacher_id, kind)

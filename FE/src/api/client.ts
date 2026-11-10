@@ -42,20 +42,21 @@ export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fe
   const base = baseUrl.trim().replace(/\/+$/, '');
   return async function request(
     path: string, token: string | null, method = 'GET', body?: unknown,
-    responseType: 'json' | 'text' | 'blob' = 'json', signal?: AbortSignal,
+    responseType: 'json' | 'text' | 'blob' | 'arrayBuffer' = 'json', signal?: AbortSignal, timeoutMs?: number,
   ): Promise<unknown> {
     if (!/^https?:\/\//.test(base)) throw new ApiError(0, 'CONNECTION', '서버에 연결할 수 없어요.');
     const abort = new AbortController();
     const stop = () => abort.abort();
     signal?.addEventListener('abort', stop, { once: true });
     if (signal?.aborted) stop();
-    const timer = setTimeout(stop, responseType === 'blob' ? 120000 : 12000);
+    const binary = body instanceof ArrayBuffer;
+    const timer = setTimeout(stop, timeoutMs ?? (responseType === 'blob' || responseType === 'arrayBuffer' ? 120000 : 12000));
     try {
       const response = await fetcher(base + prefix + path, {
         method, signal: abort.signal,
-        headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        headers: { ...(body === undefined ? {} : { 'Content-Type': binary ? 'application/octet-stream' : 'application/json' }),
           ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        ...(body === undefined ? {} : { body: binary ? body : JSON.stringify(body) }),
       });
       if (!response.ok) {
         let code = '';
@@ -73,6 +74,7 @@ export function createRequest(baseUrl: string, prefix: '/api/v1' | '/api/v2', fe
       }
       if (response.status === 204) return undefined;
       if (responseType === 'blob') return await response.blob();
+      if (responseType === 'arrayBuffer') return await response.arrayBuffer();
       return responseType === 'text' ? await response.text() : await response.json();
     } catch (error) {
       if (error instanceof ApiError) throw error;

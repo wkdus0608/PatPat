@@ -8,6 +8,15 @@ MAX_FLAGS = 10
 
 _STR = {"type": "string"}
 _STR_LIST = {"type": "array", "items": _STR}
+JOURNAL_WORD_FIELDS = ("이름", "성별", "반", "생년월일", "관찰일", "관찰장소", "관찰시간", "관찰영역", "관찰내용")
+JOURNAL_WORD_LAYOUT_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["placements"],
+    "properties": {"placements": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["slot", "fields"],
+        "properties": {"slot": _STR,
+                       "fields": {"type": "array", "items": {"type": "string", "enum": list(JOURNAL_WORD_FIELDS)}}},
+    }}},
+}
 
 REVIEW_SCHEMA = {
     "type": "object",

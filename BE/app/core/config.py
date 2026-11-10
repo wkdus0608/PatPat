@@ -25,6 +25,10 @@ class Settings:
     ai_fallbacks: bool | None = None  # None = on for models that support server-side fallbacks
     ai_parallelism: int = 4
     jobs_inline: bool = False  # run background jobs synchronously (tests)
+    stt_url: str = ""
+    stt_api_key: str = ""
+    stt_model: str = ""
+    word_converter: str = ""
     demo_transcript: str = ""  # optional fictional transcript, used only with the fake AI
 
 
@@ -56,5 +60,9 @@ def get_settings() -> Settings:
         ai_fallbacks=_optional_bool("PATPAT_AI_FALLBACKS"),
         ai_parallelism=max(1, int(os.getenv("PATPAT_AI_PARALLELISM", str(Settings.ai_parallelism)))),
         jobs_inline=os.getenv("PATPAT_JOBS_INLINE", "false").lower() in {"1", "true", "yes"},
+        stt_url=os.getenv("PATPAT_STT_URL", "").strip(),
+        stt_api_key=os.getenv("PATPAT_STT_API_KEY", "").strip(),
+        stt_model=os.getenv("PATPAT_STT_MODEL", "").strip(),
+        word_converter=os.getenv("PATPAT_WORD_CONVERTER", "").strip(),
         demo_transcript=os.getenv("PATPAT_DEMO_TRANSCRIPT", ""),
     )

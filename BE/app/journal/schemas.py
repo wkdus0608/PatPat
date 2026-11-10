@@ -63,6 +63,18 @@ class JournalResponse(BaseModel):
     child: JournalChild = Field(description="관찰일지 문서 머리(이름, 성별, 생년월일)")
     items: list[JournalEntryResponse]
     days: list[JournalDayResponse] = Field(description="확정된 관찰을 날짜별로 모은 본문")
+    output_revision: str | None = None
+    output_stale: bool = False
+
+
+class JournalOutput(BaseModel):
+    text: str
+    revision: str
+    has_word: bool
+
+
+class JournalTemplate(BaseModel):
+    filename: str | None
 
 
 class DayEdit(BaseModel):

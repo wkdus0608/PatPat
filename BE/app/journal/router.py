@@ -1,18 +1,21 @@
 from datetime import date
 from typing import Annotated, Literal
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
+from fastapi.responses import PlainTextResponse, Response
 
 from app.api.common_responses import COMMON_ERROR_RESPONSES
 from app.auth.dependencies import CurrentTeacher
 from app.children.router import private_response
 from app.core.errors import ApiError
 from app.jobs.router import JobResponse, job_response
-from app.journal import export
+from app.journal import export, output, word, word_import
 from app.journal.days import editable_day, group_days
 from app.journal.schemas import (
-    DaysPatch, EntryPatch, JournalArchiveEntry, JournalChild, JournalDayResponse, JournalEntryResponse, JournalResponse,
+    DaysPatch, EntryPatch, JournalArchiveEntry, JournalChild, JournalDayResponse, JournalEntryResponse,
+    JournalOutput, JournalResponse, JournalTemplate,
 )
 from app.rules.loader import AREAS
 from app.schemas.common import ErrorResponse
@@ -65,6 +68,7 @@ def child_journal(
         child=JournalChild(child_id=child["child_id"], name=child["name"], gender=child["gender"], birth_date=child["birth_date"]),
         items=[entry_response(row) for row in rows],
         days=[JournalDayResponse(**editable_day(entries)) for entries in group_days(rows).values()],
+        **output.status(services, teacher.teacher_id, child, rows, date_from, date_to),
     )
 
 
@@ -101,7 +105,7 @@ def journal_archive(teacher: CurrentTeacher, services: ServicesDependency) -> li
     response_class=PlainTextResponse,
     responses=EXPORT_RESPONSES,
     summary="관찰일지 붙여 넣기용 글",
-    description="어린이집마다 양식이 달라 양식에 맞춘 파일은 만들지 않습니다. 교사가 자기 양식에 복사해 붙이도록 항목별 글로 줍니다. "
+    description="관찰일지를 항목별 글 또는 탭 구분 표로 돌려줍니다. "
     "format=text는 날짜마다 한 묶음의 글, tsv는 표(탭 구분)입니다. 포함으로 표시한 행 중 만들어진 것만 담고, "
     "아직 만드는 중이거나 실패한 행의 수는 X-Skipped-Count 헤더로 알립니다.",
 )
@@ -121,6 +125,62 @@ def export_journal(
     ready, skipped = export.exportable(rows)
     body = export.as_text(child, ready) if format == "text" else export.as_tsv(ready)
     return PlainTextResponse(body, headers={"X-Skipped-Count": str(skipped), "X-Exported-Count": str(len(ready))})
+
+
+@journal_router.get("/teacher/journal-template", response_model=JournalTemplate, summary="관찰일지 Word 양식 조회")
+def get_template(teacher: CurrentTeacher, services: ServicesDependency) -> JournalTemplate:
+    form = output.template(services.database, teacher.teacher_id)
+    return JournalTemplate(filename=form["filename"] if form else None)
+
+
+@journal_router.put("/teacher/journal-template", response_model=JournalTemplate, summary="관찰일지 Word 양식 업로드")
+def put_template(teacher: CurrentTeacher, services: ServicesDependency, file: Annotated[UploadFile | str | None, File()] = None) -> JournalTemplate:
+    if file is None or isinstance(file, str):
+        raise ApiError(status_code=422, code="WORD_FILE_MISSING", message="양식 파일을 받지 못했어요. 화면을 새로고침한 뒤 파일을 다시 선택해 주세요.")
+    filename = word_import.clean_filename(file.filename or "")
+    output.save_template(services.database, teacher.teacher_id, filename, file.file.read(word.MAX_TEMPLATE_BYTES + 1),
+                         services.settings.word_converter)
+    return JournalTemplate(filename=filename)
+
+
+@journal_router.post("/teacher/journal-template", response_model=JournalTemplate, summary="관찰일지 Word 호환 양식 업로드")
+async def upload_template(request: Request, filename: str, teacher: CurrentTeacher, services: ServicesDependency) -> JournalTemplate:
+    filename = word_import.clean_filename(filename)
+    data = bytearray()
+    async for chunk in request.stream():
+        word.check_template_size(len(data) + len(chunk))
+        data.extend(chunk)
+    await run_in_threadpool(output.save_template, services.database, teacher.teacher_id, filename, bytes(data),
+                            services.settings.word_converter)
+    return JournalTemplate(filename=filename)
+
+
+@journal_router.delete("/teacher/journal-template", status_code=204, summary="관찰일지 Word 양식 제거")
+def remove_template(teacher: CurrentTeacher, services: ServicesDependency) -> Response:
+    output.delete_template(services.database, teacher.teacher_id)
+    return Response(status_code=204)
+
+
+@journal_router.post("/children/{child_id}/journal/output", response_model=JournalOutput, summary="관찰일지 출력 또는 재출력")
+def generate_output(
+    child_id: str, teacher: CurrentTeacher, services: ServicesDependency,
+    date_from: Annotated[date | None, Query(alias="from")] = None,
+    date_to: Annotated[date | None, Query(alias="to")] = None,
+) -> JournalOutput:
+    child = _child(services, teacher.teacher_id, child_id)
+    return JournalOutput(**output.generate(services, teacher.teacher_id, child, date_from, date_to))
+
+
+@journal_router.get("/children/{child_id}/journal/output/word", summary="저장된 관찰일지 Word 출력본 다운로드")
+def download_output(
+    child_id: str, revision: str, teacher: CurrentTeacher, services: ServicesDependency,
+    date_from: Annotated[date | None, Query(alias="from")] = None,
+    date_to: Annotated[date | None, Query(alias="to")] = None,
+) -> Response:
+    child = _child(services, teacher.teacher_id, child_id)
+    data = output.download(services.database, teacher.teacher_id, child_id, date_from, date_to, revision)
+    filename = quote(child["name"] + " 관찰일지.docx", safe="")
+    return Response(data, media_type=word.WORD_MIME, headers={"Content-Disposition": "attachment; filename*=UTF-8''" + filename})
 
 
 @journal_router.patch(
