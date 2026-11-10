@@ -38,10 +38,11 @@ function JournalText({ name, output, download, onClose }: {
               }); }} />
             </View>
             <View style={styles.outputAction}>
-              <WorkButton label="Word로 출력하기" busy={wordAction.busy} disabled={!output.has_word}
+              <WorkButton label="Word로 출력하기" busy={wordAction.busy} disabled={!output.can_export_word}
                 onPress={() => { void wordAction.run(async () => saveWordFile(await download(), name)); }} />
             </View>
           </View>
+          {wordAction.busy && <WorkMessage>Word 파일을 준비하고 있어요.</WorkMessage>}
           {copied && <WorkMessage>복사했어요.</WorkMessage>}
           {action.error && <WorkMessage error>{action.error}</WorkMessage>}
           {wordAction.error && <WorkMessage error>{wordAction.error}</WorkMessage>}

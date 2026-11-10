@@ -309,6 +309,13 @@ MIGRATIONS: tuple[tuple[str, str], ...] = (
         );
         """,
     ),
+    (
+        "013_journal_word_revision",
+        """
+        ALTER TABLE journal_outputs ADD COLUMN word_revision TEXT;
+        UPDATE journal_outputs SET word_revision=revision WHERE word IS NOT NULL;
+        """,
+    ),
 )
 
 

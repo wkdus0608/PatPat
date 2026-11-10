@@ -65,7 +65,7 @@ def test_word_output_is_an_editable_snapshot_replaced_only_by_reoutput(tmp_path)
         route = f"{V2}/children/{child}/journal"
         assert env.client.patch(f"{V2}/children/{child}/details", headers=env.headers, json={"gender": "여"}).is_success
 
-        def generate():
+        def preview():
             response = env.client.post(route + "/output", headers=env.headers)
             assert response.is_success, response.text
             return response.json()
@@ -76,16 +76,24 @@ def test_word_output_is_an_editable_snapshot_replaced_only_by_reoutput(tmp_path)
         def download(revision):
             return env.client.get(route + "/output/word", headers=env.headers, params={"revision": revision})
 
-        first = generate()
-        assert not first["has_word"] and "낙엽" in first["text"]
+        def generate_word(revision):
+            return env.client.post(route + "/output/word", headers=env.headers, params={"revision": revision})
+
+        first = preview()
+        assert not first["has_word"] and not first["can_export_word"] and "낙엽" in first["text"]
         assert download(first["revision"]).status_code == 404
+        assert generate_word(first["revision"]).status_code == 404
         assert env.client.put(f"{V2}/teacher/documents/record_format", headers=env.headers, json={"text": RULES}).is_success
         assert upload("가상 원 양식").json() == {"filename": "가상 원 양식.docx"}
         assert env.client.get(TEMPLATE, headers=env.headers_b).json() == {"filename": None}
         assert journal(env, child)["output_stale"]
 
-        snapshot = generate()
-        response = download(snapshot["revision"])
+        snapshot = preview()
+        assert snapshot["can_export_word"] and not snapshot["has_word"]
+        assert not env.app.state.ai_client.calls_for(AITask.JOURNAL_WORD_LAYOUT)
+        assert download(snapshot["revision"]).status_code == 404
+        response = generate_word(snapshot["revision"])
+        assert response.is_success, response.text
         assert response.headers["content-type"] == WORD_MIME
         assert "filename*=UTF-8''" in response.headers["content-disposition"]
         original = response.content
@@ -98,7 +106,8 @@ def test_word_output_is_an_editable_snapshot_replaced_only_by_reoutput(tmp_path)
         assert doc.tables[0].cell(1, 1).text == "2026-11-06"
         assert doc.tables[1].cell(1, 1).text == "2026-11-07"
         assert doc.tables[0].rows[2].height_rule == WD_ROW_HEIGHT_RULE.AT_LEAST
-        assert generate() == snapshot
+        assert preview() == {**snapshot, "has_word": True}
+        assert generate_word(snapshot["revision"]).content == original
         assert len(env.app.state.ai_client.calls_for(AITask.JOURNAL_WORD_LAYOUT)) == 1
 
         source = journal(env, child)["days"][0]
@@ -116,9 +125,15 @@ def test_word_output_is_an_editable_snapshot_replaced_only_by_reoutput(tmp_path)
         assert env.client.get(TEMPLATE, headers=env.headers).json() == {"filename": "교체한 양식.docx"}
         assert download(snapshot["revision"]).content == original
 
-        new = generate()
-        assert new["has_word"] and new["revision"] != snapshot["revision"]
-        refreshed = Document(BytesIO(download(new["revision"]).content))
+        new = preview()
+        assert new["can_export_word"] and not new["has_word"] and new["revision"] != snapshot["revision"]
+        assert long_text in new["text"]
+        assert len(env.app.state.ai_client.calls_for(AITask.JOURNAL_WORD_LAYOUT)) == 1
+        assert download(snapshot["revision"]).content == original
+        assert download(new["revision"]).status_code == 404
+        response = generate_word(new["revision"])
+        assert response.is_success, response.text
+        refreshed = Document(BytesIO(response.content))
         assert refreshed.paragraphs[0].text == "교체한 양식"
         assert refreshed.tables[0].cell(2, 1).text == long_text
         assert download(snapshot["revision"]).status_code == 409
@@ -127,4 +142,5 @@ def test_word_output_is_an_editable_snapshot_replaced_only_by_reoutput(tmp_path)
         assert env.client.delete(TEMPLATE, headers=env.headers).status_code == 204
         assert journal(env, child)["output_stale"]
         assert download(new["revision"]).status_code == 200
-        assert not generate()["has_word"]
+        assert not preview()["can_export_word"]
+        assert download(new["revision"]).status_code == 200

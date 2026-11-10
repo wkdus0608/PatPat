@@ -66,52 +66,77 @@ def status(services, teacher_id: str, child: dict, rows: list[dict], date_from, 
     return {"output_revision": saved["revision"], "output_stale": saved["revision"] != revision}
 
 
-def _metadata(saved) -> dict:
-    return {"text": saved["text"], "revision": saved["revision"], "has_word": bool(saved["has_word"])}
+def _current_source(services, key, *, include_document=False):
+    teacher_id, child_id, date_from, date_to = key
+    child = services.profile.get_child(teacher_id, child_id)
+    rows = services.journal_store.list_for_child(teacher_id, child_id, date_from=date_from or None, date_to=date_to or None)
+    form = template(services.database, teacher_id, include_document=include_document)
+    return _source(services, teacher_id, child, rows, form), form
 
 
-def generate(services, teacher_id: str, child: dict, date_from, date_to) -> dict:
+def preview(services, teacher_id: str, child: dict, date_from, date_to) -> dict:
     key = _key(teacher_id, child["child_id"], date_from, date_to)
-
-    def current_source(*, include_document=False):
-        current_child = services.profile.get_child(teacher_id, child["child_id"])
-        rows = services.journal_store.list_for_child(teacher_id, child["child_id"], date_from=key[2] or None, date_to=key[3] or None)
-        form = template(services.database, teacher_id, include_document=include_document)
-        return _source(services, teacher_id, current_child, rows, form), form
-
-    (revision, text, days, rules), form = current_source(include_document=True)
-    if not days:
-        raise ApiError(status_code=422, code="EMPTY_JOURNAL_OUTPUT", message="이 기간에 출력할 관찰일지가 없어요.")
     with services.database.connect() as connection:
-        saved = connection.execute(
-            "SELECT revision, text, word IS NOT NULL AS has_word FROM journal_outputs " + _OUTPUT_WHERE, key,
-        ).fetchone()
-        if saved is not None and saved["revision"] == revision:
-            return _metadata(saved)
-
-    document = word.fill_form(form["document"], days, rules, services, teacher_id) if form else None
-    with services.database.connect() as connection:
-        # A template or a journal edit may have been saved while the AI was working.
         connection.execute("BEGIN IMMEDIATE")
-        (latest_revision, *_), _ = current_source()
-        if latest_revision != revision:
-            raise ApiError(status_code=409, code="JOURNAL_OUTPUT_CHANGED", message="출력하는 동안 일지나 양식이 바뀌었어요. 다시 출력해 주세요.")
-        connection.execute(
-            "INSERT INTO journal_outputs VALUES (?,?,?,?,?,?,?) "
+        (revision, text, days, _), form = _current_source(services, key)
+        if not days:
+            raise ApiError(status_code=422, code="EMPTY_JOURNAL_OUTPUT", message="이 기간에 출력할 관찰일지가 없어요.")
+        saved = connection.execute(
+            "INSERT INTO journal_outputs (teacher_id, child_id, range_from, range_to, revision, text) VALUES (?,?,?,?,?,?) "
             "ON CONFLICT(teacher_id, child_id, range_from, range_to) DO UPDATE "
-            "SET revision=excluded.revision, text=excluded.text, word=excluded.word",
-            (*key, revision, text, document),
+            "SET revision=excluded.revision, text=excluded.text RETURNING word_revision",
+            (*key, revision, text),
+        ).fetchone()
+    return {"text": text, "revision": revision, "has_word": saved["word_revision"] == revision, "can_export_word": form is not None}
+
+
+def _changed() -> ApiError:
+    return ApiError(status_code=409, code="JOURNAL_OUTPUT_CHANGED", message="일지나 양식이 바뀌었어요. 출력 화면을 다시 열어 주세요.")
+
+
+def _saved_output(connection, key, revision: str):
+    return connection.execute(
+        "SELECT revision, CASE WHEN word_revision=? THEN word END AS word FROM journal_outputs " + _OUTPUT_WHERE,
+        (revision, *key),
+    ).fetchone()
+
+
+def generate_word(services, teacher_id: str, child_id: str, date_from, date_to, revision: str) -> bytes:
+    key = _key(teacher_id, child_id, date_from, date_to)
+    with services.database.connect() as connection:
+        saved = _saved_output(connection, key, revision)
+    if saved is not None and saved["word"] is not None:
+        return saved["word"]
+    if saved is None or saved["revision"] != revision:
+        raise _changed()
+
+    (current_revision, _, days, rules), form = _current_source(services, key, include_document=True)
+    if current_revision != revision:
+        raise _changed()
+    if form is None:
+        raise ApiError(status_code=404, code="NO_WORD_TEMPLATE", message="설정에서 Word 양식을 올려 주세요.")
+
+    document = word.fill_form(form["document"], days, rules, services, teacher_id)
+    with services.database.connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        saved = _saved_output(connection, key, revision)
+        if saved is not None and saved["word"] is not None:
+            return saved["word"]
+        (latest_revision, *_), _ = _current_source(services, key)
+        if saved is None or saved["revision"] != revision or latest_revision != revision:
+            raise _changed()
+        connection.execute(
+            "UPDATE journal_outputs SET word=?, word_revision=? " + _OUTPUT_WHERE,
+            (document, revision, *key),
         )
-    return {"text": text, "revision": revision, "has_word": document is not None}
+    return document
 
 
 def download(database, teacher_id: str, child_id: str, date_from, date_to, revision: str) -> bytes:
     with database.connect() as connection:
-        saved = connection.execute(
-            "SELECT revision, word FROM journal_outputs " + _OUTPUT_WHERE, _key(teacher_id, child_id, date_from, date_to),
-        ).fetchone()
-    if saved is not None and saved["revision"] != revision:
-        raise ApiError(status_code=409, code="JOURNAL_OUTPUT_CHANGED", message="출력본이 갱신됐어요. 출력 화면을 다시 열어 주세요.")
+        saved = _saved_output(connection, _key(teacher_id, child_id, date_from, date_to), revision)
+    if saved is not None and saved["word"] is None and saved["revision"] != revision:
+        raise _changed()
     if saved is None or saved["word"] is None:
         raise ApiError(status_code=404, code="NO_WORD_OUTPUT", message="Word 양식을 올린 뒤 출력해 주세요.")
     return saved["word"]

@@ -161,14 +161,29 @@ def remove_template(teacher: CurrentTeacher, services: ServicesDependency) -> Re
     return Response(status_code=204)
 
 
-@journal_router.post("/children/{child_id}/journal/output", response_model=JournalOutput, summary="관찰일지 출력 또는 재출력")
-def generate_output(
+@journal_router.post("/children/{child_id}/journal/output", response_model=JournalOutput, summary="관찰일지 텍스트 출력 또는 재출력")
+def preview_output(
     child_id: str, teacher: CurrentTeacher, services: ServicesDependency,
     date_from: Annotated[date | None, Query(alias="from")] = None,
     date_to: Annotated[date | None, Query(alias="to")] = None,
 ) -> JournalOutput:
     child = _child(services, teacher.teacher_id, child_id)
-    return JournalOutput(**output.generate(services, teacher.teacher_id, child, date_from, date_to))
+    return JournalOutput(**output.preview(services, teacher.teacher_id, child, date_from, date_to))
+
+
+def _word_response(name: str, data: bytes) -> Response:
+    filename = quote(name + " 관찰일지.docx", safe="")
+    return Response(data, media_type=word.WORD_MIME, headers={"Content-Disposition": "attachment; filename*=UTF-8''" + filename})
+
+
+@journal_router.post("/children/{child_id}/journal/output/word", summary="관찰일지 Word 출력본 생성 또는 다운로드")
+def generate_word_output(
+    child_id: str, revision: str, teacher: CurrentTeacher, services: ServicesDependency,
+    date_from: Annotated[date | None, Query(alias="from")] = None,
+    date_to: Annotated[date | None, Query(alias="to")] = None,
+) -> Response:
+    child = _child(services, teacher.teacher_id, child_id)
+    return _word_response(child["name"], output.generate_word(services, teacher.teacher_id, child_id, date_from, date_to, revision))
 
 
 @journal_router.get("/children/{child_id}/journal/output/word", summary="저장된 관찰일지 Word 출력본 다운로드")
@@ -179,8 +194,7 @@ def download_output(
 ) -> Response:
     child = _child(services, teacher.teacher_id, child_id)
     data = output.download(services.database, teacher.teacher_id, child_id, date_from, date_to, revision)
-    filename = quote(child["name"] + " 관찰일지.docx", safe="")
-    return Response(data, media_type=word.WORD_MIME, headers={"Content-Disposition": "attachment; filename*=UTF-8''" + filename})
+    return _word_response(child["name"], data)
 
 
 @journal_router.patch(

@@ -152,7 +152,7 @@ export interface Journal {
   output_revision?: string | null;
   output_stale?: boolean;
 }
-export type JournalOutput = { text: string; revision: string; has_word: boolean };
+export type JournalOutput = { text: string; revision: string; can_export_word: boolean };
 export type JournalEdit = Pick<JournalEntry, 'content' | 'place' | 'time_text'>;
 
 const id = encodeURIComponent;
@@ -249,11 +249,11 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     journalText: (childId: string, range?: DateRange) =>
       send<string>('/children/' + id(childId) + '/journal/export' + journalQuery(range, true), 'GET', undefined, 'text'),
     journalOutput: (childId: string, range: DateRange) =>
-      send<JournalOutput>('/children/' + id(childId) + '/journal/output' + journalQuery(range), 'POST', undefined, undefined, 150000),
+      send<JournalOutput>('/children/' + id(childId) + '/journal/output' + journalQuery(range), 'POST'),
     journalWord: (childId: string, range: DateRange, revision: string) => {
       const query = journalQuery(range);
       return send<ArrayBuffer>('/children/' + id(childId) + '/journal/output/word' + query +
-        (query ? '&' : '?') + 'revision=' + id(revision), 'GET', undefined, 'arrayBuffer');
+        (query ? '&' : '?') + 'revision=' + id(revision), 'POST', undefined, 'arrayBuffer', 150000);
     },
     saveJournalEntry: (entryId: string, edit: Partial<JournalEdit>, expected_version: number) =>
       send<JournalEntry>('/journal-entries/' + id(entryId), 'PATCH', { ...edit, expected_version }),

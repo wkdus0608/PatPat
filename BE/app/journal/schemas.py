@@ -71,6 +71,7 @@ class JournalOutput(BaseModel):
     text: str
     revision: str
     has_word: bool
+    can_export_word: bool
 
 
 class JournalTemplate(BaseModel):

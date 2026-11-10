@@ -148,7 +148,7 @@ erDiagram
 
 `GET|POST|DELETE /api/v2/teacher/journal-template`은 교사 계정의 공통 Word 양식 하나를 조회·교체·제거한다. 업로드는 `POST ?filename=...`에 5MB 이하의 원본 파일 바이트를 보낸다. 이전 `PUT` multipart의 `file`도 받는다. 일반 `.docx`는 원본을 저장하고 `.doc`, `.dotx`, `.dot`, `.docm`, `.dotm`, `.rtf`, `.odt`, `.ott`, Word `.xml`, `.fodt`는 LibreOffice Writer로 `.docx`로 변환한다. `.word` 파일은 내부 형식이 지원되는 경우에 받는다. 서버의 `PATH`에서 `soffice`를 찾으며, 실행 파일은 `PATPAT_WORD_CONVERTER`로 지정할 수 있다.
 
-AI는 `record_format`과 양식의 항목·빈칸을 보고 입력 위치만 고르고, 서버가 저장된 값을 채운다. `POST /api/v2/children/{child_id}/journal/output`은 아동·조회 기간별 텍스트와 Word 출력본을 저장한다. 본문이나 양식이 바뀌면 기존 출력본을 유지하며, 관찰일지 조회에서 `output_stale`을 반환한다. 재출력 요청이 성공하면 출력본을 교체한다. `GET /api/v2/children/{child_id}/journal/output/word`는 같은 기간과 `revision`으로 저장된 Word 파일을 내려준다.
+`POST /api/v2/children/{child_id}/journal/output`은 아동·조회 기간별 텍스트 미리보기와 양식 등록 여부를 반환한다. `POST /api/v2/children/{child_id}/journal/output/word`를 요청하면 미리보기의 기간과 `revision`에 맞는 Word 파일을 생성하거나 저장된 파일을 반환한다. AI는 Word 파일을 처음 생성할 때만 `record_format`과 양식의 항목·빈칸을 보고 입력 위치를 고르고, 서버가 저장된 값을 채운다. 본문이나 양식이 바뀌면 관찰일지 조회에서 `output_stale`을 반환한다. 텍스트 재출력은 기존 Word 파일에 영향을 주지 않으며, Word 출력이 성공하면 Word 파일을 교체한다. `GET /api/v2/children/{child_id}/journal/output/word`는 저장된 파일만 내려준다.
 
 ## 문서 적용 범위와 남은 구현
 
