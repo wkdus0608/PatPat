@@ -286,7 +286,7 @@ class RecordingDrafts:
             for notice_id in notice_ids:
                 notice = self.pipeline.notices.require(teacher_id, notice_id)
                 source = self.pipeline.notices.recording_source(notice_id)
-                self.pipeline.journal.prepare(teacher_id=teacher_id, notice=notice, flags=source["flags"], review=source["review"])
+                self.pipeline.journal.prepare(teacher_id=teacher_id, notice=notice, flags=source["flags"])
 
     def apply(self, teacher: TeacherContext, session_id: str, run_id: str, child_id: str) -> None:
         draft = self._require(teacher, session_id, run_id, "ready")

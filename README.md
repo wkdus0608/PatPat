@@ -6,7 +6,7 @@
 
 - **PC** — 브라우저에서 [PatPat](https://patpat-demo.web.app/)을 연다.
 - **iOS** — Safari에서 [PatPat](https://patpat-demo.web.app/)을 열고 "공유 → **홈 화면에 추가** → **웹 앱으로 열기** → 추가"를 선택한다. 홈 화면의 PatPat 아이콘으로 실행한다.
-- **안드로이드** — [PatPat APK 다운로드](https://expo.dev/artifacts/eas/YQ7otmCaS24XfNGGPTvUKEG_k_ZY2t79J_U4J-5PPTI.apk)에서 설치 파일을 내려받아 설치하고 앱을 실행한다.
+- **안드로이드** — [PatPat APK 다운로드](https://expo.dev/artifacts/eas/qB-hmCJFD84dW8oaJsg9R3PTSW7chiQOHgZZtjXW4k4.apk)에서 설치 파일을 내려받아 설치하고 앱을 실행한다.
 
 화면이 이전 그대로면 강력 새로고침(Cmd/Ctrl+Shift+R)하거나 홈 화면 앱을 완전히 종료한 뒤 다시 연다.
 

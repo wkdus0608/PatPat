@@ -60,6 +60,8 @@ def test_plan_rows_splits_the_confirmed_text_into_shared_and_own_rows():
     assert plan_rows("글", {**child, "filled": False}, {**common, "filled": False}) == []
     same = plan_rows("공통  문단입니다.", child, common)[0]["source_hash"] == plan_rows("공통 문단입니다.", child, common)[0]["source_hash"]
     assert same  # whitespace alone does not change the source
+    revised = plan_rows("공통 문단입니다.", child, common, rules_hash="updated-rules")
+    assert revised[0]["source_hash"] != plan_rows("공통 문단입니다.", child, common)[0]["source_hash"]
 
 
 def test_confirming_a_notice_adds_a_shared_row_and_an_own_row(tmp_path):
@@ -107,6 +109,53 @@ def test_the_journal_prompt_uses_the_confirmed_text_and_the_class_age(tmp_path):
         assert calls[AITask.JOURNAL_INDIVIDUAL].payload["band"] == "2세" and calls[AITask.JOURNAL_INDIVIDUAL].payload["term"] == "영아"
         assert "말이 느린 편" in calls[AITask.JOURNAL_INDIVIDUAL].user_text
         assert not any(name in calls[AITask.JOURNAL_COMMON].user_text for name in NAMES)  # the shared row never names a child
+
+
+def test_journal_renders_supported_learning_before_the_incident(tmp_path):
+    def write(_request):
+        return {
+            "content": "낙엽을 색에 따라 모았음.",
+            "learning": [
+                {"areas": ["자연탐구"], "evidence": "낙엽을 색별로 나눴어요",
+                 "text": "색을 기준으로 자연물을 분류해 보는 경험을 함."},
+                {"areas": ["자연탐구"], "evidence": "솔방울을 세었어요", "text": "수량을 비교함."},
+                {"areas": ["예술경험"], "evidence": "낙엽을 색별로 나눴어요", "text": "낙엽으로 그림을 표현함."},
+            ],
+            "incident": "이후 교사가 다친 곳을 살핌.",
+        }
+
+    with running_env(tmp_path, ai_handlers={AITask.JOURNAL_INDIVIDUAL: write}) as env:
+        ids, _, _ = day(env, extra=lambda session: fill(
+            env, session, "다온", "낙엽을 색별로 나눴어요. 이후 교사가 다친 곳을 살폈어요.", ("자연탐구",),
+        ), prepare_journals=True)
+        own = next(row for row in journal(env, ids["다온"])["items"] if row["block_kind"] == "individual")
+        assert own["areas"] == ["자연탐구"]
+        assert own["content"] == (
+            "낙엽을 색에 따라 모았음. 색을 기준으로 자연물을 분류해 보는 경험을 함. 이후 교사가 다친 곳을 살핌."
+        )
+
+
+def test_journal_does_not_import_a_peers_generated_incident_summary(tmp_path):
+    def review(request):
+        children = {child["name"]: child["child_id"] for child in request.payload["roster"]}
+        return {
+            "flags": [],
+            "incident_child_ids": [children["다온"], children["이든"]],
+            "joint_events": [{"facts": [
+                {"child_id": children["다온"], "fact": "다온이는 삽 손잡이를 놓으며 주저앉음."},
+                {"child_id": children["이든"], "fact": "이든이는 삽을 자기 쪽으로 당긴 뒤 사과함."},
+            ]}],
+        }
+
+    with running_env(tmp_path, ai_handlers={AITask.REVIEW: review}) as env:
+        def incident(session):
+            fill(env, session, "다온", "다온이는 삽 손잡이를 놓으며 주저앉았어요.", ("사회관계",))
+            fill(env, session, "이든", "이든이는 삽을 자기 쪽으로 당긴 뒤 사과했어요.", ("사회관계",))
+
+        ids, _, _ = day(env, extra=incident, prepare_journals=True)
+        calls = {call.payload["child_id"]: call for call in env.app.state.ai_client.calls_for(AITask.JOURNAL_INDIVIDUAL)}
+        assert calls[ids["다온"]].payload["text"] == "다온이는 삽 손잡이를 놓으며 주저앉았어요."
+        assert calls[ids["이든"]].payload["text"] == "이든이는 삽을 자기 쪽으로 당긴 뒤 사과했어요."
 
 
 def test_reconfirming_an_unchanged_notice_keeps_the_rows_and_a_changed_one_rewrites_only_what_changed(tmp_path):

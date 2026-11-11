@@ -84,7 +84,7 @@ def _revise(request: AIRequest) -> dict:
 
 
 def _journal(request: AIRequest) -> dict:
-    return {"content": f"{MARK}{request.payload['text'].strip()} 관찰함."}
+    return {"content": f"{MARK}{request.payload['text'].strip()} 관찰함.", "learning": [], "incident": ""}
 
 
 def _journal_word_layout(request: AIRequest) -> dict:

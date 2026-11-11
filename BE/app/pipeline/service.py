@@ -452,7 +452,7 @@ class PipelineService:
                 continue
             notice = self._save_notice(ctx, inputs, outcome, child_id in incident_ids)
             if self.journal and review.get("prepare_journals"):
-                self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags, review=review)
+                self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags)
             drafted += 1
         self.sessions.set_status(ctx.session["session_id"], "reviewing", error_code=None)
         return {"phase": "reviewing", "drafted": drafted, "failed": failed}
@@ -505,7 +505,7 @@ class PipelineService:
         individual = self._write_individual(ctx, inputs) if has_input else ""
         notice = self._save_notice(ctx, inputs, individual, child_id in incident_ids_of(review, flags))
         if self.journal and review.get("prepare_journals"):
-            self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags, review=review)
+            self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags)
         if session["status"] == "failed":
             self.sessions.set_status(session_id, "reviewing", error_code=None)
         return {"notice_id": notice["notice_id"], "version": notice["version"]}

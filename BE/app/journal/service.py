@@ -1,6 +1,5 @@
 """Writes journal drafts from reviewed inputs and refreshes journals from confirmed notices."""
 import hashlib
-import json
 import re
 
 from app.ai import prompts, schemas
@@ -27,7 +26,9 @@ def _union_areas(*groups: list[str]) -> list[str]:
     return [area for area in AREAS if area in wanted]
 
 
-def plan_rows(notice_text: str, child_block: dict | None, common_block: dict | None) -> list[dict]:
+def plan_rows(
+    notice_text: str, child_block: dict | None, common_block: dict | None, *, rules_hash: str = "",
+) -> list[dict]:
     """Which journal rows a notice text makes, as {block_id, block_kind, text, areas, place, time_text, source_hash}."""
     common_filled = bool(common_block and common_block["filled"])
     child_filled = bool(child_block and child_block["filled"])
@@ -36,7 +37,7 @@ def plan_rows(notice_text: str, child_block: dict | None, common_block: dict | N
 
     def spec(block: dict, kind: str, body: str, areas: list[str], place, time_text) -> dict:
         return {"block_id": block["block_id"], "block_kind": kind, "text": body, "areas": areas, "place": place,
-                "time_text": time_text, "source_hash": paragraph_hash(body)}
+                "time_text": time_text, "source_hash": paragraph_hash(f"{rules_hash}\n{body}")}
 
     def own_place_time():
         return ((child_block["place"] or (common_block or {}).get("place")),
@@ -86,9 +87,9 @@ class JournalService:
         blocks = source["blocks"] if source else self.sessions.list_blocks(notice["session_id"], only_active=False)
         child_block = next((block for block in blocks if block["child_id"] == notice["child_id"]), None)
         common_block = next((block for block in blocks if block["is_common"]), None)
-        return plan_rows(notice_text, child_block, common_block)
+        return plan_rows(notice_text, child_block, common_block, rules_hash=self.rules.rules_hash)
 
-    def _input_specs(self, notice: dict, flags: list[dict], review: dict) -> list[dict]:
+    def _input_specs(self, notice: dict, flags: list[dict]) -> list[dict]:
         roster_blocks = self.sessions.list_blocks(notice["session_id"], only_active=False)
         source_context = self.notices.recording_source(notice["notice_id"])
         blocks = source_context["blocks"] if source_context else roster_blocks
@@ -101,6 +102,7 @@ class JournalService:
         def source(block: dict | None, scoped_id: str | None, names: list[str]) -> str:
             if not block or not block["filled"]:
                 return ""
+            # A generated summary from a peer's perspective can invert the actor.
             parts = [block["text"]]
             for flag in flags:
                 applies = scoped_id in flag["child_ids"] if scoped_id is not None else not flag["child_ids"]
@@ -109,18 +111,13 @@ class JournalService:
                 answer = flag["answer"]
                 if answer and (flag["kind"] != "incident" or answer not in ("부드럽게", "그대로")):
                     parts.append(f'교사 확인 ({flag["question"]}): {answer}')
-            if scoped_id is not None:
-                for event in review.get("joint_events", []):
-                    facts = event["facts"]
-                    if scoped_id in facts:
-                        parts.extend(fact for other, fact in facts.items() if other != scoped_id and fact)
             return mask_names(re.sub(r"\n\s*\n", "\n", "\n".join(parts).strip()), names)
 
         text = "\n\n".join(part for part in (source(common, None, all_names), source(child, child_id, other_names)) if part)
-        return plan_rows(text, child, common)
+        return plan_rows(text, child, common, rules_hash=self.rules.rules_hash)
 
-    def prepare(self, *, teacher_id: str, notice: dict, flags: list[dict], review: dict) -> dict | None:
-        specs = self._input_specs(notice, flags, review)
+    def prepare(self, *, teacher_id: str, notice: dict, flags: list[dict]) -> dict | None:
+        specs = self._input_specs(notice, flags)
         entry_ids = self.store.sync_rows(teacher_id=teacher_id, notice=notice, specs=specs, from_inputs=True)
         if not entry_ids:
             return None
@@ -131,7 +128,7 @@ class JournalService:
         if self.store.has_input_rows(notice["notice_id"]):
             return None
         source = self.notices.recording_source(notice["notice_id"])
-        specs = self._input_specs(notice, source["flags"], source["review"]) if source else self._specs(notice, notice["edited_text"])
+        specs = self._input_specs(notice, source["flags"]) if source else self._specs(notice, notice["edited_text"])
         entry_ids = self.store.sync_rows(teacher_id=teacher_id, notice=notice, specs=specs)
         if not entry_ids:
             return None
@@ -175,12 +172,8 @@ class JournalService:
         notice = self.notices.require(teacher_id, entry["notice_id"])
         if entry["from_inputs"]:
             audio = self.notices.recording_source(notice["notice_id"])
-            if audio:
-                flags, review = audio["flags"], audio["review"]
-            else:
-                session = self.sessions.require(teacher_id, notice["session_id"])
-                flags, review = self.sessions.list_flags(notice["session_id"]), json.loads(session["review_json"] or "{}")
-            specs = self._input_specs(notice, flags, review)
+            flags = audio["flags"] if audio else self.sessions.list_flags(notice["session_id"])
+            specs = self._input_specs(notice, flags)
             source_version = notice["version"]
         else:
             confirmed = self.notices.last_confirmed(notice["notice_id"])
@@ -229,7 +222,7 @@ class JournalService:
                 incident=notice["incident"], from_inputs=from_inputs,
             )
         result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"])
-        return mask_names(schemas.require_text(result.data, "content"), other_names), False
+        return mask_names(schemas.render_journal(result.data, body, block.areas), other_names), False
 
     def _generate(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int) -> dict:
         cls, child, other_names = self._writing_context(teacher_id, notice)

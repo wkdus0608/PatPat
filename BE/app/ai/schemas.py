@@ -108,8 +108,21 @@ REVIEW_WITH_METADATA_SCHEMA = {
 CONTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["content"],
-    "properties": {"content": _STR},
+    "required": ["content", "learning", "incident"],
+    "properties": {
+        "content": _STR,
+        "learning": {"type": "array", "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["areas", "evidence", "text"],
+            "properties": {
+                "areas": {"type": "array", "items": {"type": "string", "enum": list(AREAS)}},
+                "evidence": _STR,
+                "text": _STR,
+            },
+        }},
+        "incident": _STR,
+    },
 }
 
 AREAS_SCHEMA = {
@@ -125,6 +138,35 @@ def require_text(data: dict, key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise AIBadOutput(f"AI 응답에 '{key}'가 없거나 비어 있습니다.")
     return value.strip()
+
+
+def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
+    content = data.get("content")
+    if not isinstance(content, str):
+        raise AIBadOutput("AI 응답에 관찰내용이 없습니다.")
+    parts = [content.strip()] if content.strip() else []
+    selected = set(areas or AREAS)
+    learning = data.get("learning")
+    if isinstance(learning, list):
+        for item in learning:
+            if not isinstance(item, dict):
+                continue
+            labels, evidence, text = item.get("areas"), item.get("evidence"), item.get("text")
+            if not isinstance(labels, list) or not labels or not all(
+                isinstance(label, str) and label in selected for label in labels
+            ):
+                continue
+            if not isinstance(evidence, str) or not evidence.strip() or evidence.strip() not in source:
+                continue
+            if isinstance(text, str) and text.strip() and not any(text.strip() in part for part in parts):
+                sentence = text.strip()
+                parts.append(sentence if sentence.endswith((".", "!", "?", "…")) else sentence + ".")
+    incident = data.get("incident")
+    if isinstance(incident, str) and incident.strip() and incident.strip() not in content:
+        parts.append(incident.strip())
+    if not parts:
+        raise AIBadOutput("AI 응답에 작성된 관찰내용이 없습니다.")
+    return " ".join(parts)
 
 
 def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = False) -> dict:
