@@ -1,5 +1,6 @@
 import { ApiError, createRequest, type Teacher } from './client';
 import type { TeacherDocumentKind } from '../roster/teacherDocuments';
+import type { WordTemplateUpload } from '../writing/wordTemplate';
 
 export const OBSERVATION_AREAS = ['신체운동·건강', '의사소통', '사회관계', '예술경험', '자연탐구'] as const;
 export type Area = typeof OBSERVATION_AREAS[number];
@@ -148,7 +149,10 @@ export interface Journal {
   child: { child_id: string; name: string; gender: string | null; birth_date: string | null };
   items: JournalEntry[];
   days: JournalDay[];
+  output_revision?: string | null;
+  output_stale?: boolean;
 }
+export type JournalOutput = { text: string; revision: string; can_export_word: boolean };
 export type JournalEdit = Pick<JournalEntry, 'content' | 'place' | 'time_text'>;
 
 const id = encodeURIComponent;
@@ -164,10 +168,10 @@ function journalQuery(range?: DateRange, text = false) {
 export function createV2Api(baseUrl: string, token: string | null, unauthorized?: (error: unknown) => void) {
   const request = createRequest(baseUrl, '/api/v2');
   async function send<T>(
-    path: string, method = 'GET', body?: unknown, responseType?: 'text',
+    path: string, method = 'GET', body?: unknown, responseType?: 'text' | 'arrayBuffer', timeoutMs?: number,
   ): Promise<T> {
     try {
-      return await request(path, token, method, body, responseType) as T;
+      return await request(path, token, method, body, responseType, undefined, timeoutMs) as T;
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) unauthorized?.(error);
       throw error;
@@ -197,6 +201,10 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
       (await send<{ text: string | null }>('/teacher/documents/' + kind)).text,
     saveTeacherDocument: (kind: TeacherDocumentKind, text: string) =>
       send<void>('/teacher/documents/' + kind, 'PUT', { text }),
+    journalTemplate: () => send<{ filename: string | null }>('/teacher/journal-template'),
+    uploadJournalTemplate: ({ name, data }: WordTemplateUpload) =>
+      send<{ filename: string }>('/teacher/journal-template?filename=' + id(name), 'POST', data, undefined, 60000),
+    deleteJournalTemplate: () => send<void>('/teacher/journal-template', 'DELETE'),
     openSession: (target_date: string, classroom_id?: string) =>
       send<WritingSession>('/sessions', 'POST', { target_date, classroom_id }),
     session: (sessionId: string) => send<WritingSession>('/sessions/' + id(sessionId)),
@@ -240,6 +248,13 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     journalArchive: () => send<JournalArchiveEntry[]>('/journal/archive'),
     journalText: (childId: string, range?: DateRange) =>
       send<string>('/children/' + id(childId) + '/journal/export' + journalQuery(range, true), 'GET', undefined, 'text'),
+    journalOutput: (childId: string, range: DateRange) =>
+      send<JournalOutput>('/children/' + id(childId) + '/journal/output' + journalQuery(range), 'POST'),
+    journalWord: (childId: string, range: DateRange, revision: string) => {
+      const query = journalQuery(range);
+      return send<ArrayBuffer>('/children/' + id(childId) + '/journal/output/word' + query +
+        (query ? '&' : '?') + 'revision=' + id(revision), 'POST', undefined, 'arrayBuffer', 150000);
+    },
     saveJournalEntry: (entryId: string, edit: Partial<JournalEdit>, expected_version: number) =>
       send<JournalEntry>('/journal-entries/' + id(entryId), 'PATCH', { ...edit, expected_version }),
   };

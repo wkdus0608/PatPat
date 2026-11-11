@@ -36,6 +36,8 @@ export interface RecordingLibrary {
   validate(recording: SavedRecording): Promise<void>;
   remove(recording: SavedRecording, target?: DeleteTarget): Promise<void>;
   synchronize?(): Promise<string>;
+  /** 파일을 골라 서버에 올리고 결과 안내 문구를 돌려준다. 선택을 취소하면 null. */
+  importFiles?(): Promise<string | null>;
   playbackUri?(recording: SavedRecording): Promise<string>;
   releasePlayback?(): Promise<void>;
 }
@@ -89,6 +91,7 @@ export interface LibraryActions {
   openJournal(journal: JournalListItem): void;
   back(): void;
   refresh(): void;
+  importFiles?(): void;
   togglePlay(): void;
   restart(): void;
   retryPlayback(): void;

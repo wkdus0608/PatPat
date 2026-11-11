@@ -1,6 +1,15 @@
 # PatPat
 
-> 교사의 관찰은 그대로, 반복적인 기록 작성은 AI가 돕는 보육 기록 지원 서비스
+> 반복적인 기록 작성은 AI가 돕는 보육 기록 지원 서비스
+
+## 서비스 접속 방법
+
+- **PC** — 브라우저에서 [PatPat](https://patpat-demo.web.app/)을 연다.
+- **iOS** — Safari에서 [PatPat](https://patpat-demo.web.app/)을 열고 "공유 → **홈 화면에 추가** → **웹 앱으로 열기** → 추가"를 선택한다. 홈 화면의 PatPat 아이콘으로 실행한다.
+- **안드로이드** — [PatPat APK 다운로드](https://expo.dev/artifacts/eas/YQ7otmCaS24XfNGGPTvUKEG_k_ZY2t79J_U4J-5PPTI.apk)에서 설치 파일을 내려받아 설치하고 앱을 실행한다.
+
+화면이 이전 그대로면 강력 새로고침(Cmd/Ctrl+Shift+R)하거나 홈 화면 앱을 완전히 종료한 뒤 다시 연다.
+
 
 **10번 팀 쓰담쓰담**
 
@@ -125,81 +134,3 @@ PatPat의 목표는 교사의 관찰과 판단을 대신하는 것이 아니라,
 |---|---|
 | 손세희 | 팀장 |
 | 전성민 | 팀원 |
-
-## 로컬 테스트 — 터미널 2개로 실행
-
-휴대전화와 컴퓨터 같은 Wi-Fi에 연결.
-
-### 터미널 1 — 서버
-
-```bash
-cd BE
-source .venv/bin/activate
-python -m app.manage create-teacher --login-id teacher-demo --display-name "가상 교사"
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-### 터미널 2 — Expo Go
-
-```bash
-cd FE
-PATPAT_HOST_IP="$(ipconfig getifaddr en0)"
-EXPO_PUBLIC_API_BASE_URL="http://${PATPAT_HOST_IP}:8000" pnpm exec expo start --clear --port 8081
-```
-
-IP를 가져오지 못하면 Wi-Fi 설정에서 IP 주소를 확인해 `PATPAT_HOST_IP`에 직접 넣는다. PC 브라우저에서 테스트할 때는 마지막 명령 대신 아래를 실행한다.
-
-```bash
-EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 pnpm exec expo start --web --clear --port 8081
-```
-
-녹음 서버 저장·재생에는 서버 PC에서 `ffprobe`·`ffmpeg` 명령을 실행할 수 있어야 한다. 새 녹음은 저장 직후 연결되어 있으면 바로 서버에 저장된다. 연결 실패 시 기기 원음을 보존하고 앱이 자동으로 재시도하며(10초부터 최대 5분 간격, 앱 복귀 시 즉시), **보관함 → 녹음 파일 → 새로고침**으로 바로 확인·재시도할 수도 있다.
-
-## 로컬 테스트 — Windows PowerShell
-
-Python 3.11 이상과 Node.js·pnpm이 설치된 환경에서 PowerShell 터미널 2개를 연다. 각 터미널은 프로젝트 루트에서 시작한다. 휴대전화로 확인할 때는 컴퓨터와 같은 Wi-Fi에 연결한다.
-
-### 터미널 1 — 서버
-
-처음 한 번은 아래 명령을 순서대로 실행해 가상환경·필요 패키지·테스트 계정을 준비한다. 이미 `BE/`에 있다면 `cd BE`는 생략한다.
-
-```powershell
-cd BE
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\python.exe -m app.manage create-teacher --login-id teacher-demo --display-name "가상 교사"
-```
-
-계정 생성 시 비밀번호를 두 번 입력한다. 입력 중 글자가 보이지 않는 것은 정상이다. 이미 `teacher-demo` 계정을 만들었다면 계정 생성 명령은 생략한다.
-
-준비가 끝나면 같은 `BE/` 폴더에서 서버를 실행하고 터미널을 열어 둔다. 다음 실행부터는 이 서버 명령만 실행하면 된다. 가상환경의 Python을 직접 사용하므로 `source`나 별도의 활성화 명령은 필요 없다.
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-### 터미널 2 — Expo Go
-
-프로젝트 루트에서 아래 명령을 실행한다. 패키지 설치는 처음 실행하거나 의존성이 변경됐을 때 필요하다.
-
-```powershell
-cd FE
-pnpm.cmd install --store-dir .pnpm-store
-ipconfig
-```
-
-`ipconfig` 출력에서 Wi-Fi의 IPv4 주소를 확인한다. 아래 `192.168.0.10`을 실제 컴퓨터 주소로 바꾼 뒤 실행하고, 표시되는 QR 코드를 휴대전화의 Expo Go로 연다.
-
-```powershell
-$env:EXPO_PUBLIC_API_BASE_URL = "http://192.168.0.10:8000"
-pnpm.cmd exec expo start --clear --port 8081
-```
-
-PC 브라우저로 테스트할 때는 위 두 줄 대신 같은 `FE/` 폴더에서 아래를 실행한다.
-
-```powershell
-$env:EXPO_PUBLIC_API_BASE_URL = "http://127.0.0.1:8000"
-pnpm.cmd exec expo start --web --clear --port 8081
-```
-
-로그인 ID는 `teacher-demo`, 비밀번호는 계정 생성 때 입력한 값이다.

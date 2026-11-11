@@ -67,11 +67,12 @@ export function useNoticeRecordings(account: Account, day: string, active: boole
   };
 }
 
-export function NoticeRecordingList({ list, account, active, selected, used, busy, deleteBlocked, onSelect, children }: {
+export function NoticeRecordingList({ list, account, active, selected, used, busy, deleteBlocked, onSelect, preview = false, children }: {
   list: ReturnType<typeof useNoticeRecordings>; account: Account; active: boolean; selected: ReadonlySet<string>; used: Set<string>;
-  busy: boolean; deleteBlocked: boolean; onSelect(uris: string[], checked: boolean): void; children?: ReactNode;
+  busy: boolean; deleteBlocked: boolean; onSelect(uris: string[], checked: boolean): void; preview?: boolean; children?: ReactNode;
 }) {
   const playback = useRef<{ abort: AbortController; player?: LibraryPlayer } | null>(null);
+  const [expanded, setExpanded] = useState(true);
   const [playing, setPlaying] = useState<string | null>(null);
   const [playStatus, setPlayStatus] = useState<PlaybackStatus | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
   const [deleteResult, setDeleteResult] = useState<{ text: string; error: boolean } | null>(null);
   const deletion = useWorkAction();
   const chosen = list.rows.filter(row => selected.has(row.uri));
+  const rows = preview ? chosen : list.rows;
   const allSelected = chosen.length > 0 && chosen.length === list.rows.length;
   const locked = busy || list.loading || deletion.busy;
 
@@ -170,12 +172,24 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
     });
   }
 
-  return <View style={workStyles.panel}>
-    <View style={workStyles.between}>
+  const header = preview ? <Text style={workStyles.title}>선택한 녹음 목록</Text> : <View style={workStyles.between}>
+    <Pressable accessibilityRole="button" accessibilityLabel="녹음 목록"
+      accessibilityState={{ expanded, disabled: deletion.busy }} aria-expanded={expanded}
+      disabled={deletion.busy} style={styles.listToggle} onPress={() => {
+        if (expanded) void stop().catch(() => {});
+        setExpanded(!expanded);
+      }}>
       <Text style={workStyles.title}>녹음 목록</Text>
-      <WorkButton label="녹음 새로고침" icon="refresh-outline" secondary disabled={locked} onPress={list.reload} />
-    </View>
-    {list.rows.length > 0 && <View style={workStyles.between}>
+      {!expanded && chosen.length > 0 && <WorkMessage>{chosen.length}개 선택</WorkMessage>}
+      <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} accessible={false} />
+    </Pressable>
+    {expanded && <WorkButton label="녹음 새로고침" icon="refresh-outline" secondary disabled={locked} onPress={list.reload} />}
+  </View>;
+  if (!expanded && !preview) return <View style={workStyles.panel}>{header}</View>;
+
+  return <View style={workStyles.panel}>
+    {header}
+    {!preview && rows.length > 0 && <View style={workStyles.between}>
       <View style={workStyles.row}>
         <WorkButton label={allSelected ? '전체 해제' : '전체 선택'} secondary disabled={locked}
           onPress={() => onSelect(list.rows.map(row => row.uri), !allSelected)} />
@@ -184,28 +198,30 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
       <WorkButton label="삭제" icon="trash-outline" secondary disabled={locked || deleteBlocked || !chosen.length}
         onPress={() => { deletion.setError(null); setDeleteResult(null); setDeletePrompt(chosen); }} />
     </View>}
-    {list.error && <WorkMessage error>{list.error}</WorkMessage>}
+    {!preview && list.error && <WorkMessage error>{list.error}</WorkMessage>}
     {playError && <WorkMessage error>{playError}</WorkMessage>}
     {deleteResult && <WorkMessage error={deleteResult.error}>{deleteResult.text}</WorkMessage>}
-    {list.loading && <WorkMessage>녹음을 불러오고 있어요.</WorkMessage>}
-    {!list.loading && !list.error && !list.rows.length && <WorkMessage>이 날짜에 녹음한 파일이 없어요.</WorkMessage>}
-    {list.rows.map(row => {
+    {!preview && list.loading && <WorkMessage>녹음을 불러오고 있어요.</WorkMessage>}
+    {!preview && !list.loading && !list.error && !rows.length && <WorkMessage>이 날짜에 녹음한 파일이 없어요.</WorkMessage>}
+    {preview && rows.some(row => !row.draftId) && <WorkMessage>서버에 저장된 녹음만 초안에 사용돼요.</WorkMessage>}
+    {rows.map(row => {
       const status = row.uri === playing ? playStatus : null;
       const duration = status?.duration ?? row.duration ?? 0;
       const position = Math.max(0, Math.min(status?.currentTime ?? 0, duration));
       const checked = selected.has(row.uri);
+      const info = <View style={styles.recordingInfo}>
+        <Text style={workStyles.label}>{row.startTime} · {row.fileName}</Text>
+        <WorkMessage>{[row.syncLabel, row.serverId && used.has(row.serverId) ? '사용한 녹음' : null]
+          .filter(Boolean).join(' · ')}</WorkMessage>
+      </View>;
       return <View key={row.uri} style={styles.recordingRow}>
-        <Pressable style={styles.recordingHeading} accessibilityRole="checkbox" accessibilityLabel={row.fileName + ' 선택'}
+        {preview ? info : <Pressable style={styles.recordingHeading} accessibilityRole="checkbox" accessibilityLabel={row.fileName + ' 선택'}
           aria-checked={checked} accessibilityState={{ checked, disabled: locked }} disabled={locked}
           onPress={() => onSelect([row.uri], !checked)}>
           <Ionicons accessible={false} name={checked ? 'checkbox' : 'square-outline'} size={23}
             color={checked ? colors.greenInk : colors.muted} />
-          <View style={styles.recordingInfo}>
-            <Text style={workStyles.label}>{row.startTime} · {row.fileName}</Text>
-            <WorkMessage>{[row.syncLabel, row.serverId && used.has(row.serverId) ? '사용한 녹음' : null]
-              .filter(Boolean).join(' · ')}</WorkMessage>
-          </View>
-        </Pressable>
+          {info}
+        </Pressable>}
         <View style={workStyles.row}>
           <WorkButton label={row.uri === playing ? '정지' : '재생'} icon={row.uri === playing ? 'stop' : 'play'}
             secondary onPress={() => { void play(row); }} />
@@ -239,6 +255,7 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
 }
 
 const styles = StyleSheet.create({
+  listToggle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44 },
   recordingRow: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8, gap: 6 },
   recordingHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, minHeight: 40 },
   recordingInfo: { flex: 1, gap: 3 },

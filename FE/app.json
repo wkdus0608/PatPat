@@ -11,7 +11,14 @@
       "bundleIdentifier": "com.patpat.frontend"
     },
     "android": {
-      "package": "com.patpat.frontend"
+      "package": "com.patpat.frontend",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+      ]
     },
     "plugins": [
       [
@@ -25,6 +32,12 @@
       "expo-secure-store",
       "./plugins/withSideButtonTrigger"
     ],
-    "scheme": "patpat"
+    "scheme": "patpat",
+    "extra": {
+      "eas": {
+        "projectId": "a7266673-1837-47a7-b939-98c0e771338d"
+      }
+    },
+    "owner": "jeonsm"
   }
 }

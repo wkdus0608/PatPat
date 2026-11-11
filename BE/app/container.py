@@ -29,7 +29,7 @@ from app.services import Services
 from app.sessions.router import sessions_router
 from app.sessions.store import SessionStore
 from app.transcriptions.cache import RecordingTranscripts
-from app.transcriptions.client import DemoSpeechToTextClient, SpeechToTextClient
+from app.transcriptions.client import DemoSpeechToTextClient, MultipartSpeechToTextClient, SpeechToTextClient
 from app.usage.router import usage_router
 
 
@@ -52,8 +52,11 @@ def install_services(
         journal=journal, parallelism=settings.ai_parallelism,
     )
     notice_service = NoticeService(rules=rules, store=notices, sessions=sessions, jobs=jobs, ai=gateway, journal=journal)
-    if speech_to_text is None and settings.ai_provider == "fake" and settings.demo_transcript.strip():
-        speech_to_text = DemoSpeechToTextClient(settings.demo_transcript)
+    if speech_to_text is None:
+        if settings.stt_url:
+            speech_to_text = MultipartSpeechToTextClient(settings.stt_url, settings.stt_api_key, settings.stt_model)
+        elif settings.ai_provider == "fake" and settings.demo_transcript.strip():
+            speech_to_text = DemoSpeechToTextClient(settings.demo_transcript)
     transcripts = RecordingTranscripts(database, application.state.recording_service, speech_to_text)
     recording_store = RecordingDraftStore(database, notices)
     recording_drafts = RecordingDrafts(recording_store, pipeline, transcripts)

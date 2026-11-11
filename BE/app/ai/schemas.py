@@ -8,6 +8,15 @@ MAX_FLAGS = 10
 
 _STR = {"type": "string"}
 _STR_LIST = {"type": "array", "items": _STR}
+JOURNAL_WORD_FIELDS = ("이름", "성별", "반", "생년월일", "관찰일", "관찰장소", "관찰시간", "관찰영역", "관찰내용")
+JOURNAL_WORD_LAYOUT_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["placements"],
+    "properties": {"placements": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["slot", "fields"],
+        "properties": {"slot": _STR,
+                       "fields": {"type": "array", "items": {"type": "string", "enum": list(JOURNAL_WORD_FIELDS)}}},
+    }}},
+}
 
 REVIEW_SCHEMA = {
     "type": "object",
@@ -66,10 +75,15 @@ RECORDING_OBSERVATIONS_SCHEMA = {
     "properties": {"observations": {"type": "array", "items": {
         "type": "object",
         "additionalProperties": False,
-        "required": ["recording_id", "quote", "scope", "child_id"],
+        "required": ["recording_id", "quote", "scope", "child_id", "heard_name", "corrections"],
         "properties": {
-            "recording_id": _STR, "quote": _STR, "child_id": _STR,
+            "recording_id": _STR, "quote": _STR, "child_id": _STR, "heard_name": _STR,
             "scope": {"type": "string", "enum": ["common", "individual", "unresolved"]},
+            "corrections": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["original", "replacement", "occurrence"],
+                "properties": {"original": _STR, "replacement": _STR, "occurrence": {"type": "integer"}},
+            }},
         },
     }}},
 }

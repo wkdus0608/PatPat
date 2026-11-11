@@ -6,6 +6,7 @@ from app.ai.types import AIError
 from app.auth.models import TeacherContext
 from app.core.errors import ApiError
 from app.core.timeutil import new_id
+from app.pipeline.recording_names import contains_name, correct_transcription_typos, corrected_quote, matching_name
 from app.pipeline.recording_store import RecordingDraftStore, WORKING, changed
 from app.pipeline.service import METADATA_LABELS, PipelineService, incident_ids_of
 from app.transcriptions.cache import RecordingTranscripts
@@ -107,7 +108,8 @@ class RecordingDrafts:
         blocks = []
         for block in payload["blocks"]:
             child_id = block["child_id"]
-            quotes = [fact["quote"] for fact in payload.get("facts", [])
+            quotes = [corrected_quote(fact.get("corrected_text", fact["quote"]), fact.get("heard_name", ""), block["child_name"])
+                      for fact in payload.get("facts", [])
                       if fact["target"] is not None and fact["target"] == (child_id or "")]
             text = "\n".join(dict.fromkeys(part for part in [block["text"].strip(), *quotes] if part))
             metadata = {}
@@ -123,7 +125,10 @@ class RecordingDrafts:
             self._review(draft)
             return
         ctx, _ = self._context(draft)
-        request = prompts.build_recording_observations(self.pipeline.rules, transcripts=transcripts, roster=ctx.present)
+        request = prompts.build_recording_observations(
+            self.pipeline.rules, transcripts=transcripts, roster=ctx.present, common=ctx.common,
+            blocks=tuple(ctx.blocks[child.child_id] for child in ctx.present),
+        )
         data = self.pipeline._call(request, ctx).data
         prior = {}
         for item in draft["payload"].get("prior_facts", []):
@@ -132,10 +137,14 @@ class RecordingDrafts:
             prior[key] = target if prior.get(key, target) == target else None
         facts, flags, seen = [], [], set()
         names = Counter(child.name for child in ctx.present)
+        protected_names = {child.name for child in ctx.roster}
+        protected_names.update(name[1:] for name in tuple(protected_names) if len(name) == 3)
         options = {"반 공통": ""}
         for index, child in enumerate(ctx.present, 1):
             label = child.name if names[child.name] == 1 and child.name not in options else f"{child.name} ({index})"
             options[label] = child.child_id
+        recording_order = {recording_id: index for index, recording_id in enumerate(transcripts)}
+        observations = []
         for row in data.get("observations") or []:
             if not isinstance(row, dict) or not isinstance(row.get("recording_id"), str) or not isinstance(row.get("quote"), str):
                 continue
@@ -144,17 +153,36 @@ class RecordingDrafts:
             if not quote or quote not in transcripts.get(recording_id, "") or key in seen:
                 continue
             seen.add(key)
-            matched = [child.child_id for child in ctx.roster if child.name in quote]
+            observations.append((recording_order[recording_id], transcripts[recording_id].index(quote), row, quote))
+        present = {child.child_id for child in ctx.present}
+        for _, _, row, quote in sorted(observations, key=lambda item: item[:2]):
+            recording_id = row["recording_id"]
+            key = (recording_id, quote)
+            exact = {child.child_id: child.name for child in ctx.roster if contains_name(quote, child.name)}
+            heard = row.get("heard_name")
+            heard = heard.strip() if isinstance(heard, str) else ""
+            if not contains_name(quote, heard):
+                heard = next(iter(exact.values())) if len(exact) == 1 else ""
+            candidates = set(exact)
+            if heard:
+                candidates.update(child.child_id for child in ctx.roster if matching_name(heard, child.name))
             target = None
-            if row.get("scope") == "common" and not matched:
+            if row.get("scope") == "common" and not candidates and not heard:
                 target = ""
-            elif row.get("scope") == "individual" and matched == [row.get("child_id")] and matched[0] in options.values():
-                target = matched[0]
+            elif row.get("scope") == "individual" and len(candidates) == 1:
+                candidate, = candidates
+                if candidate in present and candidate == row.get("child_id"):
+                    target = candidate
             if key in prior:
                 previous_target = prior[key]
                 if previous_target is None or previous_target in options.values():
                     target = previous_target if target in (None, previous_target) else None
             fact = {"recording_id": recording_id, "quote": quote, "target": target, "resolved": key in prior and target == prior[key]}
+            corrected = correct_transcription_typos(quote, row.get("corrections"), protected_names | ({heard} if heard else set()))
+            if corrected != quote:
+                fact["corrected_text"] = corrected
+            if heard and candidates and heard not in exact.values():
+                fact["heard_name"] = heard
             if target is None:
                 flag_id = new_id()
                 fact["flag_id"] = flag_id

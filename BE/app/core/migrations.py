@@ -288,6 +288,34 @@ MIGRATIONS: tuple[tuple[str, str], ...] = (
         );
         """,
     ),
+    (
+        "012_journal_word_output",
+        """
+        CREATE TABLE teacher_journal_templates (
+            teacher_id TEXT PRIMARY KEY REFERENCES teachers(teacher_id),
+            filename TEXT NOT NULL,
+            revision TEXT NOT NULL,
+            document BLOB NOT NULL
+        );
+        CREATE TABLE journal_outputs (
+            teacher_id TEXT NOT NULL REFERENCES teachers(teacher_id),
+            child_id TEXT NOT NULL REFERENCES children(child_id),
+            range_from TEXT NOT NULL,
+            range_to TEXT NOT NULL,
+            revision TEXT NOT NULL,
+            text TEXT NOT NULL,
+            word BLOB,
+            PRIMARY KEY (teacher_id, child_id, range_from, range_to)
+        );
+        """,
+    ),
+    (
+        "013_journal_word_revision",
+        """
+        ALTER TABLE journal_outputs ADD COLUMN word_revision TEXT;
+        UPDATE journal_outputs SET word_revision=revision WHERE word IS NOT NULL;
+        """,
+    ),
 )
 
 

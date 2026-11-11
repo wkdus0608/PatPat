@@ -41,6 +41,7 @@ export const LibraryScreen = forwardRef<LibraryHandle, {
     openRecording(recording) { void controller.openRecording(recording); },
     openJournal(journal) { void controller.openJournal(journal); },
     back() { void controller.back(); }, refresh() { void controller.refresh(); },
+    importFiles() { void controller.importFiles(); },
     togglePlay() { void controller.togglePlay(); }, restart() { void controller.restart(); },
     retryPlayback() { void controller.retryPlayback(); },
     requestDelete() { void controller.requestDelete(); }, cancelDelete: controller.cancelDelete,

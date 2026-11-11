@@ -4,6 +4,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppState, BackHandler } from 'react-native';
 import type { RecorderViewProps } from '../ui/PatPatAppView';
+import { useAudioImport } from './useAudioImport';
 import { createRecordingController, type RecordingController } from './controller';
 import { createExpoRecordingStorage } from './expoFileStore';
 import { createNativeEngine } from './nativeEngine';
@@ -79,6 +80,7 @@ export function useRecording(account?: Account): RecorderViewProps {
   }, [recorder, account?.api, account?.session.teacher.teacher_id]);
   controllerRef.current = controller;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const importer = useAudioImport(account);
   const [clock, setClock] = useState(() => new Date());
 
   // Side-button request (iPhone Siri / Galaxy shortcut): show the recording screen and start.
@@ -135,10 +137,13 @@ export function useRecording(account?: Account): RecorderViewProps {
 
   return {
     phase: state.phase, durationMillis: state.durationMillis,
-    message: state.phase === 'saved' ? savedMessage(upload, !!account) : state.message,
+    message: importer.result?.text ?? (state.phase === 'saved' ? savedMessage(upload, !!account) : state.message),
     canStart: state.canStart, canRetry: state.canRetry, startSignal,
     dateLabel: clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' }),
-    onStart: () => { void controller.start(); },
+    messageIsError: importer.result ? importer.result.error : undefined,
+    importBusy: importer.busy,
+    onImport: account ? () => { void importer.run(); } : undefined,
+    onStart: () => { importer.clear(); void controller.start(); },
     onStop: () => { void controller.stop(); },
     onRetry: () => { void controller.retry(); },
   };

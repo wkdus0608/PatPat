@@ -10,7 +10,7 @@ from app.ai.anthropic_client import AnthropicClient, NotConfiguredAIClient
 from app.ai.factory import create_ai_client
 from app.ai.fake import FakeAIClient
 from app.ai.gateway import AIGateway
-from app.ai.lint import lint_notice
+from app.ai.lint import keep_example_emoticons, lint_notice
 from app.ai.privacy import find_names, mask_names
 from app.ai.prompts import BlockCtx, ChildCtx, ClassCtx
 from app.ai.types import (
@@ -92,6 +92,13 @@ def test_lint_flags_teacher_led_words_and_unsupported_feelings_only():
     assert lint_notice("아이들이 신나서 달렸어요.", source_text="신나서 달림") == []
 
 
+def test_notice_keeps_example_and_observed_emoticons():
+    text = "블록을 놓았답니다^^\n\n편안한 저녁 보내세요 :)"
+    assert keep_example_emoticons(text, "편안한 저녁 보내세요 :)", "") == text.replace("^^", "")
+    assert keep_example_emoticons(text, "편안한 저녁 보내세요 :)", "아이의 종이에 ^^가 있었음") == text
+    assert keep_example_emoticons(text, None, "") == text
+
+
 def test_parse_review_keeps_valid_flags_in_priority_order():
     valid = {"A", "B"}
     data = {
@@ -152,6 +159,7 @@ def test_every_task_shares_one_byte_identical_system_block(bundle):
         prompts.build_journal_individual(bundle, cls=CLS, child=child, text="개별", block=block, common=common, incident=False),
         prompts.build_areas(bundle, text="낙엽"),
         prompts.build_recording_observations(bundle, transcripts={"r1": "다온이가 낙엽을 주웠어요."}, roster=[child]),
+        prompts.build_journal_word_layout(bundle, layout=[{"text": "관찰내용:"}], instructions="관찰내용만 채워 주세요."),
     ]
     assert len({request.system_text for request in requests}) == 1
     assert requests[0].system_text.startswith(prompts.SYSTEM_PREFACE)

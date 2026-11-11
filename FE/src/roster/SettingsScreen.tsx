@@ -13,6 +13,7 @@ import {
   type CharacteristicsEntry, type DialogAction, type RosterController, type RosterState,
 } from './controller';
 import { TEACHER_DOCUMENTS, type TeacherDocumentKind } from './teacherDocuments';
+import { JournalTemplateField } from './JournalTemplateField';
 
 export interface SettingsHandle { back(): void }
 export interface SettingsViewProps {
@@ -26,6 +27,9 @@ export interface SettingsViewProps {
   onTeacherDocumentChange(kind: TeacherDocumentKind, text: string): void;
   onSaveTeacherDocument(): void;
   onOpenWritingPreferences?(): void;
+  templateApi?: V2Api;
+  templateBusy?: boolean;
+  onTemplateBusy?(busy: boolean): void;
 }
 
 function ChildRow({ child, selecting, selected, disabled, onToggle, onOpenCharacteristics }: {
@@ -105,6 +109,7 @@ interface ReferenceEditorProps {
   backLabel: string; loadingLabel: string; loadError: string;
   entry: Readonly<CharacteristicsEntry>; text: string; dirty: boolean;
   busy: boolean; navigationBlocked: boolean;
+  children?: ReactNode;
   onBack(): void; onChange(text: string): void; onSave(): void;
 }
 
@@ -159,13 +164,14 @@ function ReferenceEditor(props: ReferenceEditorProps) {
         {status && <Text accessibilityLiveRegion="polite" style={entry.saveState === 'error' ? styles.danger : styles.hint}
           testID={prefix + '-status'}>{status}</Text>}
       </View>
+      {props.children}
   </SettingsEditorLayout>;
 }
 
 function SettingsContent(props: SettingsViewProps) {
   const { account, state } = props;
   const busy = state.saving || state.loading || account.busy || state.dialog !== null;
-  const navigationBlocked = state.saving || account.busy || state.dialog !== null;
+  const navigationBlocked = state.saving || account.busy || state.dialog !== null || !!props.templateBusy;
   const teacherKind = state.teacherDocumentKind;
   if (teacherKind !== null) {
     const definition = TEACHER_DOCUMENTS[teacherKind];
@@ -174,9 +180,13 @@ function SettingsContent(props: SettingsViewProps) {
       backLabel="교사 설정으로 돌아가기" loadingLabel={definition.title + ' 불러오는 중'}
       loadError="저장한 내용을 불러오지 못했어요. 화면에 다시 들어와 확인해 주세요."
       entry={entry} text={state.teacherDocumentDrafts.get(teacherKind) ?? entry.savedText ?? ''}
-      dirty={isTeacherDocumentDirty(state, teacherKind)} busy={busy} navigationBlocked={navigationBlocked}
+      dirty={isTeacherDocumentDirty(state, teacherKind)} busy={busy || !!props.templateBusy} navigationBlocked={navigationBlocked}
       onBack={props.onBack} onChange={text => props.onTeacherDocumentChange(teacherKind, text)}
-      onSave={props.onSaveTeacherDocument} />;
+      onSave={props.onSaveTeacherDocument}>
+      {teacherKind === 'record_format' && props.templateApi && props.onTemplateBusy && <View style={styles.card}>
+        <JournalTemplateField api={props.templateApi} disabled={busy} onBusy={props.onTemplateBusy} />
+      </View>}
+    </ReferenceEditor>;
   }
   const characteristicsChild = state.items.find(child => child.child_id === state.characteristicsChildId);
   if (characteristicsChild) {
@@ -290,12 +300,13 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
   const [name, setName] = useState('');
   const [showPreferences, setShowPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const insets = useSafeAreaInsets();
   useEffect(() => { void controller.refresh(); }, [controller]);
-  useEffect(() => { onSavingChange(state.saving || savingPreferences); return () => onSavingChange(false); },
-    [state.saving, savingPreferences, onSavingChange]);
+  useEffect(() => { onSavingChange(state.saving || savingPreferences || savingTemplate); return () => onSavingChange(false); },
+    [state.saving, savingPreferences, savingTemplate, onSavingChange]);
   function back() {
-    if (account.busy) return;
+    if (account.busy || savingTemplate) return;
     Keyboard.dismiss();
     if (showPreferences) {
       if (!savingPreferences) setShowPreferences(false);
@@ -310,7 +321,7 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
     if (destination === 'close') onClose();
     else if (destination === 'logout') void account.logout();
   }
-  useImperativeHandle(ref, () => ({ back }), [controller, account.busy, onClose, showPreferences, savingPreferences]);
+  useImperativeHandle(ref, () => ({ back }), [controller, account.busy, onClose, showPreferences, savingPreferences, savingTemplate]);
   return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
     style={[styles.page, { paddingTop: insets.top + 12, paddingBottom: insets.bottom }]}>
     {showPreferences && apiV2 ? <SettingsEditorLayout title="자주 쓰는 장소·시간" backLabel="교사 설정으로 돌아가기"
@@ -318,6 +329,7 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
       <WritingPreferencesEditor api={apiV2} onSaved={() => setShowPreferences(false)} onBusy={setSavingPreferences} />
     </SettingsEditorLayout> :
     <SettingsView account={account} state={state} name={name} onNameChange={setName} onBack={back}
+      templateApi={apiV2} templateBusy={savingTemplate} onTemplateBusy={setSavingTemplate}
       onAdd={() => { void controller.create(name).then(saved => { if (saved) setName(''); }); }}
       onRefresh={() => { void controller.refresh(); }} onSelect={controller.beginSelection}
       onCancelSelection={controller.cancelSelection} onToggle={controller.toggleSelection}

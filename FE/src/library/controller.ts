@@ -268,6 +268,17 @@ export function createLibraryController(
     else if (state.route === 'journal' && state.selectedJournal) await openJournal(state.selectedJournal);
   }
 
+  async function importFiles() {
+    if (busy() || state.deletePrompt || state.route !== 'recordings' || !recordings.importFiles) return;
+    update({ syncing: true, notice: null });
+    let message: string | null = null;
+    try { message = await recordings.importFiles(); }
+    catch { message = '녹음 파일을 올리지 못했어요. 다시 시도해 주세요.'; }
+    finally { update({ syncing: false }); }
+    if (message) update({ notice: message });
+    if (!disposed && state.route === 'recordings') await refreshRecordings();
+  }
+
   async function resume() {
     suspended = false;
     if (state.route === 'recordings') await refreshRecordings();
@@ -277,7 +288,7 @@ export function createLibraryController(
   return {
     getSnapshot: () => state,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    showRecordings, showJournals, openRecording, openJournal, back, refresh,
+    showRecordings, showJournals, openRecording, openJournal, back, refresh, importFiles,
     togglePlay: () => playbackAction(), restart: () => playbackAction(true),
     retryPlayback, requestDelete, cancelDelete, confirmDelete, poll, leave, suspend, resume,
     dispose() { disposed = true; ++generation; ++listVersion; ++journalVersion; listeners.clear(); void closePlayer().catch(() => {}); },

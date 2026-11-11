@@ -15,8 +15,9 @@ EditVersions = tuple[int, tuple[tuple[str, int], ...]]
 
 _SELECT = (
     "SELECT e.*, c.name AS child_name, n.version AS notice_version, n.status AS notice_status, "
-    "n.withdrawn AS notice_withdrawn, d.content AS day_content, d.version AS day_version "
+    "n.withdrawn AS notice_withdrawn, d.content AS day_content, d.version AS day_version, room.name AS classroom_name "
     "FROM journal_entries e JOIN children c ON c.child_id = e.child_id JOIN notices n ON n.notice_id = e.notice_id "
+    "LEFT JOIN writing_sessions s ON s.session_id=n.session_id LEFT JOIN classrooms room ON room.classroom_id=s.classroom_id "
     "LEFT JOIN journal_day_edits d ON d.teacher_id=e.teacher_id AND d.child_id=e.child_id AND d.observed_date=e.observed_date"
 )
 

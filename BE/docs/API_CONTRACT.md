@@ -138,6 +138,8 @@ erDiagram
 
 알림장 날짜와 녹음 시작일(Asia/Seoul)이 일치하는 원음만 선택할 수 있다. 목록·재생은 인증된 v1 녹음 경로를 재사용한다. `/api/v2/sessions/{session_id}/recording-drafts` 작업을 시작하면 선택한 녹음만 전사하고, 이미 전사한 파일은 결과를 재사용한다. 직접 입력·아동 정보·전사문을 검토해 필요한 질문만 낸다. 최초 생성은 검토용 초안을 만들고, 기존 알림장의 재생성은 아이별 후보를 보관했다가 명시적 반영 요청에서만 현재 본문을 교체한다. 반영할 때 아동과 본문 버전을 검증하고 이전 버전은 이력에 남긴다.
 
+관찰 추출은 원문 인용과 전사문에 적힌 이름을 함께 돌려준다. 이름이 한글 자모 하나만 다른 경우에도 출석한 후보 한 명으로 좁혀지고 AI가 제안한 대상과 일치하면 그 아이로 연결한다. 결석을 포함한 반 명단에 비슷한 후보가 여럿이거나 대상이 불명확하면 확인을 받는다. 같은 추출 호출에서 당일 교사 메모를 참고해 명백한 전사 오기의 짧은 교정도 제안한다. 같은 구절이 여러 번 나오면 원문 인용 안의 등장 순서로 바꿀 위치를 지정한다. 원본 전사문과 근거 인용은 보존하고, 검토·작성에 전달하는 관찰 문장에서만 검증된 교정과 등록 이름을 사용한다. 같은 녹음의 근거는 전사문에 등장한 순서대로 전달한다.
+
 서버의 `PATPAT_STT_URL`에 전사 API 주소를 설정하고, 공급자가 요구하면 `PATPAT_STT_API_KEY`와 `PATPAT_STT_MODEL`을 함께 설정한다. 서버는 원음을 multipart의 `file`로 보내고 응답의 `text`를 사용한다. 설정 우선순위와 실패 응답은 [전사 계약](TRANSCRIPTIONS.md)을 따른다.
 
 앱에서 관찰영역은 초안 요청 전 교사가 확인한다. `POST /api/v2/sessions/{session_id}/generate?manual_areas=true&prepare_journals=true`는 영역을 비워 두어도 작성에 필요한 맥락과 장소·시간을 검토하며, 영역을 추천하거나 역질문으로 묻지 않는다. 같은 세션에서 아이별 초안을 다시 만들 때도 교사가 확인한 영역을 사용한다.
@@ -148,7 +150,7 @@ erDiagram
 
 ### 관찰일지 텍스트·Word 출력
 
-- `GET|POST|DELETE /api/v2/teacher/journal-template`은 인증된 교사의 공통 Word 양식 하나를 조회·등록 또는 교체·제거한다. `POST ?filename=...`의 본문에 최대 5 MiB의 파일 바이트를 보낸다. 기존 `PUT` multipart의 `file`도 지원한다. 일반 `.docx`는 그대로 저장한다. 지원하는 다른 Word 호환 형식은 서버의 LibreOffice Writer로 변환한다. 실행 파일은 `PATPAT_WORD_CONVERTER`로 지정할 수 있다.
+- `GET|POST|DELETE /api/v2/teacher/journal-template`은 인증된 교사의 공통 Word 양식 하나를 조회·등록 또는 교체·제거한다. `POST ?filename=...`의 본문에 최대 5 MiB의 파일 바이트를 보낸다. 기존 `PUT` multipart의 `file`도 지원한다. 일반 `.docx`는 그대로 저장한다. `.doc`, `.dotx`, `.dot`, `.docm`, `.dotm`, `.rtf`, `.odt`, `.ott`, Word `.xml`, `.fodt`는 서버의 LibreOffice Writer로 변환하며 `.word`는 내부 형식이 지원되면 받는다. 서버의 `PATH`에서 `soffice`를 찾고, `PATPAT_WORD_CONVERTER`로 실행 파일을 지정할 수 있다.
 - `POST /api/v2/children/{child_id}/journal/output`은 `from`·`to`로 고른 기간의 텍스트 미리보기, `revision`, 양식 등록 여부를 반환한다. 같은 기간과 `revision`으로 `POST /api/v2/children/{child_id}/journal/output/word`를 호출하면 `.docx`를 생성하거나 기존 파일을 돌려준다. 같은 경로의 `GET`은 저장된 파일을 내려준다.
 - 새 출력본 생성 시 실제 텍스트 AI 설정에서는 양식의 항목·빈칸과 교사의 `record_format`을 모델에 보내 입력 위치를 정한다. 서버가 저장된 관찰일지의 값을 채운다. `PATPAT_AI_PROVIDER=fake`에서는 정해진 항목명과 인접 빈칸을 서버에서 연결하며 관찰내용을 넣을 칸을 찾지 못하면 출력을 중단한다. 텍스트 미리보기와 저장된 Word 파일 재사용에는 모델 호출이 없다.
 - 일지 본문이나 양식이 바뀌면 조회 결과의 `output_stale`이 true가 된다. 텍스트 미리보기를 새로 열어도 기존 Word 파일은 유지되며, 새 Word 출력이 성공하면 저장본이 교체된다.

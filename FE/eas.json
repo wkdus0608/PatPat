@@ -10,6 +10,15 @@
     "development-simulator": {
       "extends": "development",
       "ios": { "simulator": true }
+    },
+    "preview": {
+      "distribution": "internal",
+      "node": "24.22.1",
+      "pnpm": "11.25.0",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://patpat-demo-1110.eastasia.cloudapp.azure.com"
+      },
+      "android": { "buildType": "apk" }
     }
   }
 }

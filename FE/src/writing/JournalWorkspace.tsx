@@ -2,56 +2,71 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, errorMessage } from '../api/client';
-import type { DateRange, Journal, JournalDay, JournalDayEdit, JournalEntry, V2Api } from '../api/v2';
+import type { DateRange, Journal, JournalDay, JournalDayEdit, JournalEntry, JournalOutput, V2Api } from '../api/v2';
 import type { Account } from '../auth/controller';
 import { colors } from '../ui/theme';
 import { copyRecord } from '../ui/clipboard';
 import { DatePicker } from '../ui/DatePicker';
 import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
+import { saveWordFile } from './wordFiles';
 
 type Draft = JournalDayEdit & { original: string };
 
-function JournalText({ name, value, onClose }: { name: string; value: string; onClose(): void }) {
+function JournalText({ name, output, download, onClose }: {
+  name: string; output: JournalOutput; download(): Promise<ArrayBuffer>; onClose(): void;
+}) {
   const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
   const action = useWorkAction();
+  const wordAction = useWorkAction();
   return (
     <Modal animationType="slide" onRequestClose={onClose}>
       <View style={[styles.outputPage, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}>
         <View style={styles.outputFrame}>
           <View style={workStyles.between}>
             <Text style={workStyles.heading}>{name} 관찰일지</Text>
-            <WorkButton label="닫기" secondary onPress={onClose} />
+            <WorkButton label="닫기" secondary disabled={wordAction.busy} onPress={onClose} />
           </View>
           <ScrollView style={styles.outputScroll} contentContainerStyle={workStyles.panel}>
-            <Text selectable style={workStyles.body}>{value}</Text>
+            <Text selectable style={workStyles.body}>{output.text}</Text>
           </ScrollView>
-          <WorkButton label="텍스트 복사" busy={action.busy} onPress={() => { void action.run(async () => {
-            await copyRecord(value);
-            setCopied(true);
-          }); }} />
+          <View style={styles.outputActions}>
+            <View style={styles.outputAction}>
+              <WorkButton label="텍스트 복사" busy={action.busy} onPress={() => { void action.run(async () => {
+                await copyRecord(output.text);
+                setCopied(true);
+              }); }} />
+            </View>
+            <View style={styles.outputAction}>
+              <WorkButton label="Word로 출력하기" busy={wordAction.busy} disabled={!output.can_export_word}
+                onPress={() => { void wordAction.run(async () => saveWordFile(await download(), name)); }} />
+            </View>
+          </View>
+          {wordAction.busy && <WorkMessage>Word 파일을 준비하고 있어요.</WorkMessage>}
           {copied && <WorkMessage>복사했어요.</WorkMessage>}
           {action.error && <WorkMessage error>{action.error}</WorkMessage>}
+          {wordAction.error && <WorkMessage error>{wordAction.error}</WorkMessage>}
         </View>
       </View>
     </Modal>
   );
 }
 
-function JournalCard({ journal, api, range, onEditing, onSaved, onReload }: {
+function JournalCard({ journal, api, range, onEditing, onSaved, onOutput, onReload }: {
   journal: Journal; api: V2Api; range: DateRange;
-  onEditing(childId: string, editing: boolean): void; onSaved(childId: string, days: JournalDay[]): void; onReload(): void;
+  onEditing(childId: string, editing: boolean): void; onSaved(childId: string, days: JournalDay[]): void;
+  onOutput(childId: string, output: JournalOutput): void; onReload(): void;
 }) {
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
-  const [output, setOutput] = useState<string | null>(null);
+  const [output, setOutput] = useState<JournalOutput | null>(null);
   const action = useWorkAction();
   const { child, items } = journal;
   const days = journal.days ?? [];
   const editing = drafts !== null;
   useEffect(() => {
-    onEditing(child.child_id, editing);
+    onEditing(child.child_id, editing || action.busy);
     return () => onEditing(child.child_id, false);
-  }, [child.child_id, editing, onEditing]);
+  }, [child.child_id, editing, action.busy, onEditing]);
 
   function startEditing() {
     action.setError(null);
@@ -122,7 +137,7 @@ function JournalCard({ journal, api, range, onEditing, onSaved, onReload }: {
         </View>;
       })}
       {action.error && <WorkMessage error>{action.error}</WorkMessage>}
-      <View style={workStyles.row}>
+      <View style={[workStyles.row, styles.cardActions]}>
         {drafts ? <>
           <WorkButton label="수정 저장" busy={action.busy} onPress={() => { void action.run(() => save(drafts)); }} />
           <WorkButton label="취소" secondary disabled={action.busy} onPress={() => {
@@ -130,13 +145,19 @@ function JournalCard({ journal, api, range, onEditing, onSaved, onReload }: {
             action.setError(null);
           }} />
         </> : <>
-          <WorkButton label="출력하기" busy={action.busy} disabled={!days.some(day => day.content.trim())} onPress={() => {
-            void action.run(async () => setOutput(await api.journalText(child.child_id, range)));
+          <WorkButton label={journal.output_stale ? '재출력하기' : '출력하기'} busy={action.busy}
+            disabled={!days.some(day => day.content.trim())} onPress={() => {
+            void action.run(async () => {
+              const result = await api.journalOutput(child.child_id, range);
+              onOutput(child.child_id, result);
+              setOutput(result);
+            });
           }} />
           <WorkButton label="수정하기" secondary disabled={action.busy || !days.some(day => day.editable)} onPress={startEditing} />
         </>}
       </View>
-      {output !== null && <JournalText name={child.name} value={output} onClose={() => setOutput(null)} />}
+      {output && <JournalText name={child.name} output={output}
+        download={() => api.journalWord(child.child_id, range, output.revision)} onClose={() => setOutput(null)} />}
     </View>
   );
 }
@@ -193,8 +214,13 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
     localSaves.current += 1;
     const saved = new Map(days.map(day => [day.observed_date, day]));
     setJournals(values => values?.map(journal => journal.child.child_id === childId
-      ? { ...journal, days: journal.days.map(day => saved.get(day.observed_date) ?? day) }
+      ? { ...journal, days: journal.days.map(day => saved.get(day.observed_date) ?? day), output_stale: !!journal.output_revision }
       : journal) ?? null);
+  }
+  function updateOutput(childId: string, output: JournalOutput) {
+    localSaves.current += 1;
+    setJournals(values => values?.map(journal => journal.child.child_id === childId
+      ? { ...journal, output_revision: output.revision, output_stale: false } : journal) ?? null);
   }
   function changeRange(next: DateRange) {
     if (next.from === range.from && next.to === range.to) return;
@@ -214,7 +240,7 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
       {!journals && !error && <ActivityIndicator color={colors.ink} accessibilityLabel="관찰일지 불러오는 중" />}
       {journals?.length === 0 && <WorkMessage>설정에서 아동을 등록해 주세요.</WorkMessage>}
       {journals?.map(journal => <JournalCard key={journal.child.child_id} journal={journal} api={api}
-        range={range} onEditing={onEditing} onSaved={updateDays} onReload={() => setAttempt(value => value + 1)} />)}
+        range={range} onEditing={onEditing} onSaved={updateDays} onOutput={updateOutput} onReload={() => setAttempt(value => value + 1)} />)}
       {error && <WorkButton label="다시 불러오기" secondary onPress={() => setAttempt(value => value + 1)} />}
     </ScrollView>
   );
@@ -229,4 +255,7 @@ const styles = StyleSheet.create({
   outputPage: { flex: 1, backgroundColor: colors.background },
   outputFrame: { flex: 1, width: '100%', maxWidth: 540, alignSelf: 'center', paddingHorizontal: 22, gap: 12 },
   outputScroll: { flex: 1 },
+  cardActions: { justifyContent: 'flex-end' },
+  outputActions: { flexDirection: 'row', gap: 8 },
+  outputAction: { flex: 1 },
 });

@@ -11,6 +11,7 @@ class AITask(StrEnum):
     REVISE = "revise"
     JOURNAL_COMMON = "journal_common"
     JOURNAL_INDIVIDUAL = "journal_individual"
+    JOURNAL_WORD_LAYOUT = "journal_word_layout"
     AREAS = "areas"
 
 

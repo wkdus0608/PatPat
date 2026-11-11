@@ -213,6 +213,8 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
   const presentChildren = blocks.filter(block => !block.is_common && !block.absent);
   const observedChildren = presentChildren.filter(block => block.text.trim());
   const reviewing = session?.status === 'reviewing';
+  const editing = !!session && !run?.initial && !generating && session.status !== 'asking' && !reviewing;
+  const showAreaCheck = editing && checkingAreas;
   const eligible = presentChildren.filter(block => !session?.notices.some(notice => notice.child_id === block.child_id && notice.status === '완료'));
   const targets = eligible.flatMap(block => block.child_id && targetChoices.includes(block.child_id) ? [block.child_id] : []);
   const availableRecordingIds = new Set(recordings.rows.flatMap(row => row.draftId ? [row.draftId] : []));
@@ -381,23 +383,12 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
               <Text style={workStyles.body}>{block.text}</Text>
               <Areas areas={block.areas} disabled={action.busy} onChange={areas => editBlock(block.block_id, { areas })} />
             </View>)}
-            <WorkButton label="초안 만들기" busy={action.busy}
-              onPress={() => { void action.run(() => generate(session)); }} />
-            <WorkButton label="입력으로 돌아가기" secondary disabled={action.busy} onPress={() => setCheckingAreas(false)} />
           </> : <>
             {session.status === 'failed' && <WorkMessage error>{jobMessage(session.error_code)}</WorkMessage>}
             {blocks.map(block => <InputBlock key={block.block_id} block={block} busy={action.busy} menu={menu}
               common={block.is_common ? undefined : common} preferences={preferences}
               onChange={change => editBlock(block.block_id, change)} />)}
             {blocks.every(block => block.is_common) && <WorkMessage>설정에서 아동을 등록해 주세요.</WorkMessage>}
-            {saved && <WorkMessage>입력한 내용을 저장했어요.</WorkMessage>}
-            <View style={workStyles.between}>
-              <WorkButton label="입력 저장" secondary disabled={action.busy} onPress={() => { void action.run(async () => {
-                await saveInputs(session);
-                setSaved(true);
-              }); }} />
-              <WorkButton label="다음" disabled={action.busy} onPress={checkAreas} />
-            </View>
           </>}
         {run && (run.stage === 'asking' ? <ReviewQuestions
           key={run.flags.map(flag => flag.flag_id).join(',')} flags={run.flags} busy={action.busy} onDirty={onDirty}
@@ -416,7 +407,8 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
               recordingAction(() => api.applyRecordingDraft(session.session_id, run.run_id, childId), true);
             }}
             onDismiss={() => recordingAction(() => api.dismissRecordingDraft(session.session_id, run.run_id))} />)}
-        {!checkingAreas && <NoticeRecordingList key={day} list={{ ...recordings, reload: () => {
+        {(!showAreaCheck || checkedRecordings.length > 0) && <NoticeRecordingList key={day + (showAreaCheck ? ':preview' : '')}
+          preview={showAreaCheck} list={{ ...recordings, reload: () => {
           recordings.reload();
           if (!audioWorking && !action.busy) setAudioAttempt(value => value + 1);
         } }} account={account} active={active} used={used} busy={action.busy} deleteBlocked={!!run}
@@ -436,6 +428,21 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
             </View>
           </>}
         </NoticeRecordingList>}
+        {showAreaCheck && <>
+          <WorkButton label="초안 만들기" busy={action.busy}
+            onPress={() => { void action.run(() => generate(session)); }} />
+          <WorkButton label="입력으로 돌아가기" secondary disabled={action.busy} onPress={() => setCheckingAreas(false)} />
+        </>}
+        {editing && !checkingAreas && <>
+          {saved && <WorkMessage>입력한 내용을 저장했어요.</WorkMessage>}
+          <View style={workStyles.between}>
+            <WorkButton label="입력 저장" secondary disabled={action.busy} onPress={() => { void action.run(async () => {
+              await saveInputs(session);
+              setSaved(true);
+            }); }} />
+            <WorkButton label="다음" disabled={action.busy} onPress={checkAreas} />
+          </View>
+        </>}
       </>}
     </ScrollView>
   );
