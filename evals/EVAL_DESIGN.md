@@ -74,10 +74,12 @@ python evals/run_evals.py judge 'evals/results/<실행_ID>.json' --judge-model '
 
 EV-14는 같은 부상 기록의 좌우가 충돌할 때 일치하는 사실과 `좌우 확인 필요`를 남긴다. EV-20은 메모 속 명시적인 작성 요청을 교사에게 확인할 때까지 초안 생성을 멈춘다. 백엔드 테스트 368건과 평가기 테스트 12건이 통과했다. [실패 분석과 재검증 기록](../docs/prompts/delegation_evals.md)
 
+**배포 알림장 20건의 독립 사람·GPT 판정 일치율은 18/20(90%)로 80% 기준을 충족했다.** 같은 가상 관찰과 배포 초안을 대상으로 사람과 GPT의 판정을 따로 기록했다. 알림장 통과율은 사람과 GPT 각각 14/20(70%)였다. 이 표본의 GPT 직접 판정과 API 러너의 채점은 실행 경로가 다르므로 일치율은 해당 배포 표본에 적용한다. [독립 판정 결과](results/demo/2026-11-19-blind-agreement.md)
+
 | 제출 자료 | 파일 |
 |---|---|
 | 설계와 수용 기준 | [평가 설계서](EVAL_DESIGN.md) · [제품 스펙](../docs/SPEC.md) |
 | 데이터셋과 채점 기준 | [평가 사례](evalset.jsonl) · [채점 프롬프트](judge_prompt.md) |
 | 실행과 검증 | [러너](run_evals.py) · [평가 로직](grading.py) · [PatPat 연결](patpat_adapter.py) · [평가기 테스트](test_evals.py) |
 | 원본 초안과 실행 이력 | [수정 후 초안](results/2026-11-18T160022Z-7838b4.json) · [실행 이력](results/history.csv) |
-| 후속 검증 | [독립 사람 채점표](BLIND_HUMAN_REVIEW.md) · [반복 측정](REPEATABILITY.md) · [실패 사례 분석](ERROR_ANALYSIS.md) |
+| 후속 검증 | [독립 사람 채점표](BLIND_HUMAN_REVIEW.md) · [독립 사람 라벨](results/demo/2026-11-19-blind-human-labels.jsonl) · [반복 측정](REPEATABILITY.md) · [실패 사례 분석](ERROR_ANALYSIS.md) |
