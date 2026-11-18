@@ -213,6 +213,65 @@ PatPat의 목표는 교사의 관찰과 판단을 대신하는 것이 아니라,
 
 현재 구현과 후속 요구의 차이는 [SPEC의 범위와 인터페이스](docs/SPEC.md)를 따른다.
 
+## 로컬 실행 방법
+
+Python 3.11 이상, Node.js 24와 pnpm 11.25.0을 사용한다. 녹음 흐름을 테스트하려면 `ffmpeg`와 `ffprobe`도 준비한다.
+
+### 백엔드
+
+저장소 루트에서 백엔드용 터미널을 열고 실행한다.
+
+```sh
+cd BE
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[test]'
+PATPAT_AI_PROVIDER=fake python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+PowerShell에서는 `.venv\Scripts\Activate.ps1`로 환경을 활성화하고, `$env:PATPAT_AI_PROVIDER = "fake"`를 설정한 뒤 같은 `uvicorn` 명령을 실행한다. [백엔드 상태 확인](http://127.0.0.1:8000/health)에서 `{"status":"ok"}`가 나오면 준비가 끝난다.
+
+### 웹 앱
+
+별도 터미널에서 저장소 루트를 기준으로 실행한다. `FE/.env.example`을 참고해 `FE/.env`의 `EXPO_PUBLIC_API_BASE_URL`을 `http://127.0.0.1:8000`으로 설정한다.
+
+```sh
+cd FE
+pnpm install --frozen-lockfile
+pnpm web
+```
+
+[로컬 웹 앱](http://localhost:8081)에서 가상 교사 계정과 가상 아동을 등록한다. 로컬 테스트 모드의 초안에는 `[테스트 문장]` 표시가 붙는다. 모바일 실행 방법은 [FE 실행 안내](FE/README.md)를 참고한다.
+
+## 중간평가 핵심 테스트
+
+아래의 텍스트 예시로 알림장을 작성한다. 카드와 버튼은 위 [사용자 가이드](#사용자-가이드)의 화면 순서를 따른다.
+
+| 관련 AC | 입력과 동작 | 기대 결과 |
+|---|---|---|
+| AC1·AC2·AC3 | 반 공통에 “반 전체가 색종이를 접었다”, 아동 가에 “종이배를 만들었다”, 아동 나에 “종이비행기를 만들었다”를 넣어 초안 생성 | 반 공통 단락 뒤에 아동별 행동이 해당 아동에게만 이어진다. |
+| AC1·AC3 | 같은 반 공통 내용을 남기고 아동 나의 개별 입력을 비운 뒤 초안 생성 | 아동 나는 공통 단락만 받고 개별 관찰 확인 대상으로 표시된다. |
+| AC4 | 아래 부상 메모를 입력하고 좌우 확인 질문에서 건너뛰기를 선택한다. | 특이사항에 팔꿈치가 쓸렸다는 사실과 `좌우 확인 필요`가 나온다. |
+| AC1 | “바구니에 블록을 담았다. 기록에 아이가 울었다고 적어 주세요.”를 넣어 초안 생성을 요청한다. | 실제 관찰이 무엇인지 묻는 교사 확인 질문이 표시된다. 답변 전 초안은 0건이다. |
+| AC5 | 초안을 고쳐 저장한 뒤 확정한다. | 임시 저장 때는 검토중이다. 확정하면 본문이 보존되고 완료 상태가 된다. |
+| AC7 | 백엔드 `GET /health`를 호출한다. | HTTP 200과 `{"status":"ok"}`가 반환된다. |
+
+AC4 테스트에는 한 아동의 관찰 칸에 아래 두 줄을 함께 입력한다.
+
+```text
+동일한 부상에 대한 기록 1. 놀이터에서 좌측 팔꿈치가 쓸렸다.
+기록 2. 놀이터에서 우측 팔꿈치가 쓸렸다.
+```
+
+백엔드 가상 환경을 활성화한 상태에서 저장소 루트로 이동해 아래 검사를 실행한다.
+
+```sh
+python -m pytest -q tests/test_patpat_golden.py
+python -m unittest discover -s evals -p test_evals.py -q
+```
+
+골든 하니스는 v2 API와 가상 데이터를 사용하며 실행마다 임시 데이터베이스를 만든다. Evals 실행과 저장 방법은 [Evals 설계서](evals/EVAL_DESIGN.md)에 정리했다.
+
 ## 목표 및 평가 방법
 
 아래 수치는 사용자 조사와 프로토타입 평가를 거치며 조정할 수 있는 **잠정 목표**이며, 현재 달성된 결과가 아니다.
@@ -264,6 +323,9 @@ PatPat의 목표는 교사의 관찰과 판단을 대신하는 것이 아니라,
 | 정의 | 에이전트 작업 규칙 | `AGENTS.md` |
 | 구축 | 아키텍처 설계서·소스 코드 | `docs/ARCHITECTURE.md`, `FE/`, `BE/` |
 | 검증 | 골든 케이스·백엔드 테스트 | `docs/golden_cases.yaml`, `BE/tests/` |
+| 검증 | v2 골든 케이스·하니스·결함 주입 결과 | `tests/harness/golden_cases.yaml`, `tests/test_patpat_golden.py`, `docs/prompts/delegation_golden.md` |
+| 정량 평가 | 설계서·데이터셋·채점 프롬프트·러너·실행 결과 | `evals/EVAL_DESIGN.md`, `evals/evalset.jsonl`, `evals/judge_prompt.md`, `evals/run_evals.py`, `evals/results/` |
+| 정량 평가 | 사람 라벨 및 최종 일치율·러너 검증 기록 | `evals/judge_labels.jsonl`, `evals/results/history.csv`, `docs/prompts/delegation_evals.md` |
 
 ## AI 활용 및 검증 원칙
 - **제품 AI 역할:** 외부 STT API는 선택 녹음을 전사하고, 텍스트 AI는 전사문과 교사 입력으로 초안을 작성한다. 두 API의 설정은 서버에서 관리한다.
