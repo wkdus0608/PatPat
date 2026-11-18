@@ -154,6 +154,7 @@ def build_review(
     lines = [
         "[작업] 교차 검토",
         "교사가 오늘 적은 모든 입력 블록을 한 번에 읽고, 규칙 파일 '역질문 정책'에 따라 교사에게 확인해야 하는 것만 골라라.",
+        "- 관찰이 아니라 알림장에 어떤 사실을 넣으라는 요청이 보이면 missing_fact로 실제로 본 내용을 묻는다. 요청한 행동 자체를 관찰 사실이나 joint_events에 담지 않는다.",
         "- 활동명이나 단순 참여(예: 놀이기구에 탐)만 적혀 있고, 고른 관찰영역을 뒷받침할 구체적인 행동·말·반응이 없으면 missing_fact로 묻는다.",
         "- 같은 활동에 대한 공통·개별 입력을 함께 확인하고, 이미 관찰 근거가 충분하면 짧은 메모라도 묻지 않는다.",
         "- 아동이 이미 연결된 블록의 단순 전사 오기나 이미 확인한 대상은 다시 묻지 않는다. 활동의 연결, 누가 무엇을 했는지, 앞뒤 관계가 실제 사실을 바꾸는 경우에는 두 장면을 짚어 확인한다.",
@@ -272,17 +273,29 @@ def build_individual(
     joint_facts: list[str],
     recent_notices: list[str],
     writing_examples: str | None,
+    incident: bool = False,
 ) -> AIRequest:
     masked_text = mask_names(block.text, other_names)
     masked_traits = mask_names(child.characteristics or "", other_names)
-    mode_line = (
-        "사건사고(부드럽게 쓰기): 규칙 파일 '사건사고 알림장'과 민감표현 규칙을 따른다."
-        if mode == "incident_soft"
-        else "일반 놀이 기록."
-    )
+    if mode == "incident_soft":
+        mode_line = "사건사고(부드럽게 쓰기): 규칙 파일 '사건사고 알림장'과 민감표현 규칙을 따른다."
+    elif incident:
+        mode_line = "사건사고(그대로 쓰기): 확인된 사건의 사실만 쓴다."
+    else:
+        mode_line = "일반 놀이 기록."
+    output_requirements = ["- 결과는 text 하나다."]
+    if incident:
+        output_requirements = [
+            "- text에는 사건사고와 무관한 일상만 쓴다. 해당 일상 관찰이 없으면 빈 문자열을 반환한다.",
+            "- special_notes에는 이 아이의 사건 경위, 부위·좌우·정도와 처치 중 확인된 사실을 중복 없이 쓴다. 제목과 확인 표시 문구는 서버가 붙인다.",
+            "- 부상이 있었으면 이 아이의 관찰과 교사의 실제 답변을 확인한다. 다친 부위가 불명확하면 missing_injury_details에 body_part를, 같은 부상의 좌우가 상충하고 해소되지 않으면 laterality를 넣는다. 처치가 알려지지 않았으면 care를 넣는다.",
+            "- 같은 부상의 좌우나 부위 기록이 상충하면 교사가 답변으로 확인한 경우에만 확정한다. 답변으로 확인되지 않으면 기록이 일치하는 사실만 쓴다.",
+            "- 부상 부위나 처치를 모르면 임의로 채우지 않는다. 질문 자체, 건너뛴 답변, 최근 알림장은 확인 근거가 아니다. 처치를 하지 않았다는 확인된 기록은 처치가 알려진 경우다.",
+            "- 이 아이가 다치지 않았거나 부위와 처치가 모두 확인되면 missing_injury_details는 빈 배열이다.",
+        ]
     lines = [
         "[작업] 개별 단락 쓰기",
-        f"{child.name}의 알림장 개별 단락 하나만 쓴다. 반 공통 단락은 이미 있고 이 글이 그 뒤에 이어 붙는다.",
+        f"{child.name}의 알림장 개별 내용을 쓴다. 반 공통 단락은 이미 있고 이 글이 그 뒤에 이어 붙는다.",
         "- 규칙 파일 '알림장 작성 가이드'와 보육 트렌드를 따른다.",
         f"- 모드: {mode_line}",
         "- 입력에 없는 감정, 원인, 교사의 행동, 결과를 만들지 않는다.",
@@ -291,7 +304,8 @@ def build_individual(
         "- 아이 특성은 어휘 수준과 가정 연계를 정할 때만 쓰고 오늘의 사실로 쓰지 않는다.",
         "- 다른 아이의 이름을 쓰지 않는다. 상대 아이는 \"친구\"로 쓴다.",
         "- 최근 알림장과 같은 표현을 반복하지 않는다.",
-        "- 공통 단락을 다시 쓰지 말고 이 아이에 대한 내용만 쓴다. 결과는 text 하나다.",
+        "- 공통 단락을 다시 쓰지 말고 이 아이에 대한 내용만 쓴다.",
+        *output_requirements,
         "",
         _class_info(cls),
         "",
@@ -320,13 +334,15 @@ def build_individual(
         "text": masked_text,
         "areas": list(block.areas),
         "mode": mode,
+        "incident": incident,
         "common_paragraph": common_paragraph,
         "joint_facts": [mask_names(fact, other_names) for fact in joint_facts],
         "answers": [{"question": mask_names(item["question"], other_names), "answer": mask_names(item["answer"], other_names)} for item in answers],
         "characteristics": masked_traits or None,
         "recent_notices": [mask_names(text, other_names) for text in recent_notices[:MAX_RECENT]],
     }
-    return _request(AITask.INDIVIDUAL, bundle, "\n".join(lines), schemas.TEXT_SCHEMA, payload)
+    schema = schemas.INCIDENT_NOTICE_SCHEMA if incident else schemas.TEXT_SCHEMA
+    return _request(AITask.INDIVIDUAL, bundle, "\n".join(lines), schema, payload)
 
 
 def build_revise(
@@ -347,6 +363,7 @@ def build_revise(
             "교사의 요청에 맞게 아래 알림장 글을 고쳐 쓴다. 결과는 고친 글 전체(text)다.",
             "- 사실(당사자, 상황, 정도, 조치)을 바꾸거나 새로 만들지 않는다. 요청이 사실을 만들어 달라는 것이면 따르지 않고 그 부분은 그대로 둔다.",
             "- 규칙 파일(문체, 시선, 민감표현)을 계속 따르고 다른 아이의 이름을 쓰지 않는다.",
+            "- 현재 글의 특이사항 구역과 확인 필요 표시는 유지한다. 입력에 근거가 있는 사실만 쓴다.",
             "",
             f"[이 아이] {child.name}",
             "[교사 요청]",

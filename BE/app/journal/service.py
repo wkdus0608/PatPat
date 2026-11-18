@@ -2,7 +2,7 @@
 import hashlib
 import re
 
-from app.ai import prompts, schemas
+from app.ai import observations, prompts, schemas
 from app.ai.anthropic_client import NotConfiguredAIClient
 from app.ai.gateway import AIGateway
 from app.ai.privacy import mask_names
@@ -87,6 +87,9 @@ class JournalService:
         blocks = source["blocks"] if source else self.sessions.list_blocks(notice["session_id"], only_active=False)
         child_block = next((block for block in blocks if block["child_id"] == notice["child_id"]), None)
         common_block = next((block for block in blocks if block["is_common"]), None)
+        if notice.get("incident"):
+            display_lines = {schemas.NOTICE_INCIDENT_HEADING, *schemas.INJURY_CONFIRMATION_LABELS.values()}
+            notice_text = "\n".join(line for line in notice_text.split("\n") if line.strip() not in display_lines)
         return plan_rows(notice_text, child_block, common_block, rules_hash=self.rules.rules_hash)
 
     def _input_specs(self, notice: dict, flags: list[dict]) -> list[dict]:
@@ -103,10 +106,12 @@ class JournalService:
             if not block or not block["filled"]:
                 return ""
             # A generated summary from a peer's perspective can invert the actor.
-            parts = [block["text"]]
+            text, _ = observations.confirmed_observation(block["text"], flags, scoped_id)
+            parts = [text]
             for flag in flags:
                 applies = scoped_id in flag["child_ids"] if scoped_id is not None else not flag["child_ids"]
-                if not applies or flag["status"] != "answered" or flag["kind"] in ("area", "place", "time_text"):
+                if (not applies or flag["status"] != "answered"
+                        or flag["kind"] in ("area", "place", "time_text", *observations.SOURCE_CONFIRMATION_KINDS)):
                     continue
                 answer = flag["answer"]
                 if answer and (flag["kind"] != "incident" or answer not in ("부드럽게", "그대로")):

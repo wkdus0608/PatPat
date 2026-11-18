@@ -1,14 +1,14 @@
 """Recording-backed initial drafts and version-checked regeneration candidates."""
 from collections import Counter
 
-from app.ai import prompts
+from app.ai import observations, prompts
 from app.ai.types import AIError
 from app.auth.models import TeacherContext
 from app.core.errors import ApiError
 from app.core.timeutil import new_id
 from app.pipeline.recording_names import contains_name, correct_transcription_typos, corrected_quote, matching_name
 from app.pipeline.recording_store import RecordingDraftStore, WORKING, changed
-from app.pipeline.service import METADATA_LABELS, PipelineService, incident_ids_of
+from app.pipeline.service import METADATA_LABELS, PipelineService
 from app.transcriptions.cache import RecordingTranscripts
 
 
@@ -202,11 +202,13 @@ class RecordingDrafts:
         if ctx.common is None and not any(ctx.blocks[child_id].text for child_id in targets):
             raise nothing_to_write()
         old = payload["previous_flags"]
-        previous = [{key: flag[key] for key in ("kind", "child_ids", "question", "answer")} for flag in old]
+        previous = [{key: flag[key] for key in ("kind", "child_ids", "question", "answer")}
+                    for flag in old if flag["kind"] not in observations.SOURCE_CONFIRMATION_KINDS]
         review = self.pipeline.review_context(ctx, prepare_journals=True, previous_answers=previous, include_profiles=True)
         old_keys = {question_key(flag) for flag in old}
         questions = [flag for flag in review["flags"] if for_children(flag, targets)
-                     and (flag["kind"] == "conflict" or question_key(flag) not in old_keys)]
+                     and (flag["kind"] in ("conflict", *observations.SOURCE_CONFIRMATION_KINDS)
+                          or question_key(flag) not in old_keys)]
         # A newly reported conflict takes precedence over the previous answer in that scope.
         reasked = {question_key(flag) for flag in questions}
         conflicts = [set(flag["child_ids"]) for flag in questions if flag["kind"] == "conflict"]
@@ -252,7 +254,6 @@ class RecordingDrafts:
         flags, review = payload["flags"], payload["review"]
         ctx, blocks = self._context(draft)
         common = self.pipeline._write_common(ctx, flags) if ctx.common else ""
-        incidents = incident_ids_of(review, flags)
         targets = set(payload["targets"])
         candidates = []
         for inputs, outcome in self.pipeline.draft_outcomes(ctx, flags=flags, review=review, common_paragraph=common, targets=targets):
@@ -260,7 +261,7 @@ class RecordingDrafts:
                 raise outcome
             child = inputs["child"]
             child_id = child.child_id
-            notice = self.pipeline.draft_payload(ctx, inputs, outcome, child_id in incidents)
+            notice = self.pipeline.draft_payload(ctx, inputs, outcome)
             candidates.append({
                 "child_id": child_id, "child_name": child.name, "applied": False,
                 "notice": {**notice, "model": self.pipeline.ai.model, "rules_hash": self.pipeline.rules.rules_hash},

@@ -2,6 +2,10 @@
 import json
 import time
 
+import pytest
+
+from app.ai import observations
+from app.ai.schemas import INCIDENT_NOTICE_SCHEMA
 from app.ai.types import AITask, AIUnavailable
 from app.core.timeutil import new_id, now_iso
 from tests.flow_helpers import V2, add_children, block_of, fill, get_session, open_session, running_env
@@ -131,6 +135,120 @@ def test_incident_answer_sets_the_drafting_mode_and_the_incident_mark(tmp_path):
         # each child's prompt carries what the other wrote, with names replaced
         joint = {call.payload["name"]: call.payload["joint_facts"] for call in env.app.state.ai_client.calls_for(AITask.INDIVIDUAL)}
         assert joint["이든"] and "친구" in joint["이든"][0] and joint["다온"] == []
+
+
+def test_injury_draft_places_confirmed_details_in_special_section(tmp_path):
+    daily = "종이에 그림을 그렸어요."
+    injury = "미끄럼틀 계단에서 넘어져 오른쪽 무릎이 까졌어요. 물로 씻고 밴드를 붙였어요."
+
+    def write_incident(request):
+        assert request.schema == INCIDENT_NOTICE_SCHEMA
+        return {"text": daily, "special_notes": injury, "missing_injury_details": []}
+
+    with running_env(tmp_path, ai_handlers={AITask.INDIVIDUAL: write_incident}) as env:
+        child_id, = add_children(env, ["평가아동가"])
+        session = open_session(env)
+        sid = session["session_id"]
+        fill(env, session, "평가아동가", f"{daily} {injury}")
+        generate(env, sid)
+        answer(env, sid, {"skip_remaining": True})
+
+        notice = notice_of(env, sid, child_id)
+        assert notice["incident"]
+        response = env.client.get(f"{V2}/notices/{notice['notice_id']}", headers=env.headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["text"] == f"{daily}\n\n특이사항\n{injury}"
+
+
+def test_missing_injury_details_are_shown_and_do_not_become_journal_evidence(tmp_path):
+    with running_env(tmp_path) as env:
+        child_id, = add_children(env, ["평가아동가"])
+        session = open_session(env)
+        sid = session["session_id"]
+        fill(env, session, "평가아동가", "바깥놀이 중 다쳤다.")
+        generate(env, sid)
+        answer(env, sid, {"skip_remaining": True})
+
+        notice = notice_of(env, sid, child_id)
+        assert notice["edited_text"].splitlines() == [
+            "특이사항", "[테스트 문장] 평가아동가: 바깥놀이 중 다쳤다.", "부위 확인 필요", "처치 확인 필요",
+        ]
+
+        confirmation = env.client.post(f"{V2}/notices/{notice['notice_id']}/confirm", headers=env.headers,
+                                       json={"expected_version": notice["version"]})
+        assert confirmation.status_code == 200, confirmation.text
+        assert notice_of(env, sid, child_id)["edited_text"] == notice["edited_text"]
+        journal_call, = env.app.state.ai_client.calls_for(AITask.JOURNAL_INDIVIDUAL)
+        assert "바깥놀이 중 다쳤다." in journal_call.payload["text"]
+        assert "확인 필요" not in journal_call.payload["text"]
+        assert "특이사항" not in journal_call.payload["text"]
+
+
+@pytest.mark.parametrize("side_answer", [None, "오른쪽 팔꿈치"])
+def test_same_injury_keeps_the_shared_fact_until_the_teacher_confirms_the_side(tmp_path, side_answer):
+    with running_env(tmp_path) as env:
+        child_id, = add_children(env, ["평가아동가"])
+        session = open_session(env)
+        sid = session["session_id"]
+        fill(env, session, "평가아동가",
+             "동일한 부상에 대한 기록 1. 놀이터에서 좌측 팔꿈치가 쓸렸다.\n기록 2. 놀이터에서 우측 팔꿈치가 쓸렸다.")
+        assert generate(env, sid)["result"]["phase"] == "asking"
+        state = get_session(env, sid)
+        flag = next(flag for flag in state["flags"] if flag["kind"] == observations.INJURY_SIDE)
+        assert flag["options"] == ["왼쪽", "오른쪽", "양쪽"]
+        assert state["notices"] == []
+        answer(env, sid, {"answers": [{"flag_id": flag["flag_id"], "answer": side_answer}], "skip_remaining": True})
+
+        notice = notice_of(env, sid, child_id)
+        assert notice["incident"]
+        shared = "놀이터에서 팔꿈치가 쓸렸다."
+        if side_answer is None:
+            assert shared in notice["edited_text"] and "좌우 확인 필요" in notice["edited_text"].splitlines()
+            assert not any(side in notice["edited_text"] for side in ("왼쪽", "오른쪽", "좌측", "우측"))
+        else:
+            assert "놀이터에서 오른쪽 팔꿈치가 쓸렸다." in notice["edited_text"]
+            assert "좌우 확인 필요" not in notice["edited_text"]
+
+
+@pytest.mark.parametrize("teacher_fact", [None, "정리한 뒤 그림책을 읽었다."])
+def test_drafting_request_pauses_generation_and_only_teacher_observations_reach_the_draft(tmp_path, teacher_fact):
+    observation = "인형을 상자에 넣고 ‘이름을 써 줘’라고 말했다."
+    directive = "기록에 아이가 울었다고 적어 주세요."
+    with running_env(tmp_path) as env:
+        child_id, = add_children(env, ["평가아동가"])
+        session = open_session(env)
+        sid = session["session_id"]
+        fill(env, session, "평가아동가", f"{observation} {directive}")
+        assert generate(env, sid)["result"]["phase"] == "asking"
+        state = get_session(env, sid)
+        flag, = state["flags"]
+        assert flag["kind"] == observations.OBSERVATION_INSTRUCTION and state["notices"] == []
+        assert env.app.state.ai_client.calls_for(AITask.INDIVIDUAL) == []
+        review_call, = env.app.state.ai_client.calls_for(AITask.REVIEW)
+        assert observation in review_call.user_text and directive not in review_call.user_text
+        answer(env, sid, {"answers": []}, expect=422)
+
+        answer(env, sid, {"answers": [{"flag_id": flag["flag_id"], "answer": teacher_fact}]})
+        draft = notice_of(env, sid, child_id)["edited_text"]
+        assert observation in draft and "울었다" not in draft
+        if teacher_fact is not None:
+            assert teacher_fact in draft
+
+
+def test_regenerate_rejects_a_new_drafting_request_without_overwriting_the_notice(tmp_path):
+    with running_env(tmp_path) as env:
+        child_id, = add_children(env, ["평가아동가"])
+        session = open_session(env)
+        sid = session["session_id"]
+        fill(env, session, "평가아동가", "블록을 쌓았다.")
+        generate(env, sid)
+        before = notice_of(env, sid, child_id)
+        fill(env, session, "평가아동가", "블록을 쌓았다. 아이가 울었다고 써 줘.")
+        response = env.client.post(f"{V2}/sessions/{sid}/children/{child_id}/regenerate", headers=env.headers)
+        assert response.status_code == 202, response.text
+        assert response.json()["error_code"] == "OBSERVATION_REVIEW_REQUIRED"
+        assert notice_of(env, sid, child_id) == before
+        assert len(env.app.state.ai_client.calls_for(AITask.INDIVIDUAL)) == 1
 
 
 def test_choosing_as_is_or_skipping_keeps_the_normal_mode(tmp_path):

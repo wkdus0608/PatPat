@@ -13,7 +13,12 @@ from app.ai.types import AIRequest, AIResult, AITask, AIUnavailable, AIUsage
 from app.rules.loader import AREAS
 
 MARK = "[테스트 문장] "
-INCIDENT_WORDS = ("밀침", "밀었", "넘어", "때림", "때렸", "깨묾", "깨물", "다침", "다쳤", "쓸림", "쓸려", "부딪", "할큄", "물림", "상처")
+INJURY_WORDS = ("다침", "다쳤", "까짐", "까졌", "쓸림", "쓸려", "쓸렸", "할큄", "물림", "상처")
+INCIDENT_WORDS = ("밀침", "밀었", "넘어", "때림", "때렸", "깨묾", "깨물", "부딪", *INJURY_WORDS)
+INJURY_DETAIL_WORDS = {
+    "body_part": ("팔", "다리", "손", "발", "무릎", "어깨", "머리", "이마", "얼굴", "입술", "턱", "등", "배", "엉덩이"),
+    "care": ("씻", "닦", "소독", "밴드", "거즈", "연고", "찜질", "처치하지 않", "처치하지 못"),
+}
 AREA_KEYWORDS = {
     "신체운동·건강": ("뛰", "걷", "달리", "던지", "미끄럼", "그네", "점프", "운동", "손 씻", "낮잠"),
     "의사소통": ("말", "이야기", "책", "대답", "물어", "큰거", "옹알"),
@@ -75,6 +80,13 @@ def _individual(request: AIRequest) -> dict:
         text += " (사건사고 구성)"
     if payload["joint_facts"]:
         text += " / " + " / ".join(payload["joint_facts"])
+    if payload.get("incident"):
+        # The demo provider uses a small vocabulary to exercise structured responses offline.
+        source = " ".join([payload["text"], *(item["answer"] for item in payload["answers"])])
+        missing = []
+        if any(word in source for word in INJURY_WORDS):
+            missing = [detail for detail, words in INJURY_DETAIL_WORDS.items() if not any(word in source for word in words)]
+        return {"text": "", "special_notes": text, "missing_injury_details": missing}
     return {"text": text}
 
 
