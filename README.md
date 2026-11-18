@@ -270,7 +270,9 @@ python -m pytest -q tests/test_patpat_golden.py
 python -m unittest discover -s evals -p test_evals.py -q
 ```
 
-골든 하니스는 v2 API와 가상 데이터를 사용하며 실행마다 임시 데이터베이스를 만든다. Evals 실행과 저장 방법은 [Evals 설계서](evals/EVAL_DESIGN.md)에 정리했다.
+골든 하니스는 v2 API와 가상 데이터를 사용하며 실행마다 임시 데이터베이스를 만든다. [골든 케이스](tests/harness/golden_cases.yaml)와 [결함 주입 기록](docs/prompts/delegation_golden.md)에서 검증 입력과 실패 확인 결과를 볼 수 있다.
+
+[Evals 설계서](evals/EVAL_DESIGN.md)에서 지표·합격선과 실행 방법을 확인할 수 있다. [실행 이력](evals/results/history.csv)과 [배포 알림장 20건 독립 판정 결과](evals/results/demo/2026-11-19-blind-agreement.md)는 각 평가의 원본과 사람 라벨에 연결된다.
 
 ## 목표 및 평가 방법
 
@@ -301,7 +303,7 @@ python -m unittest discover -s evals -p test_evals.py -q
 | 워크플로 관찰 | 예정 | 기록 작성의 단계, 도구, 반복 입력, 우회로 확인 |
 | 미니 온톨로지·문제 정의·스펙 | 작성 | 제품 범위와 수용 기준 정리 |
 | 프로토타입 | 개발 중 | 알림장, 연결 관찰일지, Word 출력, 외부 STT API 연동 구현 |
-| 사용자 평가·정량 평가 | 예정 | 사용성 검증과 생성 품질 측정 |
+| 사용자 평가·정량 평가 | 정량 평가 기록 | [Evals 결과](evals/EVAL_DESIGN.md), 추가 사용성 검증 예정 |
 | 기술 스택 | 적용 | React Native·Expo, Python·FastAPI, SQLite |
 
 ## 연구 및 개발 로드맵
