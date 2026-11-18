@@ -1,0 +1,177 @@
+{
+  "source_capture": "2026-11-19-blind-capture.json",
+  "source_capture_sha256": "9cd69103d1c6e76fce83a82c68e976a7044123296a54caee2594af5b06e5e6be",
+  "human_labels": "2026-11-19-blind-human-labels.jsonl",
+  "human_reply": "01A 02A 03A 04A 05B 06A 07A 08B 09A 10A 11B 12A 13B 14A 15A 16B 17B 18A 19A 20A",
+  "gpt_judgment": "2026-11-19-blind-gpt-judgment.json",
+  "gpt_judgment_sha256": "cd33788e32fd9e33d54c835eb99aece42221d977504efe276c8eec63d274af8e",
+  "gpt_judgment_recorded_before_human_response": true,
+  "scope": "새 가상 입력으로 배포 데모가 생성한 알림장 20건의 독립 의미 판정 일치도",
+  "agreement": {
+    "source_run_id": "patpat-demo-blind-2026-11-19",
+    "labeled_cases": 20,
+    "total": 20,
+    "matched": 18,
+    "agreement": 0.9,
+    "threshold": 0.8,
+    "passed": true,
+    "mismatches": [
+      {
+        "id": "05",
+        "criterion": "draft_quality"
+      },
+      {
+        "id": "12",
+        "criterion": "draft_quality"
+      }
+    ]
+  },
+  "counts": {
+    "human_pass": 14,
+    "gpt_pass": 14,
+    "both_pass": 13,
+    "both_fail": 5
+  },
+  "cases": [
+    {
+      "id": "01",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "02",
+      "ac": "AC2",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "03",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "04",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "05",
+      "ac": "AC1",
+      "human_pass": false,
+      "gpt_pass": true,
+      "matched": false
+    },
+    {
+      "id": "06",
+      "ac": "AC3",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "07",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "08",
+      "ac": "AC2",
+      "human_pass": false,
+      "gpt_pass": false,
+      "matched": true
+    },
+    {
+      "id": "09",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "10",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "11",
+      "ac": "AC2",
+      "human_pass": false,
+      "gpt_pass": false,
+      "matched": true
+    },
+    {
+      "id": "12",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": false,
+      "matched": false
+    },
+    {
+      "id": "13",
+      "ac": "AC1",
+      "human_pass": false,
+      "gpt_pass": false,
+      "matched": true
+    },
+    {
+      "id": "14",
+      "ac": "AC3",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "15",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "16",
+      "ac": "AC4",
+      "human_pass": false,
+      "gpt_pass": false,
+      "matched": true
+    },
+    {
+      "id": "17",
+      "ac": "AC4",
+      "human_pass": false,
+      "gpt_pass": false,
+      "matched": true
+    },
+    {
+      "id": "18",
+      "ac": "AC2",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "19",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    },
+    {
+      "id": "20",
+      "ac": "AC1",
+      "human_pass": true,
+      "gpt_pass": true,
+      "matched": true
+    }
+  ]
+}
