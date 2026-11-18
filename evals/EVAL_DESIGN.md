@@ -80,3 +80,4 @@ EV-14는 같은 부상 기록의 좌우가 충돌할 때 일치하는 사실과 
 | 데이터셋과 채점 기준 | [평가 사례](evalset.jsonl) · [채점 프롬프트](judge_prompt.md) |
 | 실행과 검증 | [러너](run_evals.py) · [평가 로직](grading.py) · [PatPat 연결](patpat_adapter.py) · [평가기 테스트](test_evals.py) |
 | 원본 초안과 실행 이력 | [수정 후 초안](results/2026-11-18T160022Z-7838b4.json) · [실행 이력](results/history.csv) |
+| 후속 검증 | [독립 사람 채점표](BLIND_HUMAN_REVIEW.md) · [반복 측정](REPEATABILITY.md) · [실패 사례 분석](ERROR_ANALYSIS.md) |
