@@ -1,0 +1,105 @@
+{
+  "source_run_id": "2026-11-18T11-49-51-861Z",
+  "source_capture": "2026-11-18T11-49-51-861Z-demo-capture.json",
+  "human_labels": "../../judge_labels.jsonl",
+  "method": "ChatGPT regrading after the user requested review of strict judgments",
+  "human_labels_seen_before_review": true,
+  "evidence": "Displayed PatPat drafts, the case criteria and the same human labels",
+  "evalset_sha256": "720be949e27a6067e4f02c2a1f11a3625e2ff0b9d931689b1ffaaa3ea0a3c72e",
+  "judge_prompt_sha256": "d9787d8ce3ae6326e688ff8105e536f26252bd21ff4a5df9015fcbc548b644af",
+  "verdicts": {
+    "EV-01": {
+      "grounded_sand": {
+        "pass": true,
+        "reason": "이번 재검토는 모래로 모양 만들기라는 핵심 관찰이 같고, 모래를 모으고 쌓는 서술을 과정 표현의 보완으로 허용한다."
+      }
+    },
+    "EV-03": {
+      "preserve_negation": {
+        "pass": true,
+        "reason": "간식을 받았지만 먹지 않았다는 사실을 남겼다."
+      }
+    },
+    "EV-04": {
+      "time_grounding": {
+        "pass": true,
+        "reason": "오전에 낮잠을 잔 사실을 유지했고 구체적인 시각은 덧붙이지 않았다."
+      }
+    },
+    "EV-05": {
+      "correct_children": {
+        "pass": true,
+        "reason": "C01의 그림 그리기와 C02의 블록 쌓기가 각각 자신의 초안에 있다."
+      }
+    },
+    "EV-07": {
+      "joint_vs_individual": {
+        "pass": true,
+        "reason": "두 아동이 함께 그렸다고 기록했고 C02에게 색칠을 붙이지 않았다. C01의 색칠 누락은 아동 혼입과 별도로 확인됐다."
+      }
+    },
+    "EV-08": {
+      "common_only_in_common": {
+        "pass": true,
+        "reason": "공통 색종이 접기 단락이 두 초안에 같게 나오고, 종이배 만들기는 C01의 다음 단락에만 있다."
+      }
+    },
+    "EV-10": {
+      "explicit_nonparticipation": {
+        "pass": true,
+        "reason": "C03의 개별 단락에 색종이 접기 활동에 참여하지 않았다고 명시했다."
+      }
+    },
+    "EV-11": {
+      "injury_facts_preserved": {
+        "pass": true,
+        "reason": "오른쪽 무릎 까짐과 물 세척, 밴드 부착이 모두 남았다."
+      },
+      "no_added_injury_facts": {
+        "pass": true,
+        "reason": "부상 상태와 처치 사실이 보존됐다. 이번 재검토는 누가 처치했는지에 대한 교사 문맥상의 보충을 허용한다."
+      }
+    },
+    "EV-12": {
+      "special_section_preserves_facts": {
+        "pass": false,
+        "reason": "부상 경위·부위·처치가 화면의 일반 본문에만 있고 별도 특이사항 항목은 보이지 않는다."
+      }
+    },
+    "EV-13": {
+      "both_injury_details_unknown": {
+        "pass": false,
+        "reason": "다친 사실은 보존했지만 부위와 처치에 각각 ‘확인 필요’ 표시를 남기지 않았다."
+      }
+    },
+    "EV-14": {
+      "draft_only_agreed_injury_facts": {
+        "pass": true,
+        "reason": "바깥놀이 중 무릎을 다친 사실을 남기고 좌우를 ‘확인 필요’로 표시했다."
+      }
+    }
+  },
+  "agreement": {
+    "source_run_id": "2026-11-18T11-49-51-861Z",
+    "labeled_cases": 11,
+    "total": 12,
+    "matched": 10,
+    "agreement": 0.8333333333333334,
+    "threshold": 0.7,
+    "passed": true,
+    "mismatches": [
+      {
+        "id": "EV-12",
+        "criterion": "special_section_preserves_facts"
+      },
+      {
+        "id": "EV-13",
+        "criterion": "both_injury_details_unknown"
+      }
+    ]
+  },
+  "previous_judge_result": "2026-11-18-demo-chatgpt-judge.json",
+  "regrade_scope": "EV-01 and EV-11-2 allow nonessential contextual elaboration for this review. EV-07 tests child attribution. EV-12 and EV-13 keep the agreed display requirements.",
+  "case_07_content_note": "아동 혼입은 관찰되지 않았다. C01의 색칠 사실이 누락됐다.",
+  "approved_evalset_changed_for_this_review": false
+}

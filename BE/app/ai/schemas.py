@@ -68,6 +68,19 @@ TEXT_SCHEMA = {
     "properties": {"text": _STR},
 }
 
+NOTICE_INCIDENT_HEADING = "특이사항"
+INJURY_CONFIRMATION_LABELS = {"body_part": "부위 확인 필요", "laterality": "좌우 확인 필요", "care": "처치 확인 필요"}
+INCIDENT_NOTICE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["text", "special_notes", "missing_injury_details"],
+    "properties": {
+        "text": _STR,
+        "special_notes": _STR,
+        "missing_injury_details": {"type": "array", "items": {"type": "string", "enum": list(INJURY_CONFIRMATION_LABELS)}},
+    },
+}
+
 RECORDING_OBSERVATIONS_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -138,6 +151,25 @@ def require_text(data: dict, key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise AIBadOutput(f"AI 응답에 '{key}'가 없거나 비어 있습니다.")
     return value.strip()
+
+
+def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False) -> str:
+    if not incident:
+        return require_text(data, "text")
+
+    body = data.get("text")
+    if not isinstance(body, str):
+        raise AIBadOutput("AI 응답에 알림장 본문이 없습니다.")
+    special_notes = require_text(data, "special_notes")
+    missing = data.get("missing_injury_details")
+    if not isinstance(missing, list) or any(
+        not isinstance(key, str) or key not in INJURY_CONFIRMATION_LABELS for key in missing
+    ):
+        raise AIBadOutput("AI 응답의 부상 확인 항목을 읽을 수 없습니다.")
+    missing_details = {*missing, "laterality"} if unresolved_side else set(missing)
+    markers = [label for key, label in INJURY_CONFIRMATION_LABELS.items() if key in missing_details]
+    section = "\n".join((NOTICE_INCIDENT_HEADING, special_notes, *markers))
+    return "\n\n".join(part for part in (body.strip(), section) if part)
 
 
 def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:

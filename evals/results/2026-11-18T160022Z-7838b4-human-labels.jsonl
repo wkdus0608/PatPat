@@ -1,0 +1,11 @@
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-01", "labeler": "사용자 확인", "labels": {"grounded_sand": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-03", "labeler": "사용자 확인", "labels": {"preserve_negation": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-04", "labeler": "사용자 확인", "labels": {"time_grounding": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-05", "labeler": "사용자 확인", "labels": {"correct_children": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-07", "labeler": "사용자 확인", "labels": {"joint_vs_individual": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-08", "labeler": "사용자 확인", "labels": {"common_only_in_common": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-10", "labeler": "사용자 확인", "labels": {"explicit_nonparticipation": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-11", "labeler": "사용자 확인", "labels": {"injury_facts_preserved": true, "no_added_injury_facts": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-12", "labeler": "사용자 확인", "labels": {"special_section_preserves_facts": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-13", "labeler": "사용자 확인", "labels": {"both_injury_details_unknown": true}}
+{"run_id": "2026-11-18T160022Z-7838b4", "id": "EV-14", "labeler": "사용자 확인", "labels": {"draft_only_agreed_injury_facts": true}}

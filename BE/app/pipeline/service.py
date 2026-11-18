@@ -13,7 +13,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 
-from app.ai import prompts, schemas
+from app.ai import observations, prompts, schemas
 from app.ai.anthropic_client import NotConfiguredAIClient
 from app.ai.gateway import AIGateway
 from app.ai.lint import keep_example_emoticons, lint_notice
@@ -68,7 +68,8 @@ def mode_and_answers(flags: list[dict], child_id: str) -> tuple[str, list[dict]]
     """Turn the teacher's answers about this child into a drafting mode and the answers worth passing on."""
     mode, answers = "normal", []
     for flag in flags:
-        if flag["kind"] in ("area", *METADATA_LABELS) or child_id not in flag["child_ids"] or flag["status"] != "answered":
+        if (flag["kind"] in ("area", *METADATA_LABELS, *observations.SOURCE_CONFIRMATION_KINDS)
+                or child_id not in flag["child_ids"] or flag["status"] != "answered"):
             continue
         answer = (flag["answer"] or "").strip()
         if not answer:
@@ -95,7 +96,7 @@ def joint_facts_for(review: dict, child_id: str) -> list[str]:
 def incident_ids_of(review: dict, flags: list[dict]) -> set[str]:
     ids = set(review.get("incident_child_ids", []))
     for flag in flags:
-        if flag["kind"] == "incident":
+        if flag["kind"] in ("incident", observations.INJURY_SIDE):
             ids.update(flag["child_ids"])
     return ids
 
@@ -217,25 +218,52 @@ class PipelineService:
         self, ctx: DraftContext, *, prepare_journals: bool, previous_answers: list[dict] | None = None,
         include_profiles: bool = False,
     ) -> dict:
-        valid_ids = {child.child_id for child in ctx.present}
+        names = {child.child_id: child.name for child in ctx.present}
+        blocks = [ctx.blocks[child_id] for child_id in names]
+        if ctx.common is not None:
+            blocks.insert(0, ctx.common)
+        reviewed_blocks: dict[str | None, BlockCtx] = {}
+        local_flags, confirmation_sources = [], {}
+        for block in blocks:
+            child_id = block.child_id
+            cleaned, has_request = observations.strip_writing_requests(block.text)
+            conflict = observations.conflicting_injury_side(cleaned) if child_id is not None else None
+            reviewed_blocks[child_id] = replace(block, text=conflict.shared_text if conflict else cleaned)
+            if has_request or conflict is not None:
+                confirmation_sources[block.block_id] = observations.source_digest(block.text)
+            if has_request:
+                label = names[child_id] + "의" if child_id is not None else "반 공통"
+                local_flags.append({
+                    "kind": observations.OBSERVATION_INSTRUCTION,
+                    "child_ids": [child_id] if child_id is not None else [],
+                    "question": f"{label} 메모에 있는 작성 요청과 관련해 실제로 관찰한 내용은 무엇인가요?",
+                    "options": [],
+                })
+            if conflict is not None:
+                local_flags.append({
+                    "kind": observations.INJURY_SIDE,
+                    "child_ids": [child_id],
+                    "question": f"{names[child_id]}의 부상 부위가 {conflict.part}인데 어느 쪽인가요?",
+                    "options": list(observations.SIDE_OPTIONS),
+                })
         sources = {}
         if prepare_journals:
-            blocks = [ctx.blocks[child.child_id] for child in ctx.present]
-            if ctx.common:
-                blocks.insert(0, ctx.common)
-            for block in blocks:
+            for block in reviewed_blocks.values():
                 missing = [key for key in METADATA_LABELS if not (getattr(block, key) or "").strip()]
                 if block.text.strip() and missing:
                     sources[block.block_id] = {
                         "block_id": block.block_id, "child_id": block.child_id, "text": block.text, "fields": missing,
                     }
         review_request = prompts.build_review(
-            self.rules, cls=ctx.cls, roster=ctx.present, common=ctx.common,
-            blocks=[ctx.blocks[child.child_id] for child in ctx.present],
+            self.rules, cls=ctx.cls, roster=ctx.present, common=reviewed_blocks.get(None),
+            blocks=[reviewed_blocks[child_id] for child_id in names],
             metadata_sources=list(sources.values()), previous_answers=previous_answers, include_profiles=include_profiles,
         )
         data = self._call(review_request, ctx).data
-        review = schemas.parse_review(data, valid_ids, allow_common=ctx.common is not None)
+        review = schemas.parse_review(data, set(names), allow_common=ctx.common is not None)
+        review["flags"] = [*local_flags, *review["flags"]][:schemas.MAX_FLAGS]
+        if confirmation_sources:
+            review["confirmation_sources"] = confirmation_sources
         review["prepare_journals"] = prepare_journals
         review["flags"].extend(self._metadata_questions(ctx, data, sources))
         return review
@@ -306,13 +334,18 @@ class PipelineService:
         return {"kind": "area", "child_ids": [child.child_id], "question": question, "options": areas}
 
     def _write_common(self, ctx: DraftContext, flags: list[dict]) -> str:
+        assert ctx.common is not None
+        common_text, _ = observations.confirmed_observation(ctx.common.text, flags, None)
+        if not common_text:
+            return ""
         answers = [
             {"question": flag["question"], "answer": flag["answer"]}
             for flag in flags
-            if flag["kind"] not in METADATA_LABELS and not flag["child_ids"] and flag["status"] == "answered" and flag["answer"]
+            if flag["kind"] not in (*METADATA_LABELS, *observations.SOURCE_CONFIRMATION_KINDS)
+            and not flag["child_ids"] and flag["status"] == "answered" and flag["answer"]
         ]
         request = prompts.build_common(
-            self.rules, cls=ctx.cls, common=ctx.common, all_names=ctx.all_names,
+            self.rules, cls=ctx.cls, common=replace(ctx.common, text=common_text), all_names=ctx.all_names,
             writing_examples=ctx.writing_examples, answers=answers,
         )
         return mask_names(schemas.require_text(self._call(request, ctx).data, "text"), ctx.all_names)
@@ -376,11 +409,13 @@ class PipelineService:
         self.sessions.reopen_review(teacher_id, session_id)
 
     # --- drafting ----------------------------------------------------------------------------------------------------------------------
-    def _draft_inputs(self, ctx: DraftContext, child: ChildCtx, flags, review, common_paragraph) -> dict:
+    def _draft_inputs(self, ctx: DraftContext, child: ChildCtx, flags, review, common_paragraph, *, incident: bool) -> dict:
         block = ctx.blocks[child.child_id]
+        text, unresolved_side = observations.confirmed_observation(block.text, flags, child.child_id)
         mode, answers = mode_and_answers(flags, child.child_id)
         return {
-            "child": child, "block": block, "mode": mode, "answers": answers,
+            "child": child, "block": replace(block, text=text), "has_input": bool(text),
+            "mode": mode, "answers": answers, "incident": incident or unresolved_side, "unresolved_side": unresolved_side,
             "joint_facts": joint_facts_for(review, child.child_id), "common_paragraph": common_paragraph,
             "recent": self.notices.recent_texts(ctx.teacher_id, child.child_id, ctx.session["target_date"]),
         }
@@ -391,39 +426,41 @@ class PipelineService:
             self.rules, cls=ctx.cls, child=child, block=inputs["block"], common=ctx.common,
             common_paragraph=inputs["common_paragraph"], other_names=ctx.other_names(child.child_id),
             mode=inputs["mode"], answers=inputs["answers"], joint_facts=inputs["joint_facts"],
-            recent_notices=inputs["recent"], writing_examples=ctx.writing_examples,
+            recent_notices=inputs["recent"], writing_examples=ctx.writing_examples, incident=inputs["incident"],
         )
-        text = schemas.require_text(self._call(request, ctx).data, "text")
+        text = schemas.render_notice(
+            self._call(request, ctx).data, incident=inputs["incident"], unresolved_side=inputs["unresolved_side"],
+        )
         return mask_names(text, ctx.other_names(child.child_id))
 
     @staticmethod
-    def draft_payload(ctx: DraftContext, inputs: dict, individual: str, incident: bool) -> dict:
+    def draft_payload(ctx: DraftContext, inputs: dict, individual: str) -> dict:
         block = inputs["block"]
         text = "\n\n".join(part for part in (inputs["common_paragraph"], individual) if part)
         source = " ".join([block.text, ctx.common.text if ctx.common else "", *(item["answer"] for item in inputs["answers"])])
         text = keep_example_emoticons(text, ctx.writing_examples, source)
-        return {"text": text, "needs_check": not block.text.strip(), "incident": incident, "warnings": lint_notice(text, source)}
+        return {"text": text, "needs_check": not block.text.strip(), "incident": inputs["incident"], "warnings": lint_notice(text, source)}
 
-    def _save_notice(self, ctx: DraftContext, inputs: dict, individual: str, incident: bool) -> dict:
+    def _save_notice(self, ctx: DraftContext, inputs: dict, individual: str) -> dict:
         return self.notices.save_generated(
             teacher_id=ctx.teacher_id, session_id=ctx.session["session_id"], child_id=inputs["child"].child_id,
             target_date=ctx.session["target_date"], rules_hash=self.rules.rules_hash, model=self.ai.model,
-            **self.draft_payload(ctx, inputs, individual, incident),
+            **self.draft_payload(ctx, inputs, individual),
         )
 
     def draft_outcomes(
         self, ctx: DraftContext, *, flags: list[dict], review: dict, common_paragraph: str, targets: set[str] | None = None,
     ) -> list[tuple[dict, str | AIError]]:
+        incident_ids = incident_ids_of(review, flags)
         work: list[dict] = []
         for child in ctx.present:
             if targets is not None and child.child_id not in targets:
                 continue
-            has_input = bool(ctx.blocks[child.child_id].text.strip())
-            if not has_input and not common_paragraph:
-                continue  # nothing to say about this child today
-            inputs = self._draft_inputs(ctx, child, flags, review, common_paragraph)
-            inputs["has_input"] = has_input
-            work.append(inputs)
+            if not ctx.blocks[child.child_id].text.strip() and not common_paragraph:
+                continue
+            inputs = self._draft_inputs(ctx, child, flags, review, common_paragraph, incident=child.child_id in incident_ids)
+            if inputs["has_input"] or common_paragraph:
+                work.append(inputs)
 
         def run(inputs: dict) -> str | AIError:
             if not inputs["has_input"]:
@@ -438,8 +475,9 @@ class PipelineService:
         return list(zip(work, outcomes))
 
     def _draft_all(self, ctx: DraftContext, *, flags: list[dict], review: dict, common_paragraph: str) -> dict:
-        incident_ids = incident_ids_of(review, flags)
         work = self.draft_outcomes(ctx, flags=flags, review=review, common_paragraph=common_paragraph)
+        if not work:
+            raise ApiError(status_code=422, code="NOTHING_TO_WRITE", message="작성할 관찰 내용이 없어요. 실제로 관찰한 일을 적어 주세요.")
         errors = [outcome for _, outcome in work if isinstance(outcome, AIError)]
         attempted = sum(1 for inputs, _ in work if inputs["has_input"])
         if attempted and len(errors) == attempted:
@@ -450,7 +488,7 @@ class PipelineService:
             if isinstance(outcome, AIError):
                 failed.append({"child_id": child_id, "error_code": outcome.code})
                 continue
-            notice = self._save_notice(ctx, inputs, outcome, child_id in incident_ids)
+            notice = self._save_notice(ctx, inputs, outcome)
             if self.journal and review.get("prepare_journals"):
                 self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags)
             drafted += 1
@@ -491,6 +529,16 @@ class PipelineService:
         session = ctx.session
         review = json.loads(session["review_json"]) if session["review_json"] else dict(EMPTY_REVIEW)
         flags = self.sessions.list_flags(session_id)
+        confirmed_sources = review.get("confirmation_sources", {})
+        for block in (ctx.common, ctx.blocks[child_id]):
+            if block is None or confirmed_sources.get(block.block_id) == observations.source_digest(block.text):
+                continue
+            if observations.strip_writing_requests(block.text)[1]:
+                raise ApiError(status_code=409, code="OBSERVATION_REVIEW_REQUIRED",
+                               message="메모의 작성 요청을 확인한 관찰 내용으로 바꾼 뒤 다시 써 주세요.")
+            scope = [block.child_id] if block.child_id is not None else []
+            flags = [flag for flag in flags if flag["child_ids"] != scope
+                     or flag["kind"] not in observations.SOURCE_CONFIRMATION_KINDS]
         common_paragraph = session["common_paragraph"] or ""
         stored = json.loads(session["snapshot"]) if session["snapshot"] else {}
         if stored.get("common") != common_snapshot(ctx.common):  # the common block changed since it was written
@@ -500,10 +548,12 @@ class PipelineService:
                 snapshot=json.dumps({"common": common_snapshot(ctx.common)}, ensure_ascii=False),
             )
         child = next(item for item in ctx.roster if item.child_id == child_id)
-        inputs = self._draft_inputs(ctx, child, flags, review, common_paragraph)
-        has_input = bool(inputs["block"].text.strip())
-        individual = self._write_individual(ctx, inputs) if has_input else ""
-        notice = self._save_notice(ctx, inputs, individual, child_id in incident_ids_of(review, flags))
+        incident = child_id in incident_ids_of(review, flags)
+        inputs = self._draft_inputs(ctx, child, flags, review, common_paragraph, incident=incident)
+        if not inputs["has_input"] and not common_paragraph:
+            raise ApiError(status_code=422, code="NOTHING_TO_WRITE", message="이 아이에 대해 적은 내용이 없어요.")
+        individual = self._write_individual(ctx, inputs) if inputs["has_input"] else ""
+        notice = self._save_notice(ctx, inputs, individual)
         if self.journal and review.get("prepare_journals"):
             self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags)
         if session["status"] == "failed":
