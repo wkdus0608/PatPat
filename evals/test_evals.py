@@ -65,7 +65,7 @@ class EvalPolicyTests(unittest.TestCase):
     def test_mvp_excludes_future_privacy_and_out_of_scope_delivery(self):
         selected = {case["id"] for case in mvp_cases(CASES.values())}
         excluded = set(CASES) - selected
-        self.assertEqual(len(selected), 30)  # 기존 17건 + 동료 피드백 EV-21~28 + 사용자 기준 EV-29~33
+        self.assertEqual(len(selected), 31)  # 기존 17건 + 동료 피드백 EV-21~28 + 사용자 기준 EV-29~34
         self.assertEqual({case_id: CASES[case_id]["scope"] for case_id in excluded},
                          {"EV-17": "future", "EV-18": "future", "EV-19": "out_of_scope"})
 
@@ -199,7 +199,7 @@ class FeedbackCaseTests(unittest.TestCase):
 class UserStandardTests(unittest.TestCase):
     """2026-11-21 사용자 기준(색칠 사실, 불참 이유, 부상은 길고 상세하게, 존댓말, 사소한 일도 길고 상세하게)의 오답 주입."""
 
-    LONG_POLITE = {"chars": 450, "individual_chars": 450, "polite_violations": []}
+    LONG_POLITE = {"chars": 520, "individual_chars": 520, "polite_violations": []}
 
     def test_plain_style_detector_flags_plain_and_record_endings_only(self):
         self.assertEqual(find_plain_style("바깥놀이 중 다친 일이 있었다. 다친 부위는 확인되지 않았다."),
@@ -251,7 +251,7 @@ class UserStandardTests(unittest.TestCase):
         self.assertIn("‘확인 필요’ 표기로 바꾸거나 빠뜨리면 실패", rule)
 
     def test_long_detailed_cases_fail_when_short_or_plain_and_wait_for_the_judge_when_long(self):
-        for case_id, role, floor in (("EV-30", "C01", 250), ("EV-31", "C01", 400)):
+        for case_id, role, floor in (("EV-30", "C01", 500), ("EV-31", "C01", 500)):
             with self.subTest(case=case_id):
                 short = grade_case(CASES[case_id], {"notices": {role: {"individual_chars": floor - 1, "polite_violations": []}}})
                 self.assertEqual(short["status"], "fail")
@@ -264,3 +264,24 @@ class UserStandardTests(unittest.TestCase):
     def test_journal_length_case_fails_below_the_floor(self):
         self.assertEqual(grade_case(CASES["EV-32"], {"journals": {"C01": {"chars": 249}}})["checks"][0]["status"], "fail")
         self.assertEqual(grade_case(CASES["EV-32"], {"journals": {"C01": {"chars": 250}}})["checks"][0]["status"], "pass")
+
+    def test_thin_input_case_needs_a_long_polite_notice_and_a_judged_absence_of_new_facts(self):
+        case = CASES["EV-34"]
+        short = grade_case(case, {"notices": {"C01": {"chars": 40, "polite_violations": []}}})
+        self.assertEqual(short["status"], "fail")
+        plain = grade_case(case, {"notices": {"C01": {"chars": 520, "polite_violations": ["쌓았다."]}}})
+        self.assertEqual(plain["status"], "fail")
+        long_polite = {"notices": {"C01": {"chars": 520, "polite_violations": []}}}
+        self.assertEqual(grade_case(case, long_polite)["status"], "pending")
+        verdict = {"long_without_new_facts": {"reason": "새 사실이 있다.", "pass": False}}
+        failed = grade_case(case, long_polite, judge=normalize_judge(verdict, case["expect"]["judge"]))
+        self.assertEqual(failed["status"], "fail")
+
+    def test_length_floors_do_not_depend_on_how_much_was_entered(self):
+        floors = {}
+        for case_id in ("EV-11", "EV-30", "EV-31", "EV-33", "EV-34"):
+            rules = [rule for rule in CASES[case_id]["expect"]["code"] if rule["op"] == "at_least"]
+            self.assertEqual(len(rules), 1, case_id)
+            floors[case_id] = rules[0]["value"]
+        # 사용자 결정: 분량은 입력 분량에 비례하지 않는다. 입력이 한 줄이든 여덟 줄이든 같은 기준이다.
+        self.assertEqual(set(floors.values()), {500})
