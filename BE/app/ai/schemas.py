@@ -212,6 +212,9 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
     if not isinstance(content, str):
         raise AIBadOutput("AI 응답에 관찰내용이 없습니다.")
     parts = [content.strip()] if content.strip() else []
+    incident = data.get("incident")
+    if isinstance(incident, str) and incident.strip() and incident.strip() not in content:
+        parts.append(incident.strip())  # 일어난 일(내용 → 사건사고)을 먼저 쓰고 해석(learning)은 마지막에 붙인다(2026-11-22 사용자 결정)
     selected = set(areas or AREAS)
     learning = data.get("learning")
     if isinstance(learning, list):
@@ -228,9 +231,6 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
             if isinstance(text, str) and text.strip() and not any(text.strip() in part for part in parts):
                 sentence = text.strip()
                 parts.append(sentence if sentence.endswith((".", "!", "?", "…")) else sentence + ".")
-    incident = data.get("incident")
-    if isinstance(incident, str) and incident.strip() and incident.strip() not in content:
-        parts.append(incident.strip())
     parts = drop_repeated_sentences(parts)
     if not parts:
         raise AIBadOutput("AI 응답에 작성된 관찰내용이 없습니다.")

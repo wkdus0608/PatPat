@@ -111,7 +111,7 @@ def test_the_journal_prompt_uses_the_confirmed_text_and_the_class_age(tmp_path):
         assert not any(name in calls[AITask.JOURNAL_COMMON].user_text for name in NAMES)  # the shared row never names a child
 
 
-def test_journal_renders_supported_learning_before_the_incident(tmp_path):
+def test_journal_renders_the_incident_before_the_supported_learning(tmp_path):  # 2026-11-22 사용자 결정으로 순서를 바꿈: 사실 먼저, 해석은 마지막
     def write(_request):
         return {
             "content": "낙엽을 색에 따라 모았음.",
@@ -131,7 +131,7 @@ def test_journal_renders_supported_learning_before_the_incident(tmp_path):
         own = next(row for row in journal(env, ids["다온"])["items"] if row["block_kind"] == "individual")
         assert own["areas"] == ["자연탐구"]
         assert own["content"] == (
-            "낙엽을 색에 따라 모았음. 색을 기준으로 자연물을 분류해 보는 경험을 함. 이후 교사가 다친 곳을 살핌."
+            "낙엽을 색에 따라 모았음. 이후 교사가 다친 곳을 살핌. 색을 기준으로 자연물을 분류해 보는 경험을 함."
         )
 
 
