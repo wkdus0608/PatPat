@@ -6,8 +6,11 @@ import json
 
 METRICS = ("AC1", "AC2", "AC3", "AC4", "AC5", "AC6", "표시·안내")
 CASE_SCOPES = ("mvp", "future", "out_of_scope")
-OPERATIONS = {"draft", "recording", "save", "confirm", "request_send"}
+OPERATIONS = {"draft", "recording", "save", "confirm", "request_send", "journal", "word"}
 CHILD_ROLES = {"C01", "C02", "C03"}
+AREA_NAMES = {"신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"}
+BLOCK_META_KEYS = {"place", "time_text", "areas"}
+EVIDENCE_KEYS = {"flow", "journals", "word"}  # AI 판정에 함께 보여 줄 출력(초안 외)
 CHECK_OPERATIONS = {"equals", "contains", "one_of", "at_least", "nonempty"}
 MISSING = object()
 
@@ -56,6 +59,7 @@ def validate_case(case):
         raise ValueError("동작을 적용할 아동이 아동 명단에 없습니다.")
     if operation == "request_send" and not str(query.get("instruction") or "").strip():
         raise ValueError("발송 요청에는 예시 지시가 필요합니다.")
+    validate_extensions(query, operation, children)
     if set(expected) != {"code", "judge"} or any(not isinstance(rows, list) for rows in expected.values()):
         raise ValueError("expect는 code·judge 목록이어야 합니다.")
     required_graders = {key for key, rows in expected.items() if rows}
@@ -81,6 +85,31 @@ def validate_case(case):
                 raise ValueError("검사의 기대값 형식이 올바르지 않습니다.")
             if rule.get("tolerated", False) and rule["metric"] != "표시·안내":
                 raise ValueError("표시·안내 이외에는 실패를 허용할 수 없습니다.")
+
+
+def validate_extensions(query, operation, children):
+    """블록 장소·시간·영역, 말투 예시, 관찰일지·Word 실행에 쓰는 선택 입력(기존 사례에는 없다)."""
+    meta = query.get("meta", {})
+    if (not isinstance(meta, dict) or set(meta) - (set(children) | {"common"})
+            or any(not isinstance(item, dict) or set(item) - BLOCK_META_KEYS for item in meta.values())):
+        raise ValueError("블록 추가 정보(meta)는 아동 명단과 허용된 키만 가질 수 있습니다.")
+    for item in meta.values():
+        if (any(not isinstance(item[key], str) or not item[key].strip() for key in ("place", "time_text") if key in item)
+                or ("areas" in item and (not isinstance(item["areas"], list) or not set(item["areas"]) <= AREA_NAMES))):
+            raise ValueError("블록 추가 정보의 값이 올바르지 않습니다.")
+    if "writing_examples" in query and (not isinstance(query["writing_examples"], str) or not query["writing_examples"].strip()):
+        raise ValueError("말투 예시는 비어 있지 않은 글이어야 합니다.")
+    if "prepare_journals" in query and type(query["prepare_journals"]) is not bool:
+        raise ValueError("prepare_journals는 true 또는 false여야 합니다.")
+    if "evidence" in query and (not isinstance(query["evidence"], list) or not set(query["evidence"]) <= EVIDENCE_KEYS):
+        raise ValueError("지원하지 않는 AI 판정 근거 항목입니다.")
+    if operation == "journal" and query.get("prepare_journals") is not True:
+        raise ValueError("관찰일지 사례는 prepare_journals를 true로 실행합니다.")
+    if operation == "word":
+        fields = query.get("template_fields")
+        if (query.get("target") not in children or not isinstance(fields, list) or len(fields) < 2
+                or any(not isinstance(field, str) or not field.strip() for field in fields) or len(set(fields)) != len(fields)):
+            raise ValueError("Word 사례에는 대상 아동과 중복 없는 양식 항목 목록이 필요합니다.")
 
 
 def mvp_cases(cases):

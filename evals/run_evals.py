@@ -103,6 +103,7 @@ def capture(args):
     metadata = {"mode": args.mode, "stage": "capture", "commit": source_commit(), "change": args.change,
                 "golden": args.golden, "evalset_hash": digest(args.evalset), "judge_version": digest(JUDGE_PROMPT),
                 "judge_model": None, "judge_status": "not_run", "product_model": "fake" if args.mode == "fake" else settings.ai_model,
+                "product_effort": None if args.mode == "fake" else settings.ai_effort,
                 "rules_hash": load_rules(settings.rules_path).rules_hash, "excluded_cases": excluded}
     rows = []
     for case in cases:
@@ -118,6 +119,22 @@ def capture(args):
         rows.append(row)
         print(f"{case['id']} {row['status']}" + (f" — {error}" if error else ""), flush=True)
     return save_result(args.results, metadata, rows)
+
+
+def judge_evidence(row):
+    """AI 판정과 사람 검토에 보여 줄 초안. query.evidence에 적은 출력(질문·관찰일지·Word)만 덧붙인다."""
+    output = row["output"]
+    draft = {key: output[key] for key in ("common_text", "notices")}
+    for key in row["query"].get("evidence", []):
+        if key == "flow":
+            draft["flow"] = {name: output["flow"][name] for name in ("initial_status", "initial_questions") if name in output["flow"]}
+        elif key == "journals":
+            draft["journals"] = {role: {"text": view["text"],
+                                        "items": [{"block_kind": item["block_kind"], "content": item["content"]} for item in view["items"]]}
+                                 for role, view in output["journals"].items()}
+        elif key == "word":
+            draft["word"] = {"cells": output["word"]["cells"]}
+    return draft
 
 
 def read_capture(path):
@@ -144,6 +161,9 @@ def review(args):
             print(f"{role} 개별 문장: {notice['individual_text'] or '(비어 있음)'}")
             if notice["special_notes"]:
                 print(f"{role} 특이사항: {notice['special_notes']}")
+        extra = {key: value for key, value in judge_evidence(row).items() if key not in ("common_text", "notices")}
+        if extra:
+            print(f"추가 근거: {json.dumps(extra, ensure_ascii=False)}")
         for rule in criteria:
             print(f"- {rule['name']}: {rule['rule']}")
     return 0
@@ -168,7 +188,7 @@ def judge_client(model):
         schema = {"type": "object", "additionalProperties": False, "required": names,
                   "properties": {name: item for name in names}}
         evidence = {"id": row["id"], "category": row["category"], "query": row["query"], "criteria": criteria,
-                    "draft": {key: row["output"][key] for key in ("common_text", "notices")}}
+                    "draft": judge_evidence(row)}
         request = AIRequest(task=AITask.REVIEW, system_text=prompt,
                             user_text=json.dumps(evidence, ensure_ascii=False), schema=schema)
         return normalize_judge(client.complete(request).data, criteria)
