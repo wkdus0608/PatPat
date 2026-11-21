@@ -5,6 +5,8 @@ from app.rules.loader import AREAS
 FLAG_KINDS = ("incident", "conflict", "unresolved", "missing_fact", "ambiguous")
 KIND_PRIORITY = {kind: index for index, kind in enumerate(FLAG_KINDS)}
 MAX_FLAGS = 10
+MAX_DETAIL_QUESTIONS = 6  # 얇은 입력 보충 질문(missing_fact)은 학급 전체에서 6개까지다(규칙 '역질문 정책').
+MAX_DETAIL_QUESTIONS_PER_CHILD = 2
 
 _STR = {"type": "string"}
 _STR_LIST = {"type": "array", "items": _STR}
@@ -201,6 +203,21 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
     return " ".join(parts)
 
 
+def cap_detail_questions(flags: list[dict]) -> list[dict]:
+    """직접 입력으로 사실을 묻는 질문(missing_fact)은 아이마다 2개, 학급 전체 6개까지만 남긴다(먼저 온 순서)."""
+    kept, per_child, total = [], {}, 0
+    for flag in flags:
+        if flag["kind"] == "missing_fact":
+            if total >= MAX_DETAIL_QUESTIONS or any(per_child.get(child_id, 0) >= MAX_DETAIL_QUESTIONS_PER_CHILD
+                                                    for child_id in flag["child_ids"]):
+                continue
+            total += 1
+            for child_id in flag["child_ids"]:
+                per_child[child_id] = per_child.get(child_id, 0) + 1
+        kept.append(flag)
+    return kept
+
+
 def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = False) -> dict:
     """Keep well-formed class or child questions, ordered by priority."""
     flags = []
@@ -222,6 +239,7 @@ def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = 
             continue
         flags.append({"kind": kind, "child_ids": child_ids, "question": question.strip(), "options": options})
     flags.sort(key=lambda flag: KIND_PRIORITY[flag["kind"]])
+    flags = cap_detail_questions(flags)
     events = []
     for raw in data.get("joint_events") or []:
         if not isinstance(raw, dict):

@@ -103,6 +103,25 @@ def _request(task: AITask, bundle: RulesBundle, user_text: str, schema: dict, pa
 
 
 # --- review ------------------------------------------------------------------------------------------------
+def _thin_input_lines(thin_children: list[dict] | None) -> list[str]:
+    """입력이 짧은 아이에게만 사실을 더 묻게 하는 요청 단락(서버가 대상 아이를 고른다)."""
+    if not thin_children:
+        return []
+    lines = [
+        "",
+        "[얇은 입력 보충 질문]",
+        "- 아래 아이는 입력이 짧아 알림장에 쓸 사실이 부족하다. 규칙 파일 '역질문 정책'의 '얇은 입력 보충 질문'에 따라 아이마다 missing_fact 질문을 1개 만들고, 입력이 한 문장뿐이라고 적힌 아이는 2개까지 만든다. 위의 '이미 관찰 근거가 충분하면 묻지 않는다'와 '가장 도움이 되는 것 하나만'은 이 아이들에게 적용하지 않는다.",
+        "- 질문은 아직 입력에 없는 장면(어떻게 했는지, 함께한 친구나 교사와 주고받은 말·행동, 하는 중이나 끝난 뒤의 모습)을 묻는다. 이름을 넣은 한 문장이고, options는 빈 배열이며, child_ids에는 그 아이의 child_id만 넣는다.",
+        "- 입력과 반 공통 블록에 이미 있는 내용은 묻지 않는다. 즐거웠는지, 왜 그랬는지를 묻지 않고, 보지 않은 행동이 있었다고 전제하지 않는다.",
+        "- 사건사고 확인 질문(incident)은 이 질문과 별개로 만든다. 같은 아이에 대해 같은 장면을 묻는 질문이 이미 있으면 보충 질문을 더 만들지 않는다. 대상이 아닌 아이에게는 보충 질문을 만들지 않는다.",
+        "[보충 질문 대상 아이]",
+    ]
+    for item in thin_children:
+        count = "입력 한 문장(질문 2개까지)" if item["single"] else "입력 두 문장 이상(질문 1개)"
+        lines.append(f"- {item['child_id']} ({item['name']}): {item['chars']}자, {count}")
+    return lines
+
+
 def build_recording_observations(
     bundle: RulesBundle, *, transcripts: dict[str, str], roster: list[ChildCtx],
     common: BlockCtx | None = None, blocks: tuple[BlockCtx, ...] = (),
@@ -149,6 +168,7 @@ def build_review(
     metadata_sources: list[dict] | None = None,
     previous_answers: list[dict] | None = None,
     include_profiles: bool = False,
+    thin_children: list[dict] | None = None,
 ) -> AIRequest:
     names = {child.child_id: child.name for child in roster}
     lines = [
@@ -170,6 +190,7 @@ def build_review(
         "- joint_events: 두 아이 이상이 얽힌 같은 일이 있으면 아이별로 상대 아이 이름을 \"친구\"로 바꾼 사실만 facts에 쓴다.",
         "- incident_child_ids: 사건사고로 보이는 아이의 child_id.",
         "- 입력에 없는 사실을 추가하지 않는다.",
+        *_thin_input_lines(thin_children),
         "",
         _class_info(cls),
         "",
@@ -197,6 +218,8 @@ def build_review(
                       "같은 사실을 다시 묻지 않는다. 새 입력과 답이 다르거나 여전히 불분명하면 질문한다.",
                       _wrap(json.dumps(previous_answers, ensure_ascii=False))))
         payload["previous_answers"] = previous_answers
+    if thin_children:
+        payload["thin_children"] = thin_children
     if include_profiles:
         profiles = [
             {"child_id": child.child_id, "characteristics": child.characteristics,
@@ -241,7 +264,7 @@ def build_common(
         "[작업] 공통 단락 쓰기",
         "반 공통 블록을 바탕으로 알림장의 공통 단락을 쓴다. 출석한 아이 모두의 맨 앞에 같은 글이 들어가므로 아이 이름을 쓰지 않는다.",
         "- 규칙 파일 '알림장 작성 가이드'의 구성·문체와 보육 트렌드의 시선을 따른다.",
-        "- 두세 문장으로 쓴다. 입력에 없는 감정, 원인, 결과를 덧붙이지 않는다.",
+        "- 입력의 사실을 빠짐없이, 장면이 그려지게 사실마다 문장으로 풀어 쓴다. 입력에 없는 감정, 원인, 결과를 덧붙이지 않는다.",
         "- 결과는 text 하나다.",
         "",
         _class_info(cls),
@@ -287,7 +310,7 @@ def build_individual(
     if incident:
         output_requirements = [
             "- text에는 사건사고와 무관한 일상만 쓴다. 해당 일상 관찰이 없으면 빈 문자열을 반환한다.",
-            "- special_notes에는 이 아이의 사건 경위, 부위·좌우·정도와 처치 중 확인된 사실을 중복 없이 쓴다. 제목과 확인 표시 문구는 서버가 붙인다.",
+            "- special_notes에는 이 아이의 사건 경위, 부위·좌우·정도와 처치 중 확인된 사실을 중복 없이 쓴다. 제목과 확인 표시 문구는 서버가 붙인다. 부드럽게 쓰기이면 규칙 파일 '사건사고 알림장'의 구성 순서와 '긴 예시'처럼 상황, 교사의 대응, 아이의 반응, 이후 모습, 하원 시 안내, 가정 연계를 길고 상세하게 쓰고, 입력과 교사 답변에 없는 사실은 쓰지 않는다.",
             "- 부상이 있었으면 이 아이의 관찰과 교사의 실제 답변을 확인한다. 다친 부위가 불명확하면 missing_injury_details에 body_part를, 같은 부상의 좌우가 상충하고 해소되지 않으면 laterality를 넣는다. 처치가 알려지지 않았으면 care를 넣는다.",
             "- 같은 부상의 좌우나 부위 기록이 상충하면 교사가 답변으로 확인한 경우에만 확정한다. 답변으로 확인되지 않으면 기록이 일치하는 사실만 쓴다.",
             "- 부상 부위나 처치를 모르면 임의로 채우지 않는다. 질문 자체, 건너뛴 답변, 최근 알림장은 확인 근거가 아니다. 처치를 하지 않았다는 확인된 기록은 처치가 알려진 경우다.",
@@ -299,6 +322,8 @@ def build_individual(
         "- 규칙 파일 '알림장 작성 가이드'와 보육 트렌드를 따른다.",
         f"- 모드: {mode_line}",
         "- 입력에 없는 감정, 원인, 교사의 행동, 결과를 만들지 않는다.",
+        "- 입력과 [교사가 답한 확인 질문]의 답은 모두 오늘 이 아이의 사실이다. 하나도 빠뜨리지 않고, 사실마다 한 문장 이상(40자 안팎)으로 풀어 쓰며, 한 줄로 요약하지 않는다.",
+        "- 분량은 입력 분량에 맞추지 않는다. 규칙 파일 '알림장 작성 가이드'의 '길이'와 '긴 예시'를 따라 길고 상세하게 쓰되, 입력과 답에 없는 사실로 채우지 않는다. 교사가 답하지 않아 사실이 적으면 가이드의 건너뛴 예시처럼 쓴다.",
         "- 같은 장면에서 근거가 보여 주는 행동 순서를 지킨다. 질문이나 제안을 답변, 합의, 완료된 행동으로 바꾸지 않는다.",
         "- 시간과 장소가 이 활동의 값으로 주어졌으면 문장에 자연스럽게 포함한다.",
         "- 아이 특성은 어휘 수준과 가정 연계를 정할 때만 쓰고 오늘의 사실로 쓰지 않는다.",

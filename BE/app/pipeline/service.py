@@ -10,6 +10,7 @@ first call wrote. Calls for different children run in parallel; all database wri
 """
 import json
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 
@@ -32,6 +33,21 @@ logger = logging.getLogger(__name__)
 
 EMPTY_REVIEW = {"flags": [], "joint_events": [], "incident_child_ids": []}
 METADATA_LABELS = {"place": "장소", "time_text": "시간"}
+THIN_INPUT_MAX_CHARS = 150  # 이 길이 이하의 개별 입력은 알림장에 쓸 사실이 부족하다고 본다(규칙 '역질문 정책').
+MAX_THIN_CHILDREN = 6  # 보충 질문을 받을 아이는 학급 전체에서 6명까지, 입력이 짧은 아이부터다.
+
+
+def thin_input_children(names: dict[str, str], blocks: dict[str, BlockCtx], skip: set[str]) -> list[dict]:
+    """입력이 짧은 아이를 짧은 순서로 고른다. 입력이 없거나 이미 다른 질문이 정해진 아이(skip)는 뺀다."""
+    items = []
+    for child_id, name in names.items():
+        text = blocks[child_id].text.replace("\n", "").strip()
+        if not text or len(text) > THIN_INPUT_MAX_CHARS or child_id in skip:
+            continue
+        sentences = [part for part in re.split(r"[.!?]+", text) if part.strip()]
+        items.append({"child_id": child_id, "name": name, "chars": len(text), "single": len(sentences) <= 1})
+    items.sort(key=lambda item: item["chars"])
+    return items[:MAX_THIN_CHILDREN]
 
 
 @dataclass
@@ -216,7 +232,7 @@ class PipelineService:
 
     def review_context(
         self, ctx: DraftContext, *, prepare_journals: bool, previous_answers: list[dict] | None = None,
-        include_profiles: bool = False,
+        include_profiles: bool = False, ask_thin: bool = False,
     ) -> dict:
         names = {child.child_id: child.name for child in ctx.present}
         blocks = [ctx.blocks[child_id] for child_id in names]
@@ -254,10 +270,15 @@ class PipelineService:
                     sources[block.block_id] = {
                         "block_id": block.block_id, "child_id": block.child_id, "text": block.text, "fields": missing,
                     }
+        thin = []
+        if ask_thin:
+            asked = {child_id for flag in local_flags for child_id in flag["child_ids"]}
+            thin = thin_input_children(names, reviewed_blocks, asked)
         review_request = prompts.build_review(
             self.rules, cls=ctx.cls, roster=ctx.present, common=reviewed_blocks.get(None),
             blocks=[reviewed_blocks[child_id] for child_id in names],
             metadata_sources=list(sources.values()), previous_answers=previous_answers, include_profiles=include_profiles,
+            thin_children=thin,
         )
         data = self._call(review_request, ctx).data
         review = schemas.parse_review(data, set(names), allow_common=ctx.common is not None)
@@ -272,7 +293,7 @@ class PipelineService:
         self, teacher_id: str, session_id: str, *, ask_missing_areas: bool, prepare_journals: bool, manual_areas: bool,
     ) -> dict:
         ctx = self._load(teacher_id, session_id)
-        review = self.review_context(ctx, prepare_journals=prepare_journals)
+        review = self.review_context(ctx, prepare_journals=prepare_journals, ask_thin=True)
         if manual_areas:
             review["manual_areas"] = True
         elif ask_missing_areas and ctx.areas_missing:
