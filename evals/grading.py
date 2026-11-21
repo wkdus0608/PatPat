@@ -11,11 +11,14 @@ CHILD_ROLES = {"C01", "C02", "C03"}
 AREA_NAMES = {"신체운동·건강", "의사소통", "사회관계", "예술경험", "자연탐구"}
 BLOCK_META_KEYS = {"place", "time_text", "areas"}
 EVIDENCE_KEYS = {"flow", "journals", "word"}  # AI 판정에 함께 보여 줄 출력(초안 외)
-CHECK_OPERATIONS = {"equals", "contains", "one_of", "at_least", "nonempty"}
+CHECK_OPERATIONS = {"equals", "contains", "one_of", "at_least", "at_most", "nonempty"}
+MINIMUM_CASES = 20
+MINIMUM_HOLDOUT_CASES = 5  # 홀드아웃 파일은 개선 뒤 한 번만 쓰는 작은 묶음이다.
 MISSING = object()
 
 
 def load_evalset(path):
+    minimum = MINIMUM_HOLDOUT_CASES if "holdout" in path.stem else MINIMUM_CASES
     cases = []
     seen = set()
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -30,8 +33,8 @@ def load_evalset(path):
             raise ValueError(f"{path.name} {line_number}행: {error}") from error
         cases.append(case)
         seen.add(case["id"])
-    if len(cases) < 20:
-        raise ValueError("평가 케이스는 20개 이상이어야 합니다.")
+    if len(cases) < minimum:
+        raise ValueError(f"평가 케이스는 {minimum}개 이상이어야 합니다.")
     return cases
 
 
@@ -81,7 +84,7 @@ def validate_case(case):
                 raise ValueError("검사의 기대값이 없습니다.")
             if ((rule["op"] == "one_of" and not isinstance(rule["value"], list))
                     or (rule["op"] == "contains" and not isinstance(rule["value"], str))
-                    or (rule["op"] == "at_least" and type(rule["value"]) not in (int, float))):
+                    or (rule["op"] in {"at_least", "at_most"} and type(rule["value"]) not in (int, float))):
                 raise ValueError("검사의 기대값 형식이 올바르지 않습니다.")
             if rule.get("tolerated", False) and rule["metric"] != "표시·안내":
                 raise ValueError("표시·안내 이외에는 실패를 허용할 수 없습니다.")
@@ -110,6 +113,13 @@ def validate_extensions(query, operation, children):
         raise ValueError("incident_answer는 부드럽게 또는 그대로여야 합니다.")
     if "evidence" in query and (not isinstance(query["evidence"], list) or not set(query["evidence"]) <= EVIDENCE_KEYS):
         raise ValueError("지원하지 않는 AI 판정 근거 항목입니다.")
+    facts = query.get("teacher_facts", {})
+    if (not isinstance(facts, dict) or set(facts) - set(children)
+            or any(not isinstance(items, list) or not items or any(not isinstance(item, str) or not item.strip() for item in items)
+                   for items in facts.values())):
+        raise ValueError("가상 교사가 아는 사실(teacher_facts)은 아동 명단의 역할마다 비어 있지 않은 문장 목록이어야 합니다.")
+    if facts and "flow" not in query.get("evidence", []):
+        raise ValueError("가상 교사가 답하는 사례는 evidence에 flow를 넣어 AI 판정에 질문과 답변을 보여 줘야 합니다.")
     if operation == "journal" and query.get("prepare_journals") is not True:
         raise ValueError("관찰일지 사례는 prepare_journals를 true로 실행합니다.")
     if operation == "word":
@@ -145,6 +155,8 @@ def matches(actual, operation, expected):
         return any(type(actual) is type(choice) and actual == choice for choice in expected)
     if operation == "at_least":
         return type(actual) in (int, float) and actual >= expected
+    if operation == "at_most":
+        return type(actual) in (int, float) and actual <= expected
     if operation == "nonempty":
         return bool(actual.strip() if isinstance(actual, str) else actual)
     raise ValueError(f"지원하지 않는 검사 {operation}")

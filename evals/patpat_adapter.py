@@ -18,6 +18,10 @@ from app.core.config import get_settings
 from app.main import create_app
 from app.manage import create_teacher
 from app.transcriptions.client import DemoSpeechToTextClient
+try:  # 골든 하니스는 evals.patpat_adapter로, 평가 실행기는 patpat_adapter로 불러온다.
+    from .teacher_sim import NO_MEMORY, make_teacher
+except ImportError:
+    from teacher_sim import NO_MEMORY, make_teacher
 
 
 NAMES = {"C01": "평가아동가", "C02": "평가아동나", "C03": "평가아동다"}
@@ -128,11 +132,12 @@ def read_template_cells(data):
 
 
 class PatPatCase:
-    def __init__(self, app, client, query, trace):
+    def __init__(self, app, client, query, trace, teacher=None):
         self.app = app
         self.client = client
         self.query = query
         self.trace = trace
+        self.teacher = teacher  # query.teacher_facts가 있는 사례에서 질문에 답하는 가상 교사
         self.teacher_id = create_teacher(app.state.database, "eval-teacher", "가상 평가 교사", "fixture-only-passphrase")
         credentials = {"login_id": "eval-teacher", "password": "fixture-only-passphrase"}
         token = self.call("POST", "/api/v1/auth/login", json=credentials)["access_token"]
@@ -168,20 +173,57 @@ class PatPatCase:
             raise AppError(f"초안 생성 실패: {session['error_code']}")
         return session
 
+    def teacher_answers(self, flags, log):
+        """사례가 teacher_facts를 정했으면 직접 입력 질문에 가상 교사가 답한다. 그 밖의 질문은 건너뛴다.
+
+        가상 교사가 ‘기억나지 않아요.’라고 하면 교사가 건너뛴 것으로 본다(답으로 보내지 않는다).
+        """
+        facts = self.query.get("teacher_facts") or {}
+        answers = []
+        for flag in flags:
+            if flag["kind"] in {"incident", "area"} or flag["options"] or flag["status"] != "open":
+                continue
+            role = next((self.roles[child_id] for child_id in flag["child_ids"] if self.roles.get(child_id) in facts), None)
+            if role is None:
+                continue
+            text = self.teacher.answer(memo=self.query.get("blocks", {}).get(role, ""), facts=facts[role], question=flag["question"])
+            remembered = bool(text.strip()) and text.strip() != NO_MEMORY
+            log.append({"role": role, "kind": flag["kind"], "question": flag["question"], "answer": text, "answered": remembered})
+            if remembered:
+                answers.append({"flag_id": flag["flag_id"], "answer": text})
+        return answers
+
+    def question_counts(self, flags):
+        """사건사고·영역 확인을 뺀 질문이 아동별(없으면 반 공통)로 몇 개인지. 모든 역할을 0부터 센다."""
+        counts = {role: 0 for role in (*self.child_ids, "common")}
+        for flag in flags:
+            if flag["kind"] in {"incident", "area"}:
+                continue
+            role = self.roles.get(flag["child_ids"][0]) if flag["child_ids"] else "common"
+            counts[role or "common"] += 1
+        return counts
+
     def generate(self):
         # 앱은 알림장을 만들 때 연결 관찰일지 초안도 함께 요청한다(prepare_journals).
         prepare = "&prepare_journals=true" if self.query.get("prepare_journals") else ""
         self.call("POST", f"{self.session_url}/generate?manual_areas=true{prepare}")
         initial = self.get_session()
+        teacher_log = []
         if initial["status"] == "asking" and not self.query.get("observe_before_answer"):
-            # 사건사고 질문에는 query.incident_answer(기본 ‘그대로’)로 답하고 나머지 질문은 건너뛴다.
+            # 사건사고 질문에는 query.incident_answer(기본 ‘그대로’)로 답하고, teacher_facts가 있으면 가상 교사가
+            # 직접 입력 질문에 답하고, 나머지 질문은 건너뛴다.
             choice = self.query.get("incident_answer", "그대로")
             answers = [{"flag_id": flag["flag_id"], "answer": choice}
                        for flag in initial["flags"] if flag["kind"] == "incident" and choice in flag["options"]]
+            if self.query.get("teacher_facts"):
+                answers += self.teacher_answers(initial["flags"], teacher_log)
             self.call("POST", f"{self.session_url}/answers", json={"answers": answers, "skip_remaining": True})
         return {"initial_status": initial["status"], "notices_before_answer": len(initial["notices"]),
                 "has_open_confirmation": any(flag["status"] == "open" for flag in initial["flags"]),
-                "initial_questions": [flag["question"] for flag in initial["flags"]]}
+                "initial_questions": [flag["question"] for flag in initial["flags"]],
+                "question_count": len(initial["flags"]),
+                "questions_by_role": self.question_counts(initial["flags"]),
+                "teacher_answers": teacher_log}
 
     def recording(self):
         recording = self.call("POST", "/api/v1/recordings", files={"file": ("fixture.wav", silent_wav(), "audio/wav")},
@@ -357,5 +399,6 @@ def run_patpat_case(query, mode):
         app = create_app(settings, speech_to_text=transcriber)
         trace = ProviderTrace(app.state.ai_client)
         app.state.services.ai.client = trace
+        teacher = make_teacher(mode, settings) if query.get("teacher_facts") else None
         with TestClient(app) as client:
-            return PatPatCase(app, client, query, trace).collect()
+            return PatPatCase(app, client, query, trace, teacher).collect()

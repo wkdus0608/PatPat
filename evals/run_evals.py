@@ -127,7 +127,8 @@ def judge_evidence(row):
     draft = {key: output[key] for key in ("common_text", "notices")}
     for key in row["query"].get("evidence", []):
         if key == "flow":
-            draft["flow"] = {name: output["flow"][name] for name in ("initial_status", "initial_questions") if name in output["flow"]}
+            draft["flow"] = {name: output["flow"][name] for name in ("initial_status", "initial_questions", "teacher_answers")
+                             if name in output["flow"]}
         elif key == "journals":
             draft["journals"] = {role: {"text": view["text"],
                                         "items": [{"block_kind": item["block_kind"], "content": item["content"]} for item in view["items"]]}

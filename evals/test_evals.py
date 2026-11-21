@@ -1,16 +1,20 @@
 """Fault injection for the evaluator itself, independent of product and judge services."""
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from grading import grade_case, load_evalset, mvp_cases, normalize_judge, summarize, validate_case
 from patpat_adapter import (
-    build_template, count_chars, find_foreign_names, find_plain_style, find_time_ranges, read_template_cells, split_sentences,
+    PatPatCase, build_template, count_chars, find_foreign_names, find_plain_style, find_time_ranges, read_template_cells,
+    split_sentences,
 )
 from run_evals import judge_agreement, judge_evidence
+from teacher_sim import NO_MEMORY, FakeTeacher, build_user_text
 
 
 CASES = {case["id"]: case for case in load_evalset(Path(__file__).with_name("evalset.jsonl"))}
+HOLDOUT = {case["id"]: case for case in load_evalset(Path(__file__).with_name("evalset_holdout.jsonl"))}
 
 
 class EvalPolicyTests(unittest.TestCase):
@@ -65,7 +69,7 @@ class EvalPolicyTests(unittest.TestCase):
     def test_mvp_excludes_future_privacy_and_out_of_scope_delivery(self):
         selected = {case["id"] for case in mvp_cases(CASES.values())}
         excluded = set(CASES) - selected
-        self.assertEqual(len(selected), 31)  # 기존 17건 + 동료 피드백 EV-21~28 + 사용자 기준 EV-29~34
+        self.assertEqual(len(selected), 36)  # 기존 17건 + 동료 피드백 EV-21~28 + 사용자 기준 EV-29~34 + 질문 경로 EV-35~39
         self.assertEqual({case_id: CASES[case_id]["scope"] for case_id in excluded},
                          {"EV-17": "future", "EV-18": "future", "EV-19": "out_of_scope"})
 
@@ -174,6 +178,9 @@ class FeedbackCaseTests(unittest.TestCase):
         self.assertEqual(set(plain), {"common_text", "notices"})
         extended = judge_evidence({"output": output, "query": {"evidence": ["flow", "journals"]}})
         self.assertEqual(extended["flow"], {"initial_status": "asking", "initial_questions": ["질문"]})
+        answered = judge_evidence({"output": {**output, "flow": {**output["flow"], "teacher_answers": [{"role": "C01", "answered": True}]}},
+                                   "query": {"evidence": ["flow"]}})
+        self.assertEqual(answered["flow"]["teacher_answers"], [{"role": "C01", "answered": True}])
         self.assertEqual(extended["journals"]["C03"]["items"], [{"block_kind": "common", "content": "본문"}])
 
     def test_extended_query_fields_are_validated(self):
@@ -285,3 +292,138 @@ class UserStandardTests(unittest.TestCase):
             floors[case_id] = rules[0]["value"]
         # 사용자 결정: 분량은 입력 분량에 비례하지 않는다. 입력이 한 줄이든 여덟 줄이든 같은 기준이다.
         self.assertEqual(set(floors.values()), {500})
+
+
+class ThinInputQuestionTests(unittest.TestCase):
+    """2026-11-21 사용자 결정: 얇은 입력의 아이에게만 질문 1~2개로 사실을 더 모은 뒤 길게 쓴다(질문 경로 평가)."""
+    DEV = ("EV-35", "EV-36", "EV-37", "EV-38", "EV-39")
+
+    @staticmethod
+    def stub(query, teacher=None):
+        case = PatPatCase.__new__(PatPatCase)
+        case.child_ids = {"C01": "id-1", "C02": "id-2", "C03": "id-3"}
+        case.roles = {value: key for key, value in case.child_ids.items()}
+        case.query = query
+        case.teacher = teacher
+        return case
+
+    @staticmethod
+    def flag(flag_id, kind, child_id, *, options=(), status="open"):
+        return {"flag_id": flag_id, "kind": kind, "child_ids": [child_id] if child_id else [], "question": f"{flag_id}?",
+                "options": list(options), "status": status}
+
+    def test_at_most_passes_up_to_the_limit_and_never_for_an_absent_key(self):
+        case = CASES["EV-37"]
+        output = {"flow": {"questions_by_role": {"C01": 2, "C02": 2, "C03": 0}, "question_count": 6},
+                  "notices": {role: {"polite_violations": []} for role in ("C01", "C02", "C03")}}
+        row = grade_case(case, output)
+        self.assertEqual({c["status"] for c in row["checks"] if c["grader"] == "code"}, {"pass"})
+        over = {"flow": {"questions_by_role": {"C01": 3, "C02": 2, "C03": 1}, "question_count": 7}, "notices": output["notices"]}
+        failed = {c["name"] for c in grade_case(case, over)["checks"] if c["status"] == "fail"}
+        self.assertEqual(failed, {"c01_questions_within_two", "rich_child_is_not_asked", "class_questions_within_six"})
+        absent = grade_case(case, {"flow": {}, "notices": output["notices"]})
+        self.assertTrue(all(c["status"] == "fail" for c in absent["checks"] if c["name"] == "rich_child_is_not_asked"))
+
+    def test_thin_input_question_case_needs_a_question_a_long_polite_notice_and_a_judged_absence_of_new_facts(self):
+        case = CASES["EV-35"]
+        good = {"flow": {"questions_by_role": {"C01": 1}}, "notices": {"C01": {"chars": 520, "polite_violations": []}}}
+        self.assertEqual(grade_case(case, good)["status"], "pending")
+        no_question = {**good, "flow": {"questions_by_role": {"C01": 0}}}
+        self.assertEqual(grade_case(case, no_question)["checks"][0]["status"], "fail")
+        three = {**good, "flow": {"questions_by_role": {"C01": 3}}}
+        self.assertEqual(grade_case(case, three)["checks"][1]["status"], "fail")
+        short = {**good, "notices": {"C01": {"chars": 120, "polite_violations": []}}}
+        self.assertEqual(grade_case(case, short)["status"], "fail")
+        verdict = {rule["name"]: {"reason": "근거", "pass": rule["name"] != "answers_kept_in_detail_without_new_facts"}
+                   for rule in case["expect"]["judge"]}
+        failed = grade_case(case, good, judge=normalize_judge(verdict, case["expect"]["judge"]))
+        self.assertEqual(failed["status"], "fail")
+
+    def test_rich_control_cases_must_not_ask_and_must_stay_long(self):
+        for case in (CASES["EV-39"], HOLDOUT["HO-04"]):
+            with self.subTest(case=case["id"]):
+                self.assertNotIn("teacher_facts", case["query"])
+                role = case["query"]["children"][0]
+                asked = grade_case(case, {"flow": {"questions_by_role": {role: 1}},
+                                          "notices": {role: {"chars": 600, "polite_violations": []}}})
+                self.assertEqual(asked["checks"][0]["status"], "fail")
+                short = grade_case(case, {"flow": {"questions_by_role": {role: 0}},
+                                          "notices": {role: {"chars": 300, "polite_violations": []}}})
+                self.assertEqual(short["status"], "fail")
+
+    def test_teacher_facts_are_validated(self):
+        base = CASES["EV-35"]
+        invalid = (
+            {**base, "query": {**base["query"], "teacher_facts": {"C02": ["사실"]}}},
+            {**base, "query": {**base["query"], "teacher_facts": {"C01": []}}},
+            {**base, "query": {**base["query"], "teacher_facts": {"C01": [" "]}}},
+            {**base, "query": {**base["query"], "teacher_facts": ["사실"]}},
+            {**base, "query": {**base["query"], "evidence": []}},
+        )
+        for case in invalid:
+            with self.subTest(facts=case["query"].get("teacher_facts"), evidence=case["query"].get("evidence")):
+                with self.assertRaises(ValueError):
+                    validate_case(case)
+
+    def test_holdout_files_may_be_small_but_the_main_set_may_not(self):
+        with TemporaryDirectory() as directory:
+            lines = [Path(__file__).with_name("evalset_holdout.jsonl").read_text(encoding="utf-8")]
+            small = Path(directory) / "evalset_holdout.jsonl"
+            small.write_text(lines[0], encoding="utf-8")
+            self.assertEqual(len(load_evalset(small)), 5)
+            plain = Path(directory) / "evalset_dev.jsonl"
+            plain.write_text(lines[0], encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_evalset(plain)
+
+    def test_the_simulated_teacher_answers_only_free_text_questions_about_children_with_facts(self):
+        case = self.stub({"blocks": {"C01": "메모"}, "teacher_facts": {"C01": ["사실 하나.", "사실 둘."]}}, FakeTeacher())
+        flags = [self.flag("f1", "missing_fact", "id-1"), self.flag("f2", "incident", "id-1", options=("부드럽게", "그대로")),
+                 self.flag("f3", "missing_fact", "id-2"), self.flag("f4", "ambiguous", "id-1", options=("네", "아니요")),
+                 self.flag("f5", "missing_fact", "id-1", status="skipped")]
+        log = []
+        self.assertEqual(case.teacher_answers(flags, log), [{"flag_id": "f1", "answer": "사실 하나. 사실 둘."}])
+        self.assertEqual([item["question"] for item in log], ["f1?"])
+
+    def test_a_teacher_who_does_not_remember_skips_the_question(self):
+        class Forgetful:
+            def answer(self, **_):
+                return NO_MEMORY
+        case = self.stub({"blocks": {"C01": "메모"}, "teacher_facts": {"C01": ["사실"]}}, Forgetful())
+        log = []
+        self.assertEqual(case.teacher_answers([self.flag("f1", "missing_fact", "id-1")], log), [])
+        self.assertEqual([item["answered"] for item in log], [False])
+
+    def test_question_counts_include_every_role_and_leave_out_incident_confirmation(self):
+        case = self.stub({})
+        case.child_ids = {"C01": "id-1", "C02": "id-2"}
+        flags = [self.flag("a", "missing_fact", "id-1"), self.flag("b", "missing_fact", "id-1"), self.flag("c", "incident", "id-2"),
+                 self.flag("d", "ambiguous", None)]
+        self.assertEqual(case.question_counts(flags), {"C01": 2, "C02": 0, "common": 1})
+
+    def test_the_teacher_prompt_carries_only_that_childs_facts_and_the_question(self):
+        text = build_user_text(memo="그림책을 읽었다.", facts=["곰을 가리켰다."], question="무엇을 했나요?")
+        for expected in ("그림책을 읽었다.", "- 곰을 가리켰다.", "무엇을 했나요?"):
+            self.assertIn(expected, text)
+
+    def test_holdout_scenes_do_not_reuse_development_inputs(self):
+        def texts(cases):
+            return {block for case in cases for block in case["query"].get("blocks", {}).values()}
+        self.assertFalse(texts(CASES.values()) & texts(HOLDOUT.values()))
+        self.assertFalse(set(CASES) & set(HOLDOUT))
+        facts = {fact for case in HOLDOUT.values() for items in case["query"].get("teacher_facts", {}).values() for fact in items}
+        dev_facts = {fact for case in CASES.values() for items in case["query"].get("teacher_facts", {}).values() for fact in items}
+        self.assertFalse(facts & dev_facts)
+
+    def test_every_answering_case_shows_the_judge_the_questions_and_answers(self):
+        for case in (*(CASES[case_id] for case_id in self.DEV), *HOLDOUT.values()):
+            with self.subTest(case=case["id"]):
+                if case["query"].get("teacher_facts"):
+                    self.assertIn("flow", case["query"]["evidence"])
+                    self.assertTrue(any("teacher_answers" in rule["rule"] for rule in case["expect"]["judge"]))
+
+    def test_all_new_notice_floors_are_the_same_fixed_value(self):
+        floors = set()
+        for case in (*(CASES[case_id] for case_id in self.DEV), *HOLDOUT.values()):
+            floors |= {rule["value"] for rule in case["expect"]["code"] if rule["op"] == "at_least" and rule["path"].endswith("chars")}
+        self.assertEqual(floors, {500})
