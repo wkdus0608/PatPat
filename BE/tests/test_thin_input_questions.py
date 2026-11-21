@@ -92,7 +92,8 @@ def test_individual_prompt_asks_for_every_fact_and_a_long_text_without_new_facts
         mode="normal", answers=[{"question": "어떻게 했나요?", "answer": "조각을 돌려 가며 끼웠다."}], joint_facts=[],
         recent_notices=[], writing_examples=None,
     )
-    assert "하나도 빠뜨리지 않고" in request.user_text and "분량은 입력 분량에 맞추지 않는다" in request.user_text
+    assert "빠진 사실이 없는지 대조한다" in request.user_text and "분량은 입력 분량에 맞추지 않는다" in request.user_text
+    assert "문장을 나누어 사실마다 따로 쓰고" in request.user_text
     assert "- 어떻게 했나요? → 조각을 돌려 가며 끼웠다." in request.user_text
 
 
