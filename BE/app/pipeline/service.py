@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 
 from app.ai import observations, prompts, schemas
+from app.ai.omissions import find_omissions
 from app.ai.anthropic_client import NotConfiguredAIClient
 from app.ai.gateway import AIGateway
 from app.ai.lint import keep_example_emoticons, lint_notice
@@ -95,6 +96,7 @@ def mode_and_answers(flags: list[dict], child_id: str) -> tuple[str, list[dict]]
                 mode = "incident_soft"
                 continue
             if answer == "그대로":
+                mode = "incident_plain"  # 예전 앱이나 API가 직접 고른 경우만. 새 질문은 더 하지 않는다.
                 continue
         answers.append({"question": flag["question"], "answer": answer})
     return mode, answers
@@ -234,6 +236,7 @@ class PipelineService:
         self, ctx: DraftContext, *, prepare_journals: bool, previous_answers: list[dict] | None = None,
         include_profiles: bool = False, ask_thin: bool = False,
     ) -> dict:
+        """ask_thin이 참이면 입력이 얇은 아이와 하지 않은 일이 적힌 아이에게 사실을 더 묻게 한다(알림장 생성 경로)."""
         names = {child.child_id: child.name for child in ctx.present}
         blocks = [ctx.blocks[child_id] for child_id in names]
         if ctx.common is not None:
@@ -270,18 +273,26 @@ class PipelineService:
                     sources[block.block_id] = {
                         "block_id": block.block_id, "child_id": block.child_id, "text": block.text, "fields": missing,
                     }
-        thin = []
+        thin, omissions = [], {}
         if ask_thin:
             asked = {child_id for flag in local_flags for child_id in flag["child_ids"]}
-            thin = thin_input_children(names, reviewed_blocks, asked)
+            for child_id in names:
+                found = [] if child_id in asked else [item for item in find_omissions(reviewed_blocks[child_id].text) if not item["has_reason"]]
+                if found:
+                    omissions[child_id] = [item["sentence"] for item in found]
+            thin = thin_input_children(names, reviewed_blocks, asked | set(omissions))
         review_request = prompts.build_review(
             self.rules, cls=ctx.cls, roster=ctx.present, common=reviewed_blocks.get(None),
             blocks=[reviewed_blocks[child_id] for child_id in names],
             metadata_sources=list(sources.values()), previous_answers=previous_answers, include_profiles=include_profiles,
             thin_children=thin,
+            omissions=[{"child_id": child_id, "name": names[child_id], "sentences": sentences} for child_id, sentences in omissions.items()],
         )
         data = self._call(review_request, ctx).data
         review = schemas.parse_review(data, set(names), allow_common=ctx.common is not None)
+        if omissions:
+            fallback = self._omission_questions(review["flags"], omissions, names)
+            review["flags"] = schemas.cap_detail_questions([*fallback, *review["flags"]])
         review["flags"] = [*local_flags, *review["flags"]][:schemas.MAX_FLAGS]
         if confirmation_sources:
             review["confirmation_sources"] = confirmation_sources
@@ -311,6 +322,16 @@ class PipelineService:
             return {"phase": "asking", "questions": len(review["flags"])}
         self.sessions.set_status(session_id, "drafting", **stored)
         return self._run_draft(teacher_id, session_id)
+
+    @staticmethod
+    def _omission_questions(flags: list[dict], omissions: dict[str, list[str]], names: dict[str, str]) -> list[dict]:
+        """모델이 하지 않은 일에 질문을 만들지 않았으면 이유와 그 시간에 한 일을 묻는 질문을 서버가 만든다."""
+        asked = {child_id for flag in flags if flag["kind"] == "missing_fact" for child_id in flag["child_ids"]}
+        return [
+            {"kind": "missing_fact", "child_ids": [child_id], "options": [],
+             "question": f"{names[child_id]}의 메모 ‘{sentences[0].rstrip('.')}’에 대해, 이유와 그 시간에 한 일을 알려 주세요."}
+            for child_id, sentences in omissions.items() if child_id not in asked
+        ]
 
     @staticmethod
     def _metadata_questions(ctx: DraftContext, data: dict, sources: dict) -> list[dict]:
@@ -434,6 +455,8 @@ class PipelineService:
         block = ctx.blocks[child.child_id]
         text, unresolved_side = observations.confirmed_observation(block.text, flags, child.child_id)
         mode, answers = mode_and_answers(flags, child.child_id)
+        if (incident or unresolved_side) and mode == "normal":
+            mode = "incident_soft"  # 사건사고로 보이면 묻지 않고 부드러운 사건사고 알림장으로 쓴다
         return {
             "child": child, "block": replace(block, text=text), "has_input": bool(text),
             "mode": mode, "answers": answers, "incident": incident or unresolved_side, "unresolved_side": unresolved_side,

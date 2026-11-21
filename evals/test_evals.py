@@ -69,7 +69,7 @@ class EvalPolicyTests(unittest.TestCase):
     def test_mvp_excludes_future_privacy_and_out_of_scope_delivery(self):
         selected = {case["id"] for case in mvp_cases(CASES.values())}
         excluded = set(CASES) - selected
-        self.assertEqual(len(selected), 36)  # 기존 17건 + 동료 피드백 EV-21~28 + 사용자 기준 EV-29~34 + 질문 경로 EV-35~39
+        self.assertEqual(len(selected), 38)  # 기존 17건 + 동료 피드백 EV-21~28 + 사용자 기준 EV-29~34 + 질문 경로 EV-35~39 + 역질문 오탐 방지 EV-40·41
         self.assertEqual({case_id: CASES[case_id]["scope"] for case_id in excluded},
                          {"EV-17": "future", "EV-18": "future", "EV-19": "out_of_scope"})
 
@@ -82,8 +82,8 @@ class EvalPolicyTests(unittest.TestCase):
         self.assertFalse(sharing_failure["tolerated"])
 
     def test_unvalidated_llm_passes_cannot_certify_a_run(self):
-        case = CASES["EV-03"]
-        verdict = {"preserve_negation": {"reason": "입력의 부정이 보존됐다.", "pass": True}}
+        case = CASES["EV-01"]
+        verdict = {"grounded_sand": {"reason": "입력에 없는 사실이 없다.", "pass": True}}
         row = grade_case(case, {}, judge=normalize_judge(verdict, case["expect"]["judge"]))
         self.assertEqual(summarize([row])["status"], "pending")
         self.assertEqual(summarize([row], judge_validated=True)["status"], "pass")
@@ -241,16 +241,48 @@ class UserStandardTests(unittest.TestCase):
                 polite = [c for c in row["checks"] if c["name"] in ("notice_is_polite", "injury_notice_is_polite")]
                 self.assertEqual([c["status"] for c in polite], ["fail"])
 
-    def test_nonparticipation_cases_need_the_reason(self):
-        for case_id, name in (("EV-10", "nonparticipation_reason_handled"), ("EV-29", "nonparticipation_reason_in_notice")):
-            with self.subTest(case=case_id):
+    def test_nonparticipation_and_negation_cases_need_the_reason(self):
+        asked = {"flow": {"questions_by_role": {"C01": 1, "C03": 1}}}
+        outputs = {
+            "EV-10": {**asked, "notices": {"C03": {"common_prefix": True, "polite_violations": []}}},
+            "EV-29": {"notices": {"C03": {"polite_violations": []}}},
+            "EV-03": {**asked, "notices": {"C01": {"polite_violations": []}}},
+        }
+        for case_id, name in (("EV-10", "asks_reason_and_what_during"), ("EV-10", "reason_and_activity_in_notice"),
+                              ("EV-29", "nonparticipation_reason_in_notice"),
+                              ("EV-03", "asks_reason_and_what_instead"), ("EV-03", "answers_reflected_without_new_facts")):
+            with self.subTest(case=case_id, criterion=name):
                 criteria = {rule["name"] for rule in CASES[case_id]["expect"]["judge"]}
                 self.assertIn(name, criteria)
                 verdict = {rule["name"]: {"reason": "근거", "pass": rule["name"] != name} for rule in CASES[case_id]["expect"]["judge"]}
-                output = {"notices": {"C03": {"common_prefix": True, "polite_violations": []}}}
-                row = grade_case(CASES[case_id], output, judge=normalize_judge(verdict, CASES[case_id]["expect"]["judge"]))
+                row = grade_case(CASES[case_id], outputs[case_id], judge=normalize_judge(verdict, CASES[case_id]["expect"]["judge"]))
                 self.assertEqual(row["status"], "fail")
         self.assertEqual(CASES["EV-10"]["query"]["evidence"], ["flow"])
+
+    def test_a_missing_reason_must_be_asked_not_just_marked(self):
+        """2026-11-21 사용자 결정: 안 먹음·불참은 ‘확인 필요’ 표시로 넘기지 않고 이유와 그때 한 일을 역질문한다."""
+        for case_id, role, check in (("EV-10", "C03", "asks_nonparticipation_reason"), ("EV-03", "C01", "asks_why_not_eaten")):
+            with self.subTest(case=case_id):
+                case = CASES[case_id]
+                notices = {role: {"common_prefix": True, "polite_violations": [], "text": "이유 확인 필요"}}
+                silent = grade_case(case, {"flow": {"questions_by_role": {role: 0}}, "notices": notices})
+                self.assertEqual(next(c for c in silent["checks"] if c["name"] == check)["status"], "fail")
+                asked = grade_case(case, {"flow": {"questions_by_role": {role: 1}}, "notices": notices})
+                self.assertEqual(next(c for c in asked["checks"] if c["name"] == check)["status"], "pass")
+                over = grade_case(case, {"flow": {"questions_by_role": {role: 3}}, "notices": notices})
+                self.assertEqual(next(c for c in over["checks"] if c["name"] == "questions_within_two")["status"], "fail")
+                self.assertTrue(case["query"]["teacher_facts"])
+
+    def test_the_guard_cases_keep_the_policy_from_asking_too_much(self):
+        for case_id in ("EV-40", "EV-41"):
+            self.assertNotIn("teacher_facts", CASES[case_id]["query"])
+            self.assertEqual(CASES[case_id]["query"]["evidence"], ["flow"])
+        quiet = {rule["name"] for rule in CASES["EV-40"]["expect"]["judge"]}
+        self.assertIn("no_why_question_about_absent_problems", quiet)
+        soft = {rule["name"] for rule in CASES["EV-41"]["expect"]["judge"]}
+        self.assertEqual(soft, {"does_not_ask_whether_to_soften", "soft_incident_structure"})
+        unmarked = grade_case(CASES["EV-41"], {"notices": {"C02": {"incident": False, "polite_violations": []}}})
+        self.assertEqual(next(c for c in unmarked["checks"] if c["name"] == "incident_marked")["status"], "fail")
 
     def test_coloring_must_be_stated_for_the_child_who_colored(self):
         rule = CASES["EV-07"]["expect"]["judge"][0]["rule"]

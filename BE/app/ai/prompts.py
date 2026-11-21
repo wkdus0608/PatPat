@@ -113,12 +113,30 @@ def _thin_input_lines(thin_children: list[dict] | None) -> list[str]:
         "- 아래 아이는 입력이 짧아 알림장에 쓸 사실이 부족하다. 규칙 파일 '역질문 정책'의 '얇은 입력 보충 질문'에 따라 아이마다 missing_fact 질문을 1개 만들고, 입력이 한 문장뿐이라고 적힌 아이는 2개까지 만든다. 위의 '이미 관찰 근거가 충분하면 묻지 않는다'와 '가장 도움이 되는 것 하나만'은 이 아이들에게 적용하지 않는다.",
         "- 질문은 아직 입력에 없는 장면(어떻게 했는지, 함께한 친구나 교사와 주고받은 말·행동, 하는 중이나 끝난 뒤의 모습)을 묻는다. 이름을 넣은 한 문장이고, options는 빈 배열이며, child_ids에는 그 아이의 child_id만 넣는다. 한 아이에게 둘을 물을 때는 겹치지 않게 하나는 하는 동안의 모습, 하나는 함께한 사람과 주고받은 말·행동이나 끝난 뒤의 모습을 묻는다.",
         "- 입력과 반 공통 블록에 이미 있는 내용은 묻지 않는다. 즐거웠는지, 왜 그랬는지를 묻지 않고, 보지 않은 행동이 있었다고 전제하지 않는다.",
-        "- 사건사고 확인 질문(incident)은 이 질문과 별개로 만든다. 같은 아이에 대해 같은 장면을 묻는 질문이 이미 있으면 보충 질문을 더 만들지 않는다. 대상이 아닌 아이에게는 보충 질문을 만들지 않는다.",
+        "- 같은 아이에 대해 같은 장면을 묻는 질문이 이미 있으면 보충 질문을 더 만들지 않는다. 대상이 아닌 아이에게는 보충 질문을 만들지 않는다.",
         "[보충 질문 대상 아이]",
     ]
     for item in thin_children:
         count = "입력 한 문장(질문 2개까지)" if item["single"] else "입력 두 문장 이상(질문 1개)"
         lines.append(f"- {item['child_id']} ({item['name']}): {item['chars']}자, {count}")
+    return lines
+
+
+def _omission_lines(omissions: list[dict] | None) -> list[str]:
+    """하지 않은 일(불참, 안 먹음, 안 잠, 거부)의 이유와 그 시간에 한 일을 묻게 하는 요청 단락(서버가 대상 아이와 문장을 고른다)."""
+    if not omissions:
+        return []
+    lines = [
+        "",
+        "[하지 않은 일 확인]",
+        "- 아래 문장은 아이가 하지 않았거나 못 한 일(불참, 안 먹음, 안 잠, 거부 등)이다. 알림장을 읽는 보호자는 왜 그랬는지와 그 시간에 무엇을 했는지를 궁금해한다.",
+        "- 해당 아이의 입력과 반 공통 블록에 이유와 대신 한 일이 없으면 아이마다 missing_fact 질문을 1개 만든다. 이유와 그 시간에 한 일을 한 문장으로 함께 직접 입력으로 묻고, options는 빈 배열, child_ids에는 그 아이의 child_id만 넣는다. 예: ‘OO이가 색종이 접기에 참여하지 않은 이유와 그 시간에 한 일을 알려 주세요.’",
+        "- 이유와 대신 한 일이 이미 입력에 있으면 묻지 않는다. 이유를 짐작하거나 질문에 전제하지 않는다.",
+        "- 이 질문을 먼저 만들고, 같은 아이에 대한 다른 보충 질문과 합쳐 아이마다 2개를 넘기지 않는다. 위의 ‘이미 관찰 근거가 충분하면 묻지 않는다’는 이 아이들에게 적용하지 않는다.",
+        "[하지 않은 일이 적힌 아이]",
+    ]
+    for item in omissions:
+        lines.append(f"- {item['child_id']} ({item['name']}): " + " / ".join(item["sentences"]))
     return lines
 
 
@@ -169,6 +187,7 @@ def build_review(
     previous_answers: list[dict] | None = None,
     include_profiles: bool = False,
     thin_children: list[dict] | None = None,
+    omissions: list[dict] | None = None,
 ) -> AIRequest:
     names = {child.child_id: child.name for child in roster}
     lines = [
@@ -180,17 +199,18 @@ def build_review(
         "- 아동이 이미 연결된 블록의 단순 전사 오기나 이미 확인한 대상은 다시 묻지 않는다. 활동의 연결, 누가 무엇을 했는지, 앞뒤 관계가 실제 사실을 바꾸는 경우에는 두 장면을 짚어 확인한다.",
         "- 사건사고의 당사자, 다친 부위·정도, 교사 조치가 전사 오기 때문에 불분명하고 다른 입력에서도 확인되지 않으면, 가장 중요한 사실을 missing_fact로 직접 확인한다.",
         "- 구체적인 장면을 추가로 확인하는 질문은 가장 기록에 도움이 되는 것 하나만 고른다. 그 밖에 확인할 것이 없으면 flags를 빈 배열로 둔다.",
-        "- 질문은 합쳐서 최대 10개이고 사건사고, 불일치, 대상 불명, 핵심 사실 누락, 모호함 순으로 우선한다.",
-        "- kind는 incident, conflict, unresolved, missing_fact, ambiguous 중 하나다.",
+        "- 질문은 합쳐서 최대 10개이고 불일치, 대상 불명, 핵심 사실 누락, 모호함 순으로 우선한다.",
+        "- kind는 conflict, unresolved, missing_fact, ambiguous 중 하나다. 사건사고는 질문하지 않으므로 incident 종류를 쓰지 않는다.",
         "- child_ids에는 아래 명단의 child_id만 쓴다.",
         "- 반 공통 내용의 맥락을 보완하는 질문이라면 child_ids를 빈 배열로 둔다.",
         "- 관찰영역 선택은 입력 화면에서 처리하므로 여기서는 묻지 않는다.",
         "- 질문은 한 문장이다. missing_fact에서 직접 입력으로 행동·말·반응을 물을 때는 options를 빈 배열로 두고 확인되지 않은 행동을 질문에 전제하지 않는다.",
-        "- 그 밖의 options는 2~4개다. 사건사고 질문의 options는 [\"부드럽게\", \"그대로\"]다.",
+        "- 그 밖의 options는 2~4개다.",
         "- joint_events: 두 아이 이상이 얽힌 같은 일이 있으면 아이별로 상대 아이 이름을 \"친구\"로 바꾼 사실만 facts에 쓴다.",
-        "- incident_child_ids: 사건사고로 보이는 아이의 child_id.",
+        "- incident_child_ids: 사건사고(다침, 부딪힘, 다툼·신체 접촉, 안전을 위협한 일)로 보이는 아이의 child_id. 이 아이들은 질문 없이 서버가 부드러운 사건사고 알림장으로 쓴다. 보호자 안내용으로 쓸지 묻는 질문을 만들지 않는다. 부상 부위·정도·조치처럼 입력에 빠진 핵심 사실만 missing_fact로 묻는다.",
         "- 입력에 없는 사실을 추가하지 않는다.",
         *_thin_input_lines(thin_children),
+        *_omission_lines(omissions),
         "",
         _class_info(cls),
         "",
@@ -220,6 +240,8 @@ def build_review(
         payload["previous_answers"] = previous_answers
     if thin_children:
         payload["thin_children"] = thin_children
+    if omissions:
+        payload["omissions"] = omissions
     if include_profiles:
         profiles = [
             {"child_id": child.child_id, "characteristics": child.characteristics,
@@ -303,14 +325,14 @@ def build_individual(
     if mode == "incident_soft":
         mode_line = "사건사고(부드럽게 쓰기): 규칙 파일 '사건사고 알림장'과 민감표현 규칙을 따른다."
     elif incident:
-        mode_line = "사건사고(그대로 쓰기): 확인된 사건의 사실만 쓴다."
+        mode_line = "사건사고(그대로 쓰기): 확인된 사건의 사실만 쓰되, 사실마다 한 문장 이상(40자 안팎)으로 길고 상세하게 푼다. 하원 시 안내나 가정 연계 같은 안내 문장은 쓰지 않는다."
     else:
         mode_line = "일반 놀이 기록."
     output_requirements = ["- 결과는 text 하나다."]
     if incident:
         output_requirements = [
             "- text에는 사건사고와 무관한 일상만 쓴다. 해당 일상 관찰이 없으면 빈 문자열을 반환한다.",
-            "- special_notes에는 이 아이의 사건 경위, 부위·좌우·정도와 처치 중 확인된 사실을 중복 없이 쓴다. 제목과 확인 표시 문구는 서버가 붙인다. 부드럽게 쓰기이면 규칙 파일 '사건사고 알림장'의 구성 순서와 '긴 예시'처럼 상황, 교사의 대응, 아이의 반응, 이후 모습, 하원 시 안내, 가정 연계를 길고 상세하게 쓰고, 입력과 교사 답변에 없는 사실은 쓰지 않는다. 입력의 부위·좌우·정도(예: 왼쪽 무릎이 까졌다)는 그 낱말 그대로 한 번 이상 쓴다.",
+            "- special_notes에는 이 아이의 사건 경위, 부위·좌우·정도와 처치 중 확인된 사실을 중복 없이 쓴다. 제목과 확인 표시 문구는 서버가 붙인다. 부드럽게 쓰기이면 규칙 파일 '사건사고 알림장'의 구성 순서와 '긴 예시'처럼 상황, 교사의 대응, 아이의 반응, 이후 모습, 하원 시 안내, 가정 연계를 길고 상세하게 쓰고, 입력과 교사 답변에 없는 사실은 쓰지 않는다. 입력의 부위·좌우·정도(예: 왼쪽 무릎이 까졌다)는 그 낱말 그대로 한 번 이상 쓴다. 그대로 쓰기여도 확인된 사실을 사실마다 한 문장 이상으로 풀어 길고 상세하게 쓴다.",
             "- 부상이 있었으면 이 아이의 관찰과 교사의 실제 답변을 확인한다. 다친 부위가 불명확하면 missing_injury_details에 body_part를, 같은 부상의 좌우가 상충하고 해소되지 않으면 laterality를 넣는다. 처치가 알려지지 않았으면 care를 넣는다.",
             "- 같은 부상의 좌우나 부위 기록이 상충하면 교사가 답변으로 확인한 경우에만 확정한다. 답변으로 확인되지 않으면 기록이 일치하는 사실만 쓴다.",
             "- 부상 부위나 처치를 모르면 임의로 채우지 않는다. 질문 자체, 건너뛴 답변, 최근 알림장은 확인 근거가 아니다. 처치를 하지 않았다는 확인된 기록은 처치가 알려진 경우다.",

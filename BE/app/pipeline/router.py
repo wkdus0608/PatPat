@@ -66,7 +66,7 @@ def generate(
     response_model=JobResponse,
     summary="질문에 답하고 초안 쓰기",
     description="모든 질문에 답하거나 건너뛰어야 합니다(남은 질문을 한꺼번에 건너뛰려면 skip_remaining). "
-    "사건사고 질문에 '부드럽게'를 고르면 그 아이는 부드러운 사건사고 알림장으로 씁니다.",
+    "사건사고로 보이는 아이는 질문 없이 부드러운 사건사고 알림장으로 씁니다(보호자 안내용으로 쓸지 묻지 않습니다).",
 )
 def answers(session_id: str, body: AnswersBody, teacher: CurrentTeacher, services: ServicesDependency) -> JobResponse:
     items = [item.model_dump() for item in body.answers]

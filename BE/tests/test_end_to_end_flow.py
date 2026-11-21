@@ -40,16 +40,11 @@ def test_the_whole_evening_from_quick_notes_to_the_journal(tmp_path):
         suggested = client.post(f"{V2}/sessions/{sid}/blocks/{block_of(state, '다온')['block_id']}/suggest-areas", headers=auth).json()
         assert "자연탐구" in suggested["areas"]
 
-        # --- one cross-check; the only question is about the incident ---
-        job = client.post(f"{V2}/sessions/{sid}/generate", headers=auth).json()
-        assert job["status"] == "completed" and job["result"] == {"phase": "asking", "questions": 1}
-        asking = get_session(env, sid)
-        assert asking["status"] == "asking" and asking["notices"] == []
-        flag = asking["flags"][0]
-        assert flag["kind"] == "incident" and sorted(flag["child_ids"]) == sorted([ids["이든"], ids["서윤"]])
-        drafted = client.post(f"{V2}/sessions/{sid}/answers", headers=auth,
-                              json={"answers": [{"flag_id": flag["flag_id"], "answer": "부드럽게"}]}).json()
-        assert drafted["status"] == "completed" and drafted["result"]["drafted"] == 4 and drafted["result"]["failed"] == []
+        # --- one cross-check; an incident is written softly without asking the teacher ---
+        drafted = client.post(f"{V2}/sessions/{sid}/generate", headers=auth).json()
+        assert drafted["status"] == "completed" and drafted["result"]["phase"] == "reviewing"
+        assert drafted["result"]["drafted"] == 4 and drafted["result"]["failed"] == []
+        assert get_session(env, sid)["flags"] == []
 
         reviewing = get_session(env, sid)
         notices = {n["child_name"]: n for n in reviewing["notices"]}

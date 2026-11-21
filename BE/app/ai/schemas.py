@@ -238,6 +238,10 @@ def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = 
         if (not direct_answer_only and not 2 <= len(options) <= 4) or (not child_ids and not is_common):
             continue
         flags.append({"kind": kind, "child_ids": child_ids, "question": question.strip(), "options": options})
+    # 사건사고로 보인다고 보호자 안내용으로 쓸지 묻지 않는다(부드러운 사건사고 알림장이 기본이다).
+    # 모델이 그래도 질문을 만들면 질문은 버리고 그 아이들을 사건사고로만 옮긴다.
+    asked_incident_ids = [child_id for flag in flags if flag["kind"] == "incident" for child_id in flag["child_ids"]]
+    flags = [flag for flag in flags if flag["kind"] != "incident"]
     flags.sort(key=lambda flag: KIND_PRIORITY[flag["kind"]])
     flags = cap_detail_questions(flags)
     events = []
@@ -251,6 +255,7 @@ def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = 
         if len(facts) >= 2:
             events.append({"child_ids": list(facts), "facts": facts})
     incident_ids = [child_id for child_id in (data.get("incident_child_ids") or []) if child_id in valid_child_ids]
+    incident_ids = list(dict.fromkeys([*incident_ids, *asked_incident_ids]))
     return {"flags": flags[:MAX_FLAGS], "joint_events": events, "incident_child_ids": incident_ids}
 
 

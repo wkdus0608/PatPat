@@ -5,12 +5,22 @@ import time
 import pytest
 
 from app.ai import observations
+from app.ai.fake import _review as fake_review
 from app.ai.schemas import INCIDENT_NOTICE_SCHEMA
 from app.ai.types import AITask, AIUnavailable
+from app.pipeline.service import mode_and_answers
 from app.core.timeutil import new_id, now_iso
 from tests.flow_helpers import V2, add_children, block_of, fill, get_session, open_session, running_env
 
 NAMES = ["다온", "이든", "서윤", "하린", "지안"]
+
+
+def ask_about_the_pair(request):
+    """검토가 이든·서윤에 관한 직접 입력 질문을 만든 것으로 꾸민다(사건사고 질문은 더 하지 않는다)."""
+    data = fake_review(request)
+    data["flags"] = [{"kind": "missing_fact", "child_ids": data["incident_child_ids"],
+                      "question": "이든과 서윤 사이에 있었던 일을 알려 주세요.", "options": []}]
+    return data
 
 
 def class_of_five(env):
@@ -96,10 +106,8 @@ def test_a_prompt_for_one_child_never_carries_another_childs_name(tmp_path):
         fill(env, session, "이든", "이든이는 서윤이를 밀었어요.", ("사회관계",))
         fill(env, session, "서윤", "서윤이는 이든이가 밀어서 넘어졌어요.", ("사회관계",))
         set_absent(env, session, "하린")
-        assert generate(env, session["session_id"])["result"]["phase"] == "asking"
-        flags = get_session(env, session["session_id"])["flags"]
-        assert len(flags) == 1 and flags[0]["kind"] == "incident" and flags[0]["options"] == ["부드럽게", "그대로"]
-        answer(env, session["session_id"], {"answers": [{"flag_id": flags[0]["flag_id"], "answer": "부드럽게"}]})
+        assert generate(env, session["session_id"])["result"]["phase"] == "reviewing"  # 사건사고도 묻지 않고 바로 쓴다
+        assert get_session(env, session["session_id"])["flags"] == []
 
         fake = env.app.state.ai_client
         assert len(fake.calls_for(AITask.INDIVIDUAL)) == 3
@@ -116,16 +124,14 @@ def test_a_prompt_for_one_child_never_carries_another_childs_name(tmp_path):
             assert not any(other in text for other in NAMES if other != name), (name, text)
 
 
-def test_incident_answer_sets_the_drafting_mode_and_the_incident_mark(tmp_path):
+def test_incident_children_are_written_softly_without_asking_the_teacher(tmp_path):
     with running_env(tmp_path) as env:
         ids, session = class_of_five(env)
         fill(env, session, "다온", "다온이는 낙엽을 모았어요.", ("자연탐구",))
         fill(env, session, "이든", "이든이는 서윤이를 밀었어요.", ("사회관계",))
         fill(env, session, "서윤", "서윤이는 이든이가 밀어서 넘어졌어요.", ("사회관계",))
-        generate(env, session["session_id"])
-        flag = get_session(env, session["session_id"])["flags"][0]
-        assert sorted(flag["child_ids"]) == sorted([ids["이든"], ids["서윤"]])
-        answer(env, session["session_id"], {"answers": [{"flag_id": flag["flag_id"], "answer": "부드럽게"}]})
+        job = generate(env, session["session_id"])
+        assert job["result"]["phase"] == "reviewing" and get_session(env, session["session_id"])["flags"] == []
 
         modes = {call.payload["name"]: call.payload["mode"] for call in env.app.state.ai_client.calls_for(AITask.INDIVIDUAL)}
         assert modes == {"다온": "normal", "이든": "incident_soft", "서윤": "incident_soft"}
@@ -151,7 +157,6 @@ def test_injury_draft_places_confirmed_details_in_special_section(tmp_path):
         sid = session["session_id"]
         fill(env, session, "평가아동가", f"{daily} {injury}")
         generate(env, sid)
-        answer(env, sid, {"skip_remaining": True})
 
         notice = notice_of(env, sid, child_id)
         assert notice["incident"]
@@ -167,11 +172,10 @@ def test_missing_injury_details_are_shown_and_do_not_become_journal_evidence(tmp
         sid = session["session_id"]
         fill(env, session, "평가아동가", "바깥놀이 중 다쳤다.")
         generate(env, sid)
-        answer(env, sid, {"skip_remaining": True})
 
         notice = notice_of(env, sid, child_id)
         assert notice["edited_text"].splitlines() == [
-            "특이사항", "[테스트 문장] 평가아동가: 바깥놀이 중 다쳤다.", "부위 확인 필요", "처치 확인 필요",
+            "특이사항", "[테스트 문장] 평가아동가: 바깥놀이 중 다쳤다. (사건사고 구성)", "부위 확인 필요", "처치 확인 필요",
         ]
 
         confirmation = env.client.post(f"{V2}/notices/{notice['notice_id']}/confirm", headers=env.headers,
@@ -251,23 +255,31 @@ def test_regenerate_rejects_a_new_drafting_request_without_overwriting_the_notic
         assert len(env.app.state.ai_client.calls_for(AITask.INDIVIDUAL)) == 1
 
 
-def test_choosing_as_is_or_skipping_keeps_the_normal_mode(tmp_path):
-    for choice in ({"answer": "그대로"}, {"answer": None}, {"skip_remaining": True}):
-        with running_env(tmp_path / f"case-{abs(hash(str(choice)))}") as env:
-            ids, session = class_of_five(env)
-            fill(env, session, "이든", "이든이는 서윤이를 밀었어요.", ("사회관계",))
-            fill(env, session, "서윤", "서윤이는 넘어졌어요.", ("사회관계",))
-            generate(env, session["session_id"])
-            flag = get_session(env, session["session_id"])["flags"][0]
-            body = {"skip_remaining": True} if "skip_remaining" in choice else {"answers": [{"flag_id": flag["flag_id"], **choice}]}
-            answer(env, session["session_id"], body)
-            assert {call.payload["mode"] for call in env.app.state.ai_client.calls_for(AITask.INDIVIDUAL)} == {"normal"}
-            state = get_session(env, session["session_id"])
-            assert state["status"] == "reviewing" and state["flags"][0]["status"] in ("answered", "skipped")
+def test_a_stored_as_is_answer_keeps_the_plain_mode_and_everything_else_is_soft():
+    """예전 앱이나 API가 남긴 ‘그대로’ 답은 그대로 쓰기이고, 질문이 없거나 건너뛰었으면 부드럽게 쓴다."""
+    def stored(answer, status="answered"):
+        return [{"kind": "incident", "child_ids": ["A"], "question": "사건사고?", "status": status, "answer": answer}]
+
+    assert mode_and_answers(stored("그대로"), "A") == ("incident_plain", [])
+    assert mode_and_answers(stored("부드럽게"), "A") == ("incident_soft", [])
+    assert mode_and_answers(stored(None, "skipped"), "A") == ("normal", [])
+    assert mode_and_answers([], "A") == ("normal", [])  # 사건사고 아이의 기본 모드는 서버가 부드럽게로 바꾼다
+
+
+def test_an_incident_child_is_soft_even_when_the_teacher_skipped_an_unrelated_question(tmp_path):
+    with running_env(tmp_path, ai_handlers={AITask.REVIEW: ask_about_the_pair}) as env:
+        ids, session = class_of_five(env)
+        fill(env, session, "이든", "이든이는 서윤이를 밀었어요.", ("사회관계",))
+        fill(env, session, "서윤", "서윤이는 넘어졌어요.", ("사회관계",))
+        assert generate(env, session["session_id"])["result"]["phase"] == "asking"
+        answer(env, session["session_id"], {"skip_remaining": True})
+        assert {call.payload["mode"] for call in env.app.state.ai_client.calls_for(AITask.INDIVIDUAL)} == {"incident_soft"}
+        state = get_session(env, session["session_id"])
+        assert state["status"] == "reviewing" and state["flags"][0]["status"] == "skipped"
 
 
 def test_a_free_text_answer_reaches_only_the_children_it_is_about_and_is_masked(tmp_path):
-    with running_env(tmp_path) as env:
+    with running_env(tmp_path, ai_handlers={AITask.REVIEW: ask_about_the_pair}) as env:
         ids, session = class_of_five(env)
         fill(env, session, "이든", "이든이는 서윤이를 밀었어요.", ("사회관계",))
         fill(env, session, "서윤", "서윤이는 넘어졌어요.", ("사회관계",))
@@ -281,7 +293,7 @@ def test_a_free_text_answer_reaches_only_the_children_it_is_about_and_is_masked(
 
 
 def test_answer_validation(tmp_path):
-    with running_env(tmp_path) as env:
+    with running_env(tmp_path, ai_handlers={AITask.REVIEW: ask_about_the_pair}) as env:
         ids, session = class_of_five(env)
         sid = session["session_id"]
         fill(env, session, "이든", "이든이는 서윤이를 밀었어요.", ("사회관계",))
@@ -302,7 +314,7 @@ def test_answer_validation(tmp_path):
 
 
 def test_editing_is_closed_while_asking_and_reopen_goes_back_to_writing(tmp_path):
-    with running_env(tmp_path) as env:
+    with running_env(tmp_path, ai_handlers={AITask.REVIEW: ask_about_the_pair}) as env:
         ids, session = class_of_five(env)
         sid = session["session_id"]
         fill(env, session, "이든", "이든이는 서윤이를 밀었어요.", ("사회관계",))

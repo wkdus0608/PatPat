@@ -35,11 +35,11 @@ def test_detail_questions_are_capped_at_two_per_child_and_six_per_class():
 
 
 def test_the_detail_cap_leaves_other_question_kinds_alone():
-    flags = [{"kind": "incident", "child_ids": ["A"], "question": "사건사고?", "options": ["부드럽게", "그대로"]}]
+    flags = [{"kind": "conflict", "child_ids": ["A"], "question": "같은 일인가요?", "options": ["같은 상황", "따로"]}]
     flags += [{"kind": "ambiguous", "child_ids": ["A"], "question": f"애매 {n}", "options": ["네", "아니요"]} for n in range(4)]
     flags += [missing_fact(["A"], f"사실 {n}") for n in range(3)]
     kept = schemas.parse_review({"flags": flags}, {"A"})["flags"]
-    assert [flag["kind"] for flag in kept].count("incident") == 1
+    assert [flag["kind"] for flag in kept].count("conflict") == 1
     assert [flag["kind"] for flag in kept].count("ambiguous") == 4
     assert [flag["kind"] for flag in kept].count("missing_fact") == 2
 

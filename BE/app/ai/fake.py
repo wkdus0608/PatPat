@@ -38,14 +38,6 @@ def _review(request: AIRequest) -> dict:
     blocks = request.payload["blocks"]
     incident_ids = [row["child_id"] for row in blocks if any(word in row["text"] for word in INCIDENT_WORDS)]
     flags, events = [], []
-    if incident_ids:
-        names = "·".join(roster[child_id] for child_id in incident_ids)
-        flags.append({
-            "kind": "incident",
-            "child_ids": incident_ids,
-            "question": f"{names} 이야기는 사건사고로 보여요. 보호자 안내용으로 부드럽게 쓸까요?",
-            "options": ["부드럽게", "그대로"],
-        })
     if len(incident_ids) >= 2:
         facts = []
         for row in blocks:

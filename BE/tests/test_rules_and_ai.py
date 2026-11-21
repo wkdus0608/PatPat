@@ -116,8 +116,8 @@ def test_parse_review_keeps_valid_flags_in_priority_order():
         "incident_child_ids": ["A", "Z"],
     }
     parsed = schemas.parse_review(data, valid)
-    assert [flag["kind"] for flag in parsed["flags"]] == ["incident", "ambiguous"]
-    assert parsed["flags"][0]["child_ids"] == ["A"]
+    # 사건사고 질문은 버리고 그 아이들을 사건사고로만 옮긴다(부드러운 사건사고 알림장이 기본이다).
+    assert [flag["kind"] for flag in parsed["flags"]] == ["ambiguous"]
     assert len(parsed["joint_events"]) == 1 and parsed["incident_child_ids"] == ["A"]
 
 
@@ -209,10 +209,10 @@ def _review_request(bundle, blocks):
     return prompts.build_review(bundle, cls=CLS, roster=roster, common=None, blocks=block_ctx)
 
 
-def test_fake_review_flags_incidents_and_hides_the_other_childs_name(bundle):
+def test_fake_review_marks_incidents_without_asking_and_hides_the_other_childs_name(bundle):
     fake = FakeAIClient()
     result = fake.complete(_review_request(bundle, [("A", "이든", "서윤을 밀침"), ("B", "서윤", "넘어져서 울음"), ("C", "지안", "블록 쌓기")]))
-    assert [flag["kind"] for flag in result.data["flags"]] == ["incident"]
+    assert result.data["flags"] == []  # 보호자 안내용으로 쓸지 묻지 않는다
     assert result.data["incident_child_ids"] == ["A", "B"]
     facts = {item["child_id"]: item["fact"] for item in result.data["joint_events"][0]["facts"]}
     assert "서윤" not in facts["A"] and "친구" in facts["A"]
