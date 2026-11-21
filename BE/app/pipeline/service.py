@@ -38,8 +38,9 @@ THIN_INPUT_MAX_CHARS = 150  # 이 길이 이하의 개별 입력은 알림장에
 MAX_THIN_CHILDREN = 6  # 보충 질문을 받을 아이는 학급 전체에서 6명까지, 입력이 짧은 아이부터다.
 
 
-def thin_input_children(names: dict[str, str], blocks: dict[str, BlockCtx], skip: set[str]) -> list[dict]:
-    """입력이 짧은 아이를 짧은 순서로 고른다. 입력이 없거나 이미 다른 질문이 정해진 아이(skip)는 뺀다."""
+def thin_input_children(names: dict[str, str], blocks: dict[str, BlockCtx], skip: set[str],
+                        limit: int = MAX_THIN_CHILDREN) -> list[dict]:
+    """입력이 짧은 아이를 짧은 순서로 limit명까지 고른다. 입력이 없거나 이미 다른 질문이 정해진 아이(skip)는 뺀다."""
     items = []
     for child_id, name in names.items():
         text = blocks[child_id].text.replace("\n", "").strip()
@@ -48,7 +49,7 @@ def thin_input_children(names: dict[str, str], blocks: dict[str, BlockCtx], skip
         sentences = [part for part in re.split(r"[.!?]+", text) if part.strip()]
         items.append({"child_id": child_id, "name": name, "chars": len(text), "single": len(sentences) <= 1})
     items.sort(key=lambda item: item["chars"])
-    return items[:MAX_THIN_CHILDREN]
+    return items[:max(0, limit)]
 
 
 @dataclass
@@ -273,14 +274,19 @@ class PipelineService:
                     sources[block.block_id] = {
                         "block_id": block.block_id, "child_id": block.child_id, "text": block.text, "fields": missing,
                     }
-        thin, omissions = [], {}
+        thin, omissions, detail_rank = [], {}, {}
         if ask_thin:
             asked = {child_id for flag in local_flags for child_id in flag["child_ids"]}
             for child_id in names:
                 found = [] if child_id in asked else [item for item in find_omissions(reviewed_blocks[child_id].text) if not item["has_reason"]]
                 if found:
                     omissions[child_id] = [item["sentence"] for item in found]
-            thin = thin_input_children(names, reviewed_blocks, asked | set(omissions))
+            # 하지 않은 일 질문이 먼저이고, 보충 질문은 학급 전체 6개에서 그만큼을 뺀 수만 받는다.
+            thin = thin_input_children(names, reviewed_blocks, asked | set(omissions),
+                                       limit=min(MAX_THIN_CHILDREN, schemas.MAX_DETAIL_QUESTIONS - len(omissions)))
+            by_length = lambda child_id: len(reviewed_blocks[child_id].text.replace("\n", "").strip())  # noqa: E731
+            detail_rank = {child_id: position for position, child_id in enumerate(
+                [*sorted(omissions, key=by_length), *(item["child_id"] for item in thin)])}
         review_request = prompts.build_review(
             self.rules, cls=ctx.cls, roster=ctx.present, common=reviewed_blocks.get(None),
             blocks=[reviewed_blocks[child_id] for child_id in names],
@@ -289,10 +295,10 @@ class PipelineService:
             omissions=[{"child_id": child_id, "name": names[child_id], "sentences": sentences} for child_id, sentences in omissions.items()],
         )
         data = self._call(review_request, ctx).data
-        review = schemas.parse_review(data, set(names), allow_common=ctx.common is not None)
+        review = schemas.parse_review(data, set(names), allow_common=ctx.common is not None, detail_rank=detail_rank)
         if omissions:
             fallback = self._omission_questions(review["flags"], omissions, names)
-            review["flags"] = schemas.cap_detail_questions([*fallback, *review["flags"]])
+            review["flags"] = schemas.cap_detail_questions([*fallback, *review["flags"]], detail_rank)
         review["flags"] = [*local_flags, *review["flags"]][:schemas.MAX_FLAGS]
         if confirmation_sources:
             review["confirmation_sources"] = confirmation_sources

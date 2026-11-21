@@ -237,22 +237,30 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
     return " ".join(parts)
 
 
-def cap_detail_questions(flags: list[dict]) -> list[dict]:
-    """직접 입력으로 사실을 묻는 질문(missing_fact)은 아이마다 2개, 학급 전체 6개까지만 남긴다(먼저 온 순서)."""
-    kept, per_child, total = [], {}, 0
-    for flag in flags:
-        if flag["kind"] == "missing_fact":
-            if total >= MAX_DETAIL_QUESTIONS or any(per_child.get(child_id, 0) >= MAX_DETAIL_QUESTIONS_PER_CHILD
-                                                    for child_id in flag["child_ids"]):
-                continue
-            total += 1
-            for child_id in flag["child_ids"]:
-                per_child[child_id] = per_child.get(child_id, 0) + 1
-        kept.append(flag)
-    return kept
+def cap_detail_questions(flags: list[dict], rank: dict[str, int] | None = None) -> list[dict]:
+    """직접 입력으로 사실을 묻는 질문(missing_fact)은 아이마다 2개, 학급 전체 6개까지만 남긴다.
+
+    남길 질문은 rank(아이 → 순위, 작을수록 먼저)로 고른다. 규칙은 하지 않은 일을 먼저, 그다음 입력이 짧은 아이부터
+    묻게 하므로 모델이 나열한 순서와 무관해야 한다. rank에 없는 아이는 맨 뒤이고 같은 순위는 먼저 온 순서다.
+    남은 질문의 출력 순서는 원래 순서를 지킨다."""
+    rank = rank or {}
+    detail = [index for index, flag in enumerate(flags) if flag["kind"] == "missing_fact"]
+    detail.sort(key=lambda index: (min((rank.get(child_id, len(rank)) for child_id in flags[index]["child_ids"]),
+                                       default=len(rank)), index))
+    keep, per_child = set(), {}
+    for index in detail:
+        child_ids = flags[index]["child_ids"]
+        if len(keep) >= MAX_DETAIL_QUESTIONS or any(per_child.get(child_id, 0) >= MAX_DETAIL_QUESTIONS_PER_CHILD
+                                                    for child_id in child_ids):
+            continue
+        keep.add(index)
+        for child_id in child_ids:
+            per_child[child_id] = per_child.get(child_id, 0) + 1
+    return [flag for index, flag in enumerate(flags) if flag["kind"] != "missing_fact" or index in keep]
 
 
-def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = False) -> dict:
+def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = False,
+                 detail_rank: dict[str, int] | None = None) -> dict:
     """Keep well-formed class or child questions, ordered by priority."""
     flags = []
     for raw in data.get("flags") or []:
@@ -277,7 +285,7 @@ def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = 
     asked_incident_ids = [child_id for flag in flags if flag["kind"] == "incident" for child_id in flag["child_ids"]]
     flags = [flag for flag in flags if flag["kind"] != "incident"]
     flags.sort(key=lambda flag: KIND_PRIORITY[flag["kind"]])
-    flags = cap_detail_questions(flags)
+    flags = cap_detail_questions(flags, detail_rank)
     events = []
     for raw in data.get("joint_events") or []:
         if not isinstance(raw, dict):

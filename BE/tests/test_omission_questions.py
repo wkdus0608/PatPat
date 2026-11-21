@@ -144,3 +144,48 @@ def test_the_omission_questions_share_the_six_question_limit(tmp_path):
         flags = get_session(env, session["session_id"])["flags"]
         assert len(flags) == 6 and {flag["kind"] for flag in flags} == {"missing_fact"}
         assert all(len(flag["child_ids"]) == 1 for flag in flags)
+
+
+# --- 질문 상한: 순위·개수·이유 표지 (2026-11-21 대역 검증에서 찾은 결함) -------------------------------------------------
+def test_an_ordinary_sequence_is_not_taken_for_a_reason():
+    assert find_omissions("자리에 앉아서 간식을 먹지 않았다.")[0]["has_reason"] is False
+    assert find_omissions("무서워서 미끄럼틀을 타지 않았다.")[0]["has_reason"] is True
+
+
+def test_the_cap_keeps_the_children_the_rules_rank_first_not_the_model_order():
+    from app.ai.schemas import cap_detail_questions
+
+    flags = [{"kind": "missing_fact", "child_ids": [name], "question": name, "options": []} for name in "ABCDEFGH"]
+    ranked = cap_detail_questions(flags, {"G": 0, "H": 1, "A": 2, "B": 3, "C": 4, "D": 5})
+    assert [flag["child_ids"][0] for flag in ranked] == ["A", "B", "C", "D", "G", "H"]  # 남긴 질문은 원래 순서
+    assert [flag["child_ids"][0] for flag in cap_detail_questions(flags)] == list("ABCDEF")  # 순위가 없으면 먼저 온 순서
+
+
+def test_the_thin_children_share_the_six_questions_with_the_omissions(tmp_path):
+    names = [f"아이{n}" for n in range(8)]
+    with running_env(tmp_path) as env:
+        add_children(env, names)
+        session = open_session(env)
+        for index, name in enumerate(names):
+            fill(env, session, name, "점심을 안 먹었다." if index < 2 else "블록을 쌓았다.")
+        generate(env, session["session_id"])
+        review_call, = env.app.state.ai_client.calls_for(AITask.REVIEW)
+        assert len(review_call.payload["omissions"]) == 2 and len(review_call.payload["thin_children"]) == 4
+
+
+def test_a_model_that_lists_the_longest_child_first_cannot_push_out_the_shortest(tmp_path):
+    names = [f"아이{n}" for n in range(8)]
+
+    def model_asks_in_roster_order(request):
+        return {"flags": [{"kind": "missing_fact", "child_ids": [block["child_id"]], "options": [],
+                           "question": f"{block['child_id']}의 장면을 알려 주세요."} for block in request.payload["blocks"]],
+                "joint_events": [], "incident_child_ids": []}
+
+    with running_env(tmp_path, ai_handlers={AITask.REVIEW: model_asks_in_roster_order}) as env:
+        ids = dict(zip(names, add_children(env, names)))
+        session = open_session(env)
+        for index, name in enumerate(names):  # 아이0이 가장 길고 아이7이 가장 짧다
+            fill(env, session, name, "블록을 쌓았다." + " 친구와 나눠 썼다." * (7 - index))
+        generate(env, session["session_id"])
+        asked = {flag["child_ids"][0] for flag in get_session(env, session["session_id"])["flags"]}
+        assert asked == {ids[name] for name in names[2:]}  # 가장 긴 두 아이(아이0, 아이1)가 빠진다

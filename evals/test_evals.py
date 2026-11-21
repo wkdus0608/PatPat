@@ -13,6 +13,14 @@ from run_evals import judge_agreement, judge_evidence
 from teacher_sim import NO_MEMORY, FakeTeacher, build_user_text
 
 
+def fact_floor(case):
+    """사실(입력 + 가상 교사의 답) 글자 수에 안내 문장 약 80자를 더해 50자 단위로 내린 분량 하한(최소 100자)."""
+    query = case["query"]
+    facts = sum(len(text) for text in query.get("blocks", {}).values())
+    facts += sum(len(item) for items in query.get("teacher_facts", {}).values() for item in items)
+    return max(100, (80 + facts) // 50 * 50)
+
+
 CASES = {case["id"]: case for case in load_evalset(Path(__file__).with_name("evalset.jsonl"))}
 HOLDOUT = {case["id"]: case for case in load_evalset(Path(__file__).with_name("evalset_holdout.jsonl"))}
 
@@ -290,7 +298,8 @@ class UserStandardTests(unittest.TestCase):
         self.assertIn("‘확인 필요’ 표기로 바꾸거나 빠뜨리면 실패", rule)
 
     def test_long_detailed_cases_fail_when_short_or_plain_and_wait_for_the_judge_when_long(self):
-        for case_id, role, floor in (("EV-30", "C01", 500), ("EV-31", "C01", 500)):
+        for case_id, role in (("EV-30", "C01"), ("EV-31", "C01")):
+            floor = next(rule["value"] for rule in CASES[case_id]["expect"]["code"] if rule["op"] == "at_least")
             with self.subTest(case=case_id):
                 short = grade_case(CASES[case_id], {"notices": {role: {"individual_chars": floor - 1, "polite_violations": []}}})
                 self.assertEqual(short["status"], "fail")
@@ -316,14 +325,15 @@ class UserStandardTests(unittest.TestCase):
         failed = grade_case(case, long_polite, judge=normalize_judge(verdict, case["expect"]["judge"]))
         self.assertEqual(failed["status"], "fail")
 
-    def test_length_floors_do_not_depend_on_how_much_was_entered(self):
-        floors = {}
+    def test_length_floors_follow_the_facts_not_a_fixed_quota(self):
+        # 2026-11-21 사용자 결정 변경: ‘지어내지 않는 선에서만’ 길게 쓴다. 하한은 입력·교사 답의 사실 글자 수에
+        # 안내 문장 약 80자를 더해 50자 단위로 내린 값(최소 100자)이고 500자를 넘지 않는다. 500자 고정은 사실이 적은 사례에서
+        # 지어내야만 채울 수 있어 폐기했다.
         for case_id in ("EV-11", "EV-30", "EV-31", "EV-33", "EV-34"):
             rules = [rule for rule in CASES[case_id]["expect"]["code"] if rule["op"] == "at_least"]
             self.assertEqual(len(rules), 1, case_id)
-            floors[case_id] = rules[0]["value"]
-        # 사용자 결정: 분량은 입력 분량에 비례하지 않는다. 입력이 한 줄이든 여덟 줄이든 같은 기준이다.
-        self.assertEqual(set(floors.values()), {500})
+            self.assertEqual(rules[0]["value"], fact_floor(CASES[case_id]), case_id)
+        self.assertLess(CASES["EV-34"]["expect"]["code"][0]["value"], 500)
 
 
 class ThinInputQuestionTests(unittest.TestCase):
@@ -454,8 +464,8 @@ class ThinInputQuestionTests(unittest.TestCase):
                     self.assertIn("flow", case["query"]["evidence"])
                     self.assertTrue(any("teacher_answers" in rule["rule"] for rule in case["expect"]["judge"]))
 
-    def test_all_new_notice_floors_are_the_same_fixed_value(self):
-        floors = set()
+    def test_all_new_notice_floors_follow_the_facts_of_the_case(self):
         for case in (*(CASES[case_id] for case_id in self.DEV), *HOLDOUT.values()):
-            floors |= {rule["value"] for rule in case["expect"]["code"] if rule["op"] == "at_least" and rule["path"].endswith("chars")}
-        self.assertEqual(floors, {500})
+            for rule in case["expect"]["code"]:
+                if rule["op"] == "at_least" and rule["path"].endswith("chars") and rule["path"].startswith("notices"):
+                    self.assertEqual(rule["value"], fact_floor(case), case["id"])
