@@ -38,6 +38,7 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
   const [copiedVersion, setCopiedVersion] = useState<number | null>(null);
   const [journalChoiceVersion, setJournalChoiceVersion] = useState<number | null>(null);
   const [journalMessage, setJournalMessage] = useState<string | null>(null);
+  const [journalRetry, setJournalRetry] = useState<Job | null>(null);
   const action = useWorkAction();
   const noticeId = summary.notice_id;
   const version = summary.version;
@@ -54,22 +55,27 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
     return () => { current = false; };
   }, [api, noticeId, version, attempt]);
 
+  // 알림장 확정은 끝났고 관찰일지 업데이트 결과만 모를 때는 오류가 아니라 안내로 알리고 다시 확인하게 한다.
+  async function followJournalJob(job: Job) {
+    setJournalRetry(null);
+    setJournalMessage('관찰일지를 업데이트하고 있어요.');
+    try {
+      await waitForJob(api, job);
+      setJournalMessage('관찰일지를 업데이트했어요.');
+    } catch {
+      setJournalRetry(job);
+      setJournalMessage('알림장은 확정했어요. 관찰일지가 업데이트됐는지는 아직 확인하지 못했어요. 관찰일지 탭에서도 볼 수 있어요.');
+    }
+    onJournalUpdated();
+  }
+
   async function confirm(version: number, updateJournal?: boolean) {
     setJournalMessage(null);
+    setJournalRetry(null);
     const result = await api.confirmNotice(noticeId, version, updateJournal);
     setNotice(result.notice);
     onStatusChange(result.notice);
-    if (updateJournal && result.journal_job) {
-      setJournalMessage('관찰일지를 업데이트하고 있어요.');
-      try {
-        await waitForJob(api, result.journal_job);
-        setJournalMessage('관찰일지를 업데이트했어요.');
-        onJournalUpdated();
-      } catch {
-        setJournalMessage(null);
-        throw new ApiError(0, 'JOURNAL_REFRESH', '알림장은 확정했어요. 관찰일지 업데이트 결과를 확인하지 못했어요.');
-      }
-    }
+    if (updateJournal && result.journal_job) await followJournalJob(result.journal_job);
   }
 
   async function save(current: Notice, andConfirm: boolean) {
@@ -116,6 +122,8 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
       {loadError && <WorkMessage error>{loadError}</WorkMessage>}
       {action.error && <WorkMessage error>{action.error}</WorkMessage>}
       {journalMessage && <WorkMessage>{journalMessage}</WorkMessage>}
+      {journalRetry && <WorkButton label="관찰일지 업데이트 다시 확인" secondary busy={action.busy} disabled={blocked}
+        onPress={() => { void action.run(async () => { await followJournalJob(await api.job(journalRetry.job_id)); }); }} />}
       {(loadError || notice?.busy || action.error) && <WorkButton label="최신 글 불러오기" secondary disabled={action.busy}
         onPress={() => { action.setError(null); setAttempt(value => value + 1); }} />}
       {!notice && !loadError && <ActivityIndicator color={colors.ink} accessibilityLabel="알림장 불러오는 중" />}

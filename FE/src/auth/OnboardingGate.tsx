@@ -8,6 +8,7 @@ import { DatePicker, todayDate } from '../ui/DatePicker';
 import { colors } from '../ui/theme';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import type { Account } from './controller';
+import { moveStep } from './onboardingSteps';
 import { emptyPresetLines, parsePreferenceLines, PreferenceFields, preferenceLines } from '../writing/WritingPreferences';
 
 const titles = ['반 정보', '아동 명단', '아이별 특성', '내 말투 알려주기'];
@@ -155,7 +156,26 @@ function SetupStep({ step, account, api, onAdvance }: {
       }
       if (step === 4 && example !== baseline?.example) await api.saveTeacherDocument('writing_examples', example);
     }
-    onAdvance((await api.saveOnboarding((step + 1) as OnboardingStep)).step);
+    await api.saveOnboarding((step + 1) as OnboardingStep); // 서버에는 가장 멀리 간 단계가 남는다
+    onAdvance(moveStep(step, 1));
+  }
+
+  // 이전 단계로 돌아가기 전에 지금 입력한 내용을 저장한다(비어 있거나 틀려도 막지 않고, 쓸 수 있는 것만 저장).
+  async function goBack() {
+    if (step === 2) await addChild().catch(() => false);
+    if (step === 3) {
+      for (const child of children) {
+        const value = profiles[child.child_id];
+        const before = baseline?.profiles?.[child.child_id];
+        if (!value) continue;
+        const gender = value.gender?.trim() || null;
+        const birth_date = value.birth_date?.trim() || null;
+        if (gender !== before?.gender || birth_date !== before?.birth_date) await api.saveChildDetails(child.child_id, { gender, birth_date });
+        if (value.characteristics !== before?.characteristics) await api.saveCharacteristics(child.child_id, value.characteristics);
+      }
+    }
+    if (step === 4 && example !== baseline?.example) await api.saveTeacherDocument('writing_examples', example);
+    onAdvance(moveStep(step, -1));
   }
 
   function changeProfile(childId: string, change: Partial<Profile>) {
@@ -226,6 +246,8 @@ function SetupStep({ step, account, api, onAdvance }: {
           disabled={account.busy} onPress={() => { void action.run(() => advance()); }} />
         {step >= 3 && <WorkButton label="건너뛰기" secondary disabled={action.busy || account.busy}
           onPress={() => { void action.run(() => advance(true)); }} />}
+        {step >= 2 && <WorkButton label="이전" secondary disabled={action.busy || account.busy}
+          onPress={() => { void action.run(() => goBack()); }} />}
       </>}
     </SetupFrame>
   );

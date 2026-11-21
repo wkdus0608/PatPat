@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from './theme';
-import { WorkButton, workStyles } from './WorkFields';
+import { parseDateInput } from './dateInput';
+import { WorkButton, WorkField, workStyles } from './WorkFields';
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const iso = (date: Date) => date.toISOString().slice(0, 10);
@@ -35,6 +36,8 @@ export function DatePicker({ label, value, onChange, min, max, disabled, compact
   availableDates?: ReadonlySet<string>;
 }) {
   const [month, setMonth] = useState<string | null>(null);
+  const [typed, setTyped] = useState('');
+  const [typedError, setTypedError] = useState<string | null>(null);
   const shown = utc(month ?? todayDate());
   const year = shown.getUTCFullYear();
   const index = shown.getUTCMonth();
@@ -47,7 +50,15 @@ export function DatePicker({ label, value, onChange, min, max, disabled, compact
     else if (max && next.slice(0, 7) > max.slice(0, 7)) setMonth(max.slice(0, 7) + '-01');
     else setMonth(next);
   }
+  function applyTyped() {
+    const parsed = parseDateInput(typed, { min, max });
+    if (!parsed.ok) { setTypedError(parsed.error); return; }
+    if (availableDates && !availableDates.has(parsed.date)) { setTypedError('선택할 수 없는 날짜예요.'); return; }
+    choose(parsed.date);
+  }
   function open() {
+    setTyped('');
+    setTypedError(null);
     const initial = value ?? todayDate();
     const withinBounds = min && initial < min ? min : max && initial > max ? max : initial;
     setMonth(withinBounds.slice(0, 7) + '-01');
@@ -96,6 +107,12 @@ export function DatePicker({ label, value, onChange, min, max, disabled, compact
               </Pressable>;
             })}
           </View>
+          {years && <>
+            <WorkField label="날짜 직접 입력" value={typed} onChangeText={text => { setTyped(text); setTypedError(null); }}
+              placeholder="2022-06-03" maxLength={12} onSubmitEditing={applyTyped} />
+            {typedError && <Text accessibilityRole="alert" style={workStyles.hint}>{typedError}</Text>}
+            <View style={styles.yearRow}><WorkButton label="입력한 날짜로 선택" secondary disabled={!typed.trim()} onPress={applyTyped} /></View>
+          </>}
           <View style={styles.yearRow}>
             {!compact && value !== null && <WorkButton label="선택 지우기" secondary onPress={() => choose(null)} />}
             <WorkButton label="닫기" secondary onPress={() => setMonth(null)} />

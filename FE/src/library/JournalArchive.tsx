@@ -3,6 +3,7 @@ import { FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { JournalArchiveEntry } from '../api/v2';
 import { DateArrow, DatePicker } from '../ui/DatePicker';
 import { WorkMessage, workStyles } from '../ui/WorkFields';
+import { hasRoom, pageSize, type Box } from './archiveLayout';
 
 type Page = { date: string; records: JournalArchiveEntry[] };
 
@@ -17,7 +18,8 @@ export function JournalArchive({ records }: { records: JournalArchiveEntry[] }) 
     return Array.from(groups, ([date, items]) => ({ date, records: items }));
   }, [records]);
   const dates = useMemo(() => new Set(pages.map(page => page.date)), [pages]);
-  const [width, setWidth] = useState(0);
+  const [box, setBox] = useState<Box>({ width: 0, height: 0 });
+  const { width } = box;
   const [index, setIndex] = useState(pages.length - 1);
   const list = useRef<FlatList<Page>>(null);
   const move = (next: number) => list.current?.scrollToOffset({ offset: next * width, animated: true });
@@ -41,15 +43,16 @@ export function JournalArchive({ records }: { records: JournalArchiveEntry[] }) 
       <DateArrow name="chevron-forward" label="다음 관찰일지 날짜" disabled={!width || index === pages.length - 1}
         onPress={() => move(index + 1)} />
     </View>
-    <View style={styles.fill} onLayout={event => setWidth(event.nativeEvent.layout.width)}>
-      {width > 0 && <FlatList key={width} ref={list} style={styles.fill} data={pages}
+    <View style={styles.fill} onLayout={event => setBox({
+      width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
+      {hasRoom(box) && <FlatList key={width + 'x' + box.height} ref={list} style={styles.fill} data={pages}
         keyExtractor={page => page.date} horizontal pagingEnabled showsHorizontalScrollIndicator={false}
         initialScrollIndex={index} initialNumToRender={3} windowSize={5} scrollEventThrottle={16}
         getItemLayout={(_, position) => ({ length: width, offset: position * width, index: position })}
         onScroll={event => setIndex(Math.max(0, Math.min(pages.length - 1,
           Math.round(event.nativeEvent.contentOffset.x / width))))}
         testID="journal-archive-pages"
-        renderItem={({ item, index: position }) => <ScrollView style={{ width }}
+        renderItem={({ item, index: position }) => <ScrollView style={pageSize(box)}
           aria-hidden={index !== position} accessibilityElementsHidden={index !== position}
           importantForAccessibility={index !== position ? 'no-hide-descendants' : 'auto'}
           contentContainerStyle={styles.page}>

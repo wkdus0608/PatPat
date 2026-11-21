@@ -6,6 +6,8 @@ import { OBSERVATION_AREAS, type Area, type Block, type BlockEdit, type Flag, ty
   type WritingPreferences, type WritingSession } from '../api/v2';
 import type { Account } from '../auth/controller';
 import { DateArrow, DatePicker, shiftDate, todayDate } from '../ui/DatePicker';
+import { bulkMessage, confirmReviewing } from './bulkConfirm';
+import { elapsedText } from './elapsed';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import { colors } from '../ui/theme';
 import { NoticeReview, jobMessage, waitForJob } from './NoticeReview';
@@ -118,6 +120,8 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
   const [checkingAreas, setCheckingAreas] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [bulkText, setBulkText] = useState<string | null>(null);
+  const [waited, setWaited] = useState(0);
   const action = useWorkAction();
   const menu = usePresetMenu(active);
   const [day, setDay] = useState(todayDate);
@@ -137,6 +141,12 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
   }, []);
   const sessionId = session?.session_id;
   const generating = !!session && isGenerating(session.status);
+  useEffect(() => {
+    if (!generating) { setWaited(0); return; }
+    const started = Date.now();
+    const timer = setInterval(() => setWaited((Date.now() - started) / 1000), 1000);
+    return () => clearInterval(timer);
+  }, [generating]);
   const run = audio.run;
   const audioWorking = recordingRunWorking(run);
 
@@ -305,6 +315,18 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
     scroll.current?.scrollTo({ y: 0, animated: false });
   }
 
+  async function confirmAll(current: WritingSession) {
+    if (dirtyEditors.current.size) {
+      action.setError('수정 중인 알림장이 있어요. 저장하거나 취소한 뒤 전체 확정해 주세요.');
+      return;
+    }
+    setBulkText(null);
+    const result = await confirmReviewing(api, current.notices);
+    setBulkText(bulkMessage(result));
+    setSession(await api.session(current.session_id));
+    onJournalUpdated();
+  }
+
   async function generate(current: WritingSession) {
     if (!canUseSelectedRecordings()) return;
     await saveInputs(current);
@@ -350,6 +372,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
         {run?.initial ? null : generating ? <View style={workStyles.panel}>
           <ActivityIndicator color={colors.ink} />
           <WorkMessage>{session.status === 'analyzing' ? '작성에 필요한 맥락을 확인하고 있어요.' : '알림장과 관찰일지 초안을 만들고 있어요.'}</WorkMessage>
+          <WorkMessage>{elapsedText(waited)} 만드는 중이에요. 아이가 많으면 시간이 더 걸려요. 화면을 닫지 말아 주세요.</WorkMessage>
         </View> : session.status === 'asking' ? <ReviewQuestions
           key={session.flags.map(flag => flag.flag_id).join(',')} flags={session.flags.filter(flag => flag.status === 'open')}
           busy={action.busy} onDirty={onDirty} onAnswer={answers => { void action.run(async () => {
@@ -358,6 +381,12 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
           }); }} onReopen={() => { void action.run(async () => setSession(await api.reopen(session.session_id))); }} />
           : session.status === 'reviewing' ? <>
             <Text style={workStyles.title}>아이별 알림장</Text>
+            {session.notices.filter(notice => notice.status === '검토중').length > 1 && <View style={workStyles.row}>
+              <WorkButton label={'전체 확정 (' + session.notices.filter(notice => notice.status === '검토중').length + '명)'}
+                busy={action.busy} disabled={action.busy}
+                onPress={() => { void action.run(() => confirmAll(session)); }} />
+            </View>}
+            {bulkText && <WorkMessage>{bulkText}</WorkMessage>}
             {session.notices.map(notice => <NoticeReview key={notice.notice_id} api={api} summary={notice}
               onDirty={onDirty} onJournalUpdated={onJournalUpdated} onStatusChange={noticeStatusChanged} />)}
             {session.job?.result?.failed?.map(failed => {

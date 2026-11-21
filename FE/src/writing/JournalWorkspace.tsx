@@ -6,8 +6,10 @@ import type { DateRange, Journal, JournalDay, JournalDayEdit, JournalEntry, Jour
 import type { Account } from '../auth/controller';
 import { colors } from '../ui/theme';
 import { copyRecord } from '../ui/clipboard';
-import { DatePicker } from '../ui/DatePicker';
+import { DatePicker, todayDate } from '../ui/DatePicker';
 import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
+import { WORD_DEFAULT_HINT, outputButtonLabel, outputStatusMessage, wordUnavailableMessage } from './journalOutputView';
+import { monthRange, weekRange } from './journalRange';
 import { saveWordFile } from './wordFiles';
 
 type Draft = JournalDayEdit & { original: string };
@@ -17,8 +19,10 @@ function JournalText({ name, output, download, onClose }: {
 }) {
   const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
+  const [wordSaved, setWordSaved] = useState(false);
   const action = useWorkAction();
   const wordAction = useWorkAction();
+  const unavailable = wordUnavailableMessage(output);
   return (
     <Modal animationType="slide" onRequestClose={onClose}>
       <View style={[styles.outputPage, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}>
@@ -39,10 +43,16 @@ function JournalText({ name, output, download, onClose }: {
             </View>
             <View style={styles.outputAction}>
               <WorkButton label="Word로 출력하기" busy={wordAction.busy} disabled={!output.can_export_word}
-                onPress={() => { void wordAction.run(async () => saveWordFile(await download(), name)); }} />
+                onPress={() => { void wordAction.run(async () => {
+                  setWordSaved(false);
+                  await saveWordFile(await download(), name);
+                  setWordSaved(true);
+                }); }} />
             </View>
           </View>
           {wordAction.busy && <WorkMessage>Word 파일을 준비하고 있어요.</WorkMessage>}
+          {unavailable ? <WorkMessage error>{unavailable}</WorkMessage> : !wordSaved && <WorkMessage>{WORD_DEFAULT_HINT}</WorkMessage>}
+          {wordSaved && !wordAction.busy && <WorkMessage>Word 파일을 받았어요.</WorkMessage>}
           {copied && <WorkMessage>복사했어요.</WorkMessage>}
           {action.error && <WorkMessage error>{action.error}</WorkMessage>}
           {wordAction.error && <WorkMessage error>{wordAction.error}</WorkMessage>}
@@ -137,6 +147,7 @@ function JournalCard({ journal, api, range, onEditing, onSaved, onOutput, onRelo
         </View>;
       })}
       {action.error && <WorkMessage error>{action.error}</WorkMessage>}
+      {!drafts && !!outputStatusMessage(journal) && <WorkMessage>{outputStatusMessage(journal)}</WorkMessage>}
       <View style={[workStyles.row, styles.cardActions]}>
         {drafts ? <>
           <WorkButton label="수정 저장" busy={action.busy} onPress={() => { void action.run(() => save(drafts)); }} />
@@ -145,7 +156,7 @@ function JournalCard({ journal, api, range, onEditing, onSaved, onOutput, onRelo
             action.setError(null);
           }} />
         </> : <>
-          <WorkButton label={journal.output_stale ? '재출력하기' : '출력하기'} busy={action.busy}
+          <WorkButton label={outputButtonLabel(journal)} busy={action.busy}
             disabled={!days.some(day => day.content.trim())} onPress={() => {
             void action.run(async () => {
               const result = await api.journalOutput(child.child_id, range);
@@ -227,9 +238,19 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
     setJournals(null);
     setRange(next);
   }
+  const quickRanges: { label: string; range: DateRange }[] = [
+    { label: '이번 주', range: weekRange(todayDate()) },
+    { label: '이번 달', range: monthRange(todayDate()) },
+    { label: '전체', range: { from: null, to: null } },
+  ];
 
   return (
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={workStyles.content}>
+      <View style={workStyles.row}>
+        {quickRanges.map(item => <WorkButton key={item.label} label={item.label} secondary
+          disabled={editingIds.length > 0}
+          onPress={() => changeRange(item.range)} />)}
+      </View>
       <View style={styles.metadataRow}>
         <View style={styles.dateField}><DatePicker label="시작 날짜" value={range.from} max={range.to ?? undefined}
           disabled={editingIds.length > 0} onChange={from => changeRange({ ...range, from })} /></View>
