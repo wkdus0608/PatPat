@@ -1,4 +1,6 @@
 """JSON schemas for structured output and the code-side validation of the results."""
+import re
+
 from app.ai.types import AIBadOutput
 from app.rules.loader import AREAS
 
@@ -10,7 +12,8 @@ MAX_DETAIL_QUESTIONS_PER_CHILD = 2
 
 _STR = {"type": "string"}
 _STR_LIST = {"type": "array", "items": _STR}
-JOURNAL_WORD_FIELDS = ("이름", "성별", "반", "생년월일", "관찰일", "관찰장소", "관찰시간", "관찰영역", "관찰내용")
+JOURNAL_WORD_FIELDS = ("이름", "성별", "반", "생년월일", "관찰일", "관찰기간", "관찰장소", "관찰시간", "관찰영역", "관찰내용",
+                       "해석및지원계획", "작성교사")
 JOURNAL_WORD_LAYOUT_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["placements"],
     "properties": {"placements": {"type": "array", "items": {
@@ -174,6 +177,36 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False) 
     return "\n\n".join(part for part in (body.strip(), section) if part)
 
 
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+
+
+def _bigrams(sentence: str) -> set[str]:
+    compact = re.sub(r"\s+", "", sentence)
+    return {compact[index:index + 2] for index in range(len(compact) - 1)}
+
+
+def drop_repeated_sentences(parts: list[str], threshold: float = 0.6) -> list[str]:
+    """앞에서 이미 쓴 한 문장의 글자 짝 중 60% 이상을 다시 쓴 문장은 같은 사실을 되풀이한 것이므로 뺀다.
+
+    뒤 문장이 더 길어 새 사실이 있으면 겹치는 비율이 낮아 남는다. 글자 짝이 6개 미만인 짧은 문장은 건드리지 않는다.
+    """
+    kept: list[set[str]] = []
+    result: list[str] = []
+    for part in parts:
+        sentences = []
+        for sentence in _SENTENCE_BREAK.split(part.strip()):
+            if not sentence:
+                continue
+            grams = _bigrams(sentence)
+            if len(grams) >= 6 and any(len(grams & old) / len(grams) >= threshold for old in kept):
+                continue
+            kept.append(grams)
+            sentences.append(sentence)
+        if sentences:
+            result.append(" ".join(sentences))
+    return result
+
+
 def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
     content = data.get("content")
     if not isinstance(content, str):
@@ -198,6 +231,7 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
     incident = data.get("incident")
     if isinstance(incident, str) and incident.strip() and incident.strip() not in content:
         parts.append(incident.strip())
+    parts = drop_repeated_sentences(parts)
     if not parts:
         raise AIBadOutput("AI 응답에 작성된 관찰내용이 없습니다.")
     return " ".join(parts)

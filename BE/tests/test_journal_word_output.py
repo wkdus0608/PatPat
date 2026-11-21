@@ -100,9 +100,13 @@ def test_word_output_is_an_editable_snapshot_replaced_only_by_reoutput(tmp_path)
             return env.client.post(route + "/output/word", headers=env.headers, params={"revision": revision})
 
         first = preview()
-        assert not first["has_word"] and not first["can_export_word"] and "낙엽" in first["text"]
+        assert not first["has_word"] and first["can_export_word"] and "낙엽" in first["text"]  # 양식이 없어도 기본 양식이 있다
         assert download(first["revision"]).status_code == 404
-        assert generate_word(first["revision"]).status_code == 404
+        default = generate_word(first["revision"])
+        assert default.is_success, default.text
+        default_table = Document(BytesIO(default.content)).tables[0]
+        assert [row.cells[0].text for row in default_table.rows][:2] == ["이름", "성별"]
+        assert default_table.cell(0, 1).text == "다온" and not env.app.state.ai_client.calls_for(AITask.JOURNAL_WORD_LAYOUT)
         assert env.client.put(f"{V2}/teacher/documents/record_format", headers=env.headers, json={"text": RULES}).is_success
         assert upload("가상 원 양식").json() == {"filename": "가상 원 양식.docx"}
         assert env.client.get(TEMPLATE, headers=env.headers_b).json() == {"filename": None}
@@ -162,5 +166,89 @@ def test_word_output_is_an_editable_snapshot_replaced_only_by_reoutput(tmp_path)
         assert env.client.delete(TEMPLATE, headers=env.headers).status_code == 204
         assert journal(env, child)["output_stale"]
         assert download(new["revision"]).status_code == 200
-        assert not preview()["can_export_word"]
+        assert preview()["can_export_word"]  # 올린 양식을 지워도 기본 양식으로 출력할 수 있다
         assert download(new["revision"]).status_code == 200
+
+
+def wide_form() -> bytes:
+    """동료 피드백 ④의 양식: 관찰 기간, 해석 및 지원 계획, 작성 교사 칸이 있는 표."""
+    labels = ["이름", "관찰 기간", "관찰일", "관찰 내용", "교사의 해석 및 지원 계획", "작성 교사"]
+    document = Document()
+    table = document.add_table(rows=len(labels), cols=2)
+    table.style = "Table Grid"
+    for row, label in zip(table.rows, labels):
+        row.cells[0].text = label
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def write_with_interpretation(_request):
+    return {"content": "낙엽을 두 손 가득 모음. 자연물을 모아 가며 탐색하는 경험을 함.", "learning": [], "incident": ""}
+
+
+def test_word_output_fills_what_the_app_already_knows_and_splits_the_interpretation(tmp_path):
+    with running_env(tmp_path, ai_handlers={AITask.JOURNAL_INDIVIDUAL: write_with_interpretation}) as env:
+        ids, _, notices = day(env)
+        confirm(env, notices["다온"]["notice_id"], 1)
+        route = f"{V2}/children/{ids['다온']}/journal"
+        upload = env.client.post(TEMPLATE, params={"filename": "감사용 양식.docx"}, content=wide_form(),
+                                 headers={**env.headers, "Content-Type": WORD_MIME})
+        assert upload.is_success, upload.text
+        preview = env.client.post(route + "/output", headers=env.headers)
+        response = env.client.post(route + "/output/word", headers=env.headers, params={"revision": preview.json()["revision"]})
+        assert response.is_success, response.text
+        cells = {row.cells[0].text: row.cells[1].text for row in Document(BytesIO(response.content)).tables[0].rows}
+        assert cells["이름"] == "다온"
+        assert cells["관찰 기간"] == "2026-11-06" and cells["관찰일"] == "2026-11-06"
+        assert cells["작성 교사"] == "가상 교사 A"  # 설정에 등록한 교사 이름
+        assert "낙엽을 두 손 가득 모음." in cells["관찰 내용"] and "경험을 함" not in cells["관찰 내용"]
+        assert cells["교사의 해석 및 지원 계획"] == "자연물을 모아 가며 탐색하는 경험을 함."
+
+
+def test_the_period_spans_every_day_in_the_output(tmp_path):
+    with running_env(tmp_path, ai_handlers={AITask.JOURNAL_INDIVIDUAL: write_with_interpretation}) as env:
+        ids, _, notices = day(env)
+        confirm(env, notices["다온"]["notice_id"], 1)
+        _, _, later = day(env, ids, date="2026-11-09")
+        confirm(env, later["다온"]["notice_id"], 1)
+        route = f"{V2}/children/{ids['다온']}/journal"
+        assert env.client.post(TEMPLATE, params={"filename": "양식.docx"}, content=wide_form(),
+                               headers={**env.headers, "Content-Type": WORD_MIME}).is_success
+        preview = env.client.post(route + "/output", headers=env.headers)
+        response = env.client.post(route + "/output/word", headers=env.headers, params={"revision": preview.json()["revision"]})
+        tables = Document(BytesIO(response.content)).tables
+        periods = [{row.cells[0].text: row.cells[1].text for row in table.rows}["관찰 기간"] for table in tables]
+        assert periods == ["2026-11-06 ~ 2026-11-09", "2026-11-06 ~ 2026-11-09"]  # 날짜마다 한 쪽, 기간은 출력 전체
+
+
+def test_without_an_interpretation_cell_the_content_keeps_every_sentence(tmp_path):
+    with running_env(tmp_path, ai_handlers={AITask.JOURNAL_INDIVIDUAL: write_with_interpretation}) as env:
+        ids, _, notices = day(env)
+        confirm(env, notices["다온"]["notice_id"], 1)
+        route = f"{V2}/children/{ids['다온']}/journal"
+        assert env.client.post(TEMPLATE, params={"filename": "간단 양식.docx"}, content=form("간단 양식"),
+                               headers={**env.headers, "Content-Type": WORD_MIME}).is_success
+        preview = env.client.post(route + "/output", headers=env.headers)
+        response = env.client.post(route + "/output/word", headers=env.headers, params={"revision": preview.json()["revision"]})
+        assert "경험을 함" in Document(BytesIO(response.content)).tables[0].cell(2, 1).text
+
+
+def test_the_default_form_needs_no_upload_and_carries_every_known_value(tmp_path):
+    """동료 피드백 ③: 양식을 찾지 못해 Word 출력을 못 해 봤다. 기본 양식이 있으면 바로 받을 수 있다."""
+    with running_env(tmp_path, ai_handlers={AITask.JOURNAL_INDIVIDUAL: write_with_interpretation}) as env:
+        ids, _, notices = day(env)
+        confirm(env, notices["다온"]["notice_id"], 1)
+        route = f"{V2}/children/{ids['다온']}/journal"
+        assert env.client.get(TEMPLATE, headers=env.headers).json() == {"filename": None}
+        preview = env.client.post(route + "/output", headers=env.headers).json()
+        assert preview["can_export_word"]
+        response = env.client.post(route + "/output/word", headers=env.headers, params={"revision": preview["revision"]})
+        assert response.is_success, response.text
+        assert response.headers["content-type"] == WORD_MIME
+        cells = {row.cells[0].text: row.cells[1].text for row in Document(BytesIO(response.content)).tables[0].rows}
+        assert cells["이름"] == "다온" and cells["관찰 기간"] == "2026-11-06" and cells["작성 교사"] == "가상 교사 A"
+        assert cells["관찰 영역"] and cells["관찰 장소"] == "바깥놀이터"
+        assert "낙엽을 두 손 가득 모음." in cells["관찰 내용"] and "경험을 함" not in cells["관찰 내용"]
+        assert cells["교사의 해석 및 지원 계획"] == "자연물을 모아 가며 탐색하는 경험을 함."
+        assert not env.app.state.ai_client.calls_for(AITask.JOURNAL_WORD_LAYOUT)

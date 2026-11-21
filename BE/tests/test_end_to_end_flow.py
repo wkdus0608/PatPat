@@ -77,8 +77,10 @@ def test_the_whole_evening_from_quick_notes_to_the_journal(tmp_path):
         assert [e["block_kind"] for e in rows["지안"]["items"]] == ["common"]  # no input of their own
         assert rows["하린"]["items"] == []
         assert all(e["status"] == "ready" and not e["outdated"] for name in NAMES for e in rows[name]["items"])
-        shared = {rows[name]["items"][0]["content"] for name in ("다온", "이든", "서윤", "지안")}
-        assert len(shared) == 1
+        shared = {rows[name]["items"][0]["content"] for name in ("다온", "이든", "서윤")}
+        assert len(shared) == 1  # 반 공통 문단은 한 번 쓰고 관찰이 있는 아이들이 같은 글을 쓴다
+        # 개별 관찰이 없는 지안의 일지에는 같은 공통 문단에 ‘개별 관찰 없음’이 덧붙는다
+        assert rows["지안"]["items"][0]["content"] == next(iter(shared)) + "\n개별 관찰 없음(반 공통 활동만 기록함)."
         own = rows["이든"]["items"][1]
         assert (own["place"], own["time_text"], own["areas"]) == ("미끄럼틀 앞", "10:30~11:00", ["사회관계"])
         task_counts = Counter(call.task for call in fake.calls)

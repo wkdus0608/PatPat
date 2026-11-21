@@ -10,6 +10,9 @@ from app.core.database import Database
 from app.core.errors import ApiError
 from app.core.timeutil import new_id, now_iso
 from app.journal.days import day_text, editable_day, group_days
+from app.journal.interpretation import split_interpretation
+
+NO_INDIVIDUAL_NOTE = "개별 관찰 없음(반 공통 활동만 기록함)."
 
 EditVersions = tuple[int, tuple[tuple[str, int], ...]]
 
@@ -40,6 +43,21 @@ class JournalStore:
         data["outdated"] = not data["from_inputs"] and data["source_notice_version"] < data["notice_version"]
         return data
 
+    @staticmethod
+    def _present(entries: list[dict]) -> list[dict]:
+        """개별 관찰이 없는 아이(알림장에 반 공통 행만 있음)의 일지에는 아이 개인의 경험처럼 읽히는 해석 문장을 빼고
+        개별 관찰이 없다고 적는다. 저장된 글은 그대로 두고 보여 줄 때만 바꾸며, 교사가 고친 글은 건드리지 않는다."""
+        kinds: dict[str, set[str]] = {}
+        for entry in entries:
+            kinds.setdefault(entry["notice_id"], set()).add(entry["block_kind"])
+        shown = []
+        for entry in entries:
+            if entry["block_kind"] == "common" and kinds[entry["notice_id"]] == {"common"} and entry["status"] == "ready" and entry["content"]:
+                observed, _ = split_interpretation(entry["content"])
+                entry = {**entry, "content": f"{observed.rstrip()}\n{NO_INDIVIDUAL_NOTE}"}
+            shown.append(entry)
+        return shown
+
     def get(self, teacher_id: str, entry_id: str) -> dict | None:
         with self.database.connect() as connection:
             row = connection.execute(_SELECT + " WHERE e.teacher_id=? AND e.entry_id=?", (teacher_id, entry_id)).fetchone()
@@ -67,7 +85,7 @@ class JournalStore:
                 + " ORDER BY e.observed_date, (e.block_kind='individual'), e.created_at, e.rowid",
                 values,
             ).fetchall()
-        return [self._entry(row) for row in rows]
+        return self._present([self._entry(row) for row in rows])
 
     def archive(self, teacher_id: str) -> list[dict]:
         with self.database.connect() as connection:
@@ -76,7 +94,7 @@ class JournalStore:
                 "ORDER BY e.observed_date, c.rowid, (e.block_kind='individual'), e.created_at, e.rowid",
                 (teacher_id,),
             ).fetchall()
-        days = [day_text(entries) for entries in group_days([self._entry(row) for row in rows]).values()]
+        days = [day_text(entries) for entries in group_days(self._present([self._entry(row) for row in rows])).values()]
         return [day for day in days if day["content"].strip()]
 
     def update_days(self, teacher_id: str, child_id: str, changes: dict[str, tuple[str, str]]) -> list[dict]:

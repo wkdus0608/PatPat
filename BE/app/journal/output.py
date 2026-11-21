@@ -33,9 +33,21 @@ def delete_template(database, teacher_id: str) -> None:
         connection.execute("DELETE FROM teacher_journal_templates WHERE teacher_id=?", (teacher_id,))
 
 
+def _teacher_name(services, teacher_id: str) -> str:
+    with services.database.connect() as connection:
+        row = connection.execute("SELECT display_name FROM teachers WHERE teacher_id=?", (teacher_id,)).fetchone()
+    return row["display_name"] if row else ""
+
+
+def _period(days: list[dict]) -> str:
+    dates = sorted({day["관찰일"] for day in days})
+    return "" if not dates else dates[0] if len(dates) == 1 else f"{dates[0]} ~ {dates[-1]}"
+
+
 def _source(services, teacher_id: str, child: dict, rows: list[dict], form) -> tuple[str, str, list[dict], str]:
     ready, _ = export.exportable(rows)
     text = export.as_text(child, ready)
+    teacher = _teacher_name(services, teacher_id)
     days = []
     rules = (services.profile.get_document(teacher_id, "record_format")[0] or "") if form else ""
     for entries in group_days(rows).values():
@@ -47,7 +59,11 @@ def _source(services, teacher_id: str, child: dict, rows: list[dict], form) -> t
             "반": ", ".join(dict.fromkeys(entry["classroom_name"] for entry in entries if entry["classroom_name"])),
             "관찰일": day["observed_date"], "관찰장소": ", ".join(day["places"]),
             "관찰시간": ", ".join(day["times"]), "관찰영역": ", ".join(day["areas"]), "관찰내용": day["content"],
+            "관찰기간": "", "해석및지원계획": "", "작성교사": teacher,
         })
+    period = _period(days)
+    for day in days:
+        day["관찰기간"] = period  # 앱이 이미 아는 값(관찰한 날짜의 범위, 작성 교사)은 양식 빈칸에 기본으로 채운다
     fingerprint = sha256(json.dumps([text, days, form["revision"] if form else None, rules], ensure_ascii=False).encode()).hexdigest()
     return fingerprint, text, days, rules
 
@@ -87,7 +103,8 @@ def preview(services, teacher_id: str, child: dict, date_from, date_to) -> dict:
             "SET revision=excluded.revision, text=excluded.text RETURNING word_revision",
             (*key, revision, text),
         ).fetchone()
-    return {"text": text, "revision": revision, "has_word": saved["word_revision"] == revision, "can_export_word": form is not None}
+    # 양식을 올리지 않았어도 기본 양식으로 출력할 수 있다(form이 None이어도 True).
+    return {"text": text, "revision": revision, "has_word": saved["word_revision"] == revision, "can_export_word": True}
 
 
 def _changed() -> ApiError:
@@ -113,10 +130,7 @@ def generate_word(services, teacher_id: str, child_id: str, date_from, date_to, 
     (current_revision, _, days, rules), form = _current_source(services, key, include_document=True)
     if current_revision != revision:
         raise _changed()
-    if form is None:
-        raise ApiError(status_code=404, code="NO_WORD_TEMPLATE", message="설정에서 Word 양식을 올려 주세요.")
-
-    document = word.fill_form(form["document"], days, rules, services, teacher_id)
+    document = word.fill_form(form["document"], days, rules, services, teacher_id) if form is not None else word.default_form(days)
     with services.database.connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
         saved = _saved_output(connection, key, revision)

@@ -16,6 +16,7 @@ from lxml.etree import XMLSyntaxError, tostring
 
 from app.ai.prompts import build_journal_word_layout
 from app.ai.schemas import JOURNAL_WORD_FIELDS
+from app.journal.interpretation import split_interpretation
 from app.ai.types import AIError
 from app.core.errors import ApiError
 
@@ -49,6 +50,33 @@ class Slot:
             if row_properties is not None:
                 for locked in row_properties.findall(qn("w:cantSplit")):
                     row_properties.remove(locked)
+
+
+# 교사가 Word 양식을 올리지 않았을 때 쓰는 기본 양식의 항목(표시 이름, 관찰일지 항목)
+DEFAULT_FORM_ROWS = (
+    ("이름", "이름"), ("성별", "성별"), ("생년월일", "생년월일"), ("반", "반"), ("관찰 기간", "관찰기간"), ("관찰일", "관찰일"),
+    ("관찰 장소", "관찰장소"), ("관찰 시간", "관찰시간"), ("관찰 영역", "관찰영역"), ("관찰 내용", "관찰내용"),
+    ("교사의 해석 및 지원 계획", "해석및지원계획"), ("작성 교사", "작성교사"),
+)
+
+
+def default_form(days: list[dict[str, str]]) -> bytes:
+    """양식을 올리지 않아도 관찰일지를 Word로 받을 수 있게, 기본 양식(날짜마다 한 쪽)으로 출력한다. AI를 부르지 않는다."""
+    document = Document()
+    for index, values in enumerate(days):
+        if index:
+            document.add_page_break()
+        document.add_heading("관찰일지", level=1)
+        observed, interpreted = split_interpretation(values["관찰내용"])
+        values = {**values, "관찰내용": observed, "해석및지원계획": interpreted}
+        table = document.add_table(rows=len(DEFAULT_FORM_ROWS), cols=2)
+        table.style = "Table Grid"
+        for row, (label, key) in zip(table.rows, DEFAULT_FORM_ROWS):
+            row.cells[0].text = label
+            row.cells[1].text = INVALID_XML_CHARS.sub("", values[key])
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
 
 
 def _invalid_template() -> ApiError:
@@ -159,6 +187,11 @@ def fill_form(data: bytes, days: list[dict[str, str]], instructions: str, servic
                 or not fields or any(field not in JOURNAL_WORD_FIELDS for field in fields)):
             raise bad_layout()
         placements[key] = list(dict.fromkeys(fields))
+
+    if any("해석및지원계획" in fields for fields in placements.values()):
+        # 양식에 해석·지원 칸이 있으면 ‘~경험을 함’ 같은 해석 문장은 그 칸에 따로 넣고 관찰내용에는 관찰한 사실만 남긴다.
+        days = [{**values, "관찰내용": observed, "해석및지원계획": interpreted}
+                for values in days for observed, interpreted in [split_interpretation(values["관찰내용"])]]
 
     originals = [deepcopy(element) for element in body]
     for index, values in enumerate(days):
