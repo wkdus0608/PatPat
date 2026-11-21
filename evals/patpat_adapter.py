@@ -74,6 +74,35 @@ def find_foreign_names(*texts):
     return sorted(found)
 
 
+SENTENCE_BREAK = re.compile(r"(?<=[.!?…])\s+|\n+")
+TRAILING_MARKS = re.compile(r"[\s.!?…~^ㅎㅋ\"'‘’“”)\]>]+$|[\U0001F000-\U0001FAFF☀-➿️]+$")
+
+
+def count_chars(text):
+    """글자 수(공백 포함, 줄바꿈 제외). 알림장·관찰일지의 분량을 재는 기준이다."""
+    return len((text or "").replace("\n", ""))
+
+
+def split_sentences(text):
+    return [part.strip() for part in SENTENCE_BREAK.split(text or "") if part.strip()]
+
+
+def find_plain_style(text):
+    """존댓말이 아닌 문장의 끝부분 목록: 평서형(~다, ‘~니다’는 제외)과 기록체(~함·~음).
+    ‘특이사항’ 제목이나 ‘확인 필요’ 같은 표시 줄은 문장 끝이 아니므로 걸리지 않는다."""
+    found = []
+    for sentence in split_sentences(text):
+        core = sentence
+        while True:
+            stripped = TRAILING_MARKS.sub("", core)
+            if stripped == core:
+                break
+            core = stripped
+        if (core.endswith("다") and not core.endswith("니다")) or core.endswith(("함", "음", "됨", "임")):
+            found.append(sentence[-25:])
+    return found
+
+
 def build_template(fields):
     """왼쪽 칸에 항목명, 오른쪽에 빈 칸이 있는 한 장짜리 Word 양식."""
     document = Document()
@@ -145,8 +174,10 @@ class PatPatCase:
         self.call("POST", f"{self.session_url}/generate?manual_areas=true{prepare}")
         initial = self.get_session()
         if initial["status"] == "asking" and not self.query.get("observe_before_answer"):
-            answers = [{"flag_id": flag["flag_id"], "answer": "그대로"}
-                       for flag in initial["flags"] if flag["kind"] == "incident" and "그대로" in flag["options"]]
+            # 사건사고 질문에는 query.incident_answer(기본 ‘그대로’)로 답하고 나머지 질문은 건너뛴다.
+            choice = self.query.get("incident_answer", "그대로")
+            answers = [{"flag_id": flag["flag_id"], "answer": choice}
+                       for flag in initial["flags"] if flag["kind"] == "incident" and choice in flag["options"]]
             self.call("POST", f"{self.session_url}/answers", json={"answers": answers, "skip_remaining": True})
         return {"initial_status": initial["status"], "notices_before_answer": len(initial["notices"]),
                 "has_open_confirmation": any(flag["status"] == "open" for flag in initial["flags"]),
@@ -222,6 +253,7 @@ class PatPatCase:
             views[role] = {
                 "items": kept,
                 "text": "\n".join(item["content"] for item in kept if item["content"]),
+                "chars": count_chars("\n".join(item["content"] for item in kept if item["content"])),
                 "common_rows": sum(item["block_kind"] == "common" for item in kept),
                 "individual_rows": sum(item["block_kind"] == "individual" for item in kept),
                 "statuses": sorted({item["status"] for item in kept}),
@@ -286,7 +318,10 @@ class PatPatCase:
             special_notes = notice.get("special_notes") or (individual[title.end():].strip() if title else "")
             notices[role] = {key: notice[key] for key in ("child_name", "text", "needs_check", "incident", "warnings", "status")}
             notices[role].update(individual_text=individual, common_prefix=common_prefix, special_notes=special_notes,
-                                 raw_time_ranges=find_time_ranges(notice["text"]))
+                                 raw_time_ranges=find_time_ranges(notice["text"]),
+                                 chars=count_chars(notice["text"]), individual_chars=count_chars(individual),
+                                 sentences=len(split_sentences(notice["text"])),
+                                 polite_violations=find_plain_style(notice["text"]))
             if operation in {"save", "confirm", "request_send"} and role == self.query["target"]:
                 action = self.notice_action(operation, notice)
         names = {role: self.names[role] for role in self.child_ids}

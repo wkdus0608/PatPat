@@ -106,6 +106,8 @@ def validate_extensions(query, operation, children):
         raise ValueError("말투 예시는 비어 있지 않은 글이어야 합니다.")
     if "prepare_journals" in query and type(query["prepare_journals"]) is not bool:
         raise ValueError("prepare_journals는 true 또는 false여야 합니다.")
+    if "incident_answer" in query and query["incident_answer"] not in ("부드럽게", "그대로"):
+        raise ValueError("incident_answer는 부드럽게 또는 그대로여야 합니다.")
     if "evidence" in query and (not isinstance(query["evidence"], list) or not set(query["evidence"]) <= EVIDENCE_KEYS):
         raise ValueError("지원하지 않는 AI 판정 근거 항목입니다.")
     if operation == "journal" and query.get("prepare_journals") is not True:
