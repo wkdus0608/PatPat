@@ -63,7 +63,7 @@ class EvalPolicyTests(unittest.TestCase):
     def test_mvp_excludes_future_privacy_and_out_of_scope_delivery(self):
         selected = {case["id"] for case in mvp_cases(CASES.values())}
         excluded = set(CASES) - selected
-        self.assertEqual(len(selected), 24)  # 기존 17건 + 동료 피드백에서 도출한 EV-21~27
+        self.assertEqual(len(selected), 25)  # 기존 17건 + 동료 피드백에서 도출한 EV-21~28
         self.assertEqual({case_id: CASES[case_id]["scope"] for case_id in excluded},
                          {"EV-17": "future", "EV-18": "future", "EV-19": "out_of_scope"})
 
@@ -113,6 +113,14 @@ class FeedbackCaseTests(unittest.TestCase):
         verdict = {"unobserved_child_journal_has_no_personal_experience": {"reason": "개인 경험 문장이 있다.", "pass": False}}
         failed = grade_case(case, ok, judge=normalize_judge(verdict, case["expect"]["judge"]))
         self.assertEqual(failed["status"], "fail")
+
+    def test_two_unobserved_children_case_fails_on_any_individual_row_or_judged_experience(self):
+        case = CASES["EV-28"]
+        failed = grade_case(case, {"journals": {"C02": {"individual_rows": 0}, "C03": {"individual_rows": 1}}})
+        self.assertEqual([check["status"] for check in failed["checks"]], ["pass", "fail", "pending"])
+        verdict = {"unobserved_children_journals_have_no_personal_experience": {"reason": "개인 경험 문장이 있다.", "pass": False}}
+        clean = {"journals": {"C02": {"individual_rows": 0}, "C03": {"individual_rows": 0}}}
+        self.assertEqual(grade_case(case, clean, judge=normalize_judge(verdict, case["expect"]["judge"]))["status"], "fail")
 
     def test_tone_case_needs_the_greeting_the_emoji_and_the_ending(self):
         text = "어머님~ 오늘도 블록을 쌓았답니다😊"
@@ -176,6 +184,8 @@ class FeedbackCaseTests(unittest.TestCase):
             {**draft, "query": {**draft["query"], "meta": {"C09": {"place": "교실"}}}},
             {**draft, "query": {**draft["query"], "meta": {"C01": {"areas": ["없는 영역"]}}}},
             {**draft, "query": {**draft["query"], "evidence": ["secret"]}},
+            {**draft, "query": {**draft["query"], "names": {"C09": "민서"}}},
+            {**CASES["EV-25"], "query": {**CASES["EV-25"]["query"], "names": {"C01": "민서", "C02": "민서"}}},
         )
         for case in invalid:
             with self.subTest(query=case["query"].get("meta") or case["query"].get("target")):

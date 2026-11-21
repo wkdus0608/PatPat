@@ -97,6 +97,11 @@ def validate_extensions(query, operation, children):
         if (any(not isinstance(item[key], str) or not item[key].strip() for key in ("place", "time_text") if key in item)
                 or ("areas" in item and (not isinstance(item["areas"], list) or not set(item["areas"]) <= AREA_NAMES))):
             raise ValueError("블록 추가 정보의 값이 올바르지 않습니다.")
+    names = query.get("names", {})
+    if (not isinstance(names, dict) or set(names) - set(children)
+            or any(not isinstance(name, str) or not name.strip() for name in names.values())
+            or len(set(names.values())) != len(names)):
+        raise ValueError("가상 이름(names)은 아동 명단의 역할마다 서로 다른 글이어야 합니다.")
     if "writing_examples" in query and (not isinstance(query["writing_examples"], str) or not query["writing_examples"].strip()):
         raise ValueError("말투 예시는 비어 있지 않은 글이어야 합니다.")
     if "prepare_journals" in query and type(query["prepare_journals"]) is not bool:

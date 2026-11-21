@@ -108,8 +108,10 @@ class PatPatCase:
         credentials = {"login_id": "eval-teacher", "password": "fixture-only-passphrase"}
         token = self.call("POST", "/api/v1/auth/login", json=credentials)["access_token"]
         self.client.headers.update({"Authorization": "Bearer " + token})
+        # 사례가 query.names로 이름을 지정하면 그 가상 이름을 쓴다(기본은 평가아동가·나·다).
+        self.names = {**NAMES, **query.get("names", {})}
         self.child_ids = {
-            role: self.call("POST", "/api/v1/children", json={"name": NAMES[role]})["child_id"]
+            role: self.call("POST", "/api/v1/children", json={"name": self.names[role]})["child_id"]
             for role in query["children"]
         }
         self.roles = {child_id: role for role, child_id in self.child_ids.items()}
@@ -170,7 +172,7 @@ class PatPatCase:
         current = initial
         if scope_child and facts["scope_requested"]:
             flags = initial["flags"]
-            answers = {flag["flag_id"]: NAMES[scope_child] if flag["kind"] == "recording_scope" else None
+            answers = {flag["flag_id"]: self.names[scope_child] if flag["kind"] == "recording_scope" else None
                        for flag in flags}
             current = self.call("POST", f"{path}/{initial['run_id']}/answers", json={"answers": answers})["run"]
             if current and current["stage"] == "asking":
@@ -287,7 +289,7 @@ class PatPatCase:
                                  raw_time_ranges=find_time_ranges(notice["text"]))
             if operation in {"save", "confirm", "request_send"} and role == self.query["target"]:
                 action = self.notice_action(operation, notice)
-        names = {role: NAMES[role] for role in self.child_ids}
+        names = {role: self.names[role] for role in self.child_ids}
         name_hits = [{"task": call.task.value, "roles": sorted(role for role, name in names.items()
                       if name in call.user_text or name in call.system_text)} for call in self.trace.calls]
         provider = {"calls": len(self.trace.calls), "roles_with_unmasked_names": sorted({role for hit in name_hits for role in hit["roles"]}),
