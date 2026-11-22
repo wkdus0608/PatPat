@@ -266,6 +266,49 @@ def test_a_stored_as_is_answer_keeps_the_plain_mode_and_everything_else_is_soft(
     assert mode_and_answers([], "A") == ("normal", [])  # 사건사고 아이의 기본 모드는 서버가 부드럽게로 바꾼다
 
 
+@pytest.mark.parametrize("kind, options, missing_care", [
+    ("incident", [], False),
+    ("missing_fact", [], False),
+    ("ambiguous", ["부드럽게", "그대로"], False),
+    ("missing_fact", [], True),
+])
+def test_incident_tone_is_automatic_even_if_the_model_returns_a_question(tmp_path, kind, options, missing_care):
+    child_name = "가상아동가"
+    injury = "바깥놀이 중 미끄럼틀에서 넘어져 오른쪽 무릎이 살짝 까졌다."
+    care_question = "가상아동가의 오른쪽 무릎에 어떤 처치를 했나요?"
+
+    def review(request):
+        child_id = request.payload["roster"][0]["child_id"]
+        flags = [{
+            "kind": kind, "child_ids": [child_id], "options": options,
+            "question": "미끄럼틀에서 넘어져 무릎이 까진 일은 사건사고 같아요. 보호자 안내용으로 부드럽게 쓸까요?",
+        }]
+        if missing_care:
+            flags.append({"kind": "missing_fact", "child_ids": [child_id], "options": [],
+                          "question": care_question})
+        return {"flags": flags, "joint_events": [], "incident_child_ids": []}
+
+    with running_env(tmp_path, ai_handlers={AITask.REVIEW: review}) as env:
+        child_id, = add_children(env, [child_name])
+        session = open_session(env)
+        sid = session["session_id"]
+        memo = injury if missing_care else injury + " 담임 교사가 물로 씻고 밴드를 붙였다."
+        fill(env, session, child_name, memo, ("신체운동·건강",))
+        job = generate(env, sid)
+        if missing_care:
+            assert job["result"]["phase"] == "asking"
+            flag, = get_session(env, sid)["flags"]
+            assert flag["question"] == care_question
+            answer(env, sid, {"answers": [{"flag_id": flag["flag_id"],
+                                          "answer": "담임 교사가 물로 씻고 밴드를 붙였다."}]})
+        else:
+            assert job["result"]["phase"] == "reviewing"
+            assert get_session(env, sid)["flags"] == []
+        write, = env.app.state.ai_client.calls_for(AITask.INDIVIDUAL)
+        assert write.payload["mode"] == "incident_soft"
+        assert "특이사항" in notice_of(env, sid, child_id)["edited_text"]
+
+
 def test_an_incident_child_is_soft_even_when_the_teacher_skipped_an_unrelated_question(tmp_path):
     with running_env(tmp_path, ai_handlers={AITask.REVIEW: ask_about_the_pair}) as env:
         ids, session = class_of_five(env)

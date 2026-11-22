@@ -4,7 +4,7 @@ import re
 from app.ai.types import AIBadOutput
 from app.rules.loader import AREAS
 
-FLAG_KINDS = ("incident", "conflict", "unresolved", "missing_fact", "ambiguous")
+FLAG_KINDS = ("conflict", "unresolved", "missing_fact", "ambiguous")
 KIND_PRIORITY = {kind: index for index, kind in enumerate(FLAG_KINDS)}
 MAX_FLAGS = 10
 MAX_DETAIL_QUESTIONS = 6  # 얇은 입력 보충 질문(missing_fact)은 학급 전체에서 6개까지다(규칙 '역질문 정책').
@@ -259,10 +259,18 @@ def cap_detail_questions(flags: list[dict], rank: dict[str, int] | None = None) 
     return [flag for index, flag in enumerate(flags) if flag["kind"] != "missing_fact" or index in keep]
 
 
+_INCIDENT_TONE_QUESTION = re.compile(
+    r"(?:부드럽게|부드러운\s*(?:표현으로|말투로)|보호자\s*안내용으로)\s*"
+    r"(?:쓸까요|써\s*(?:드릴까요|도\s*될까요)|전할까요|"
+    r"(?:작성|표현|정리|안내)\s*(?:할까요|해\s*드릴까요))"
+)
+
+
 def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = False,
                  detail_rank: dict[str, int] | None = None) -> dict:
     """Keep well-formed class or child questions, ordered by priority."""
     flags = []
+    asked_incident_ids = []
     for raw in data.get("flags") or []:
         if not isinstance(raw, dict):
             continue
@@ -273,17 +281,20 @@ def parse_review(data: dict, valid_child_ids: set[str], *, allow_common: bool = 
         if not isinstance(requested_ids, list):
             continue
         child_ids = [child_id for child_id in requested_ids if isinstance(child_id, str) and child_id in valid_child_ids]
-        is_common = allow_common and not requested_ids and kind != "incident"
-        if kind not in KIND_PRIORITY or not isinstance(question, str) or not question.strip():
+        if not isinstance(question, str) or not question.strip():
             continue
+        # Legacy results and misclassified tone questions only mark the affected children as incidents.
+        tone_options = {"부드럽게", "그대로"}.issubset(options)
+        if kind == "incident" or tone_options or _INCIDENT_TONE_QUESTION.search(question):
+            asked_incident_ids.extend(child_ids)
+            continue
+        is_common = allow_common and not requested_ids
         direct_answer_only = kind == "missing_fact" and raw.get("options") == []
-        if (not direct_answer_only and not 2 <= len(options) <= 4) or (not child_ids and not is_common):
+        if kind not in KIND_PRIORITY or (not direct_answer_only and not 2 <= len(options) <= 4):
+            continue
+        if not child_ids and not is_common:
             continue
         flags.append({"kind": kind, "child_ids": child_ids, "question": question.strip(), "options": options})
-    # 사건사고로 보인다고 보호자 안내용으로 쓸지 묻지 않는다(부드러운 사건사고 알림장이 기본이다).
-    # 모델이 그래도 질문을 만들면 질문은 버리고 그 아이들을 사건사고로만 옮긴다.
-    asked_incident_ids = [child_id for flag in flags if flag["kind"] == "incident" for child_id in flag["child_ids"]]
-    flags = [flag for flag in flags if flag["kind"] != "incident"]
     flags.sort(key=lambda flag: KIND_PRIORITY[flag["kind"]])
     flags = cap_detail_questions(flags, detail_rank)
     events = []

@@ -121,6 +121,13 @@ def test_parse_review_keeps_valid_flags_in_priority_order():
     assert len(parsed["joint_events"]) == 1 and parsed["incident_child_ids"] == ["A"]
 
 
+def test_review_keeps_questions_about_observed_movements_with_the_word_softly():
+    question = "붓을 부드럽게 쓸 때 아이가 어떤 손동작을 보였나요?"
+    fact = {"kind": "missing_fact", "child_ids": ["A"], "question": question, "options": []}
+    result = schemas.parse_review({"flags": [fact]}, {"A"})
+    assert result["flags"] == [fact] and result["incident_child_ids"] == []
+
+
 def test_parse_review_caps_flags_at_ten():
     flags = [{"kind": "ambiguous", "child_ids": ["A"], "question": f"질문 {i}", "options": ["네", "아니요"]} for i in range(15)]
     assert len(schemas.parse_review({"flags": flags}, {"A"})["flags"]) == 10
