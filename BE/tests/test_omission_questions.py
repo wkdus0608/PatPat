@@ -102,6 +102,13 @@ def test_fallback_asks_only_why_when_the_same_time_activity_is_already_recorded(
         assert flag["question"] == "평가아동가의 메모 ‘종이컵 놀이에 참여하지 않았다’에 대해, 이유를 알려 주세요."
 
 
+def test_doing_no_treatment_is_not_treated_as_an_omission_by_the_child():
+    assert find_omissions("오른쪽 손바닥이 쓸렸다. 따로 씻거나 밴드를 붙이지 않았다.") == []
+    assert find_omissions("오른쪽 손바닥이 쓸렸다. 별도 처치를 하지 않았다. 간식은 먹지 않았다.") == [
+        {"sentence": "간식은 먹지 않았다", "has_reason": False},
+    ]
+
+
 def test_a_child_who_did_not_do_something_is_asked_why_and_what_they_did_instead(tmp_path):
     with running_env(tmp_path) as env:
         child_id, = add_children(env, ["평가아동가"])

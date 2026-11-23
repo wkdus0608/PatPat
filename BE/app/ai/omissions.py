@@ -5,6 +5,8 @@
 """
 import re
 
+from app.ai.observations import explicit_no_treatment
+
 SENTENCE = re.compile(r"[^.!?\n]+")
 
 # ~지 않다·~지 못하다, 안·못 + 동사, 싫다고, 거부·거절·불참, 남겼다
@@ -41,7 +43,7 @@ def find_omissions(text: str) -> list[dict]:
     found = []
     for raw in SENTENCE.findall(text or ""):
         sentence = raw.strip()
-        if not sentence:
+        if not sentence or explicit_no_treatment(sentence):
             continue
         for match in NEGATION.finditer(sentence):
             token = match.group("stem") or match.group("verb")

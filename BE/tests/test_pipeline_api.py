@@ -19,6 +19,8 @@ NAMES = ["다온", "이든", "서윤", "하린", "지안"]
     ("왼쪽 팔꿈치가 살짝 쓸렸다. 팔꿈치를 물로 씻었으나 누가 씻었는지는 확인되지 않았다.", False),
     ("왼쪽 팔꿈치가 살짝 쓸렸다. 팔꿈치를 씻었는지는 확인되지 않았다.", True),
     ("왼쪽 팔꿈치가 살짝 쓸렸다. 친구는 팔꿈치에 밴드를 붙였다.", True),
+    ("오른쪽 손바닥이 쓸렸다. 따로 씻거나 밴드를 붙이지 않았다.", False),
+    ("오른쪽 손바닥이 쓸렸다. 따로 씻거나 밴드를 붙이지 않았는지는 모른다.", True),
 ])
 def test_incident_notice_confirms_the_action_without_guessing_the_caregiver(note, needs_care):
     response = {"text": "", "special_notes": "왼쪽 팔꿈치가 살짝 쓸렸어요.", "missing_injury_details": ["care"]}
@@ -30,6 +32,20 @@ def test_guardian_notice_does_not_include_the_other_childs_injury_details():
     peer = "친구는 오른쪽 손등이 살짝 긁혔고, 10분 뒤 붉은 기가 가라앉았어요."
     response = {"text": "", "special_notes": f"{own} {peer}", "missing_injury_details": []}
     assert render_notice(response, incident=True) == f"특이사항\n{own} 친구가 다쳤어요."
+
+
+def test_guardian_notice_keeps_the_accident_action_but_omits_attached_peer_injury_details():
+    details = "친구가 손을 놓으며 뒤로 주저앉았고, 친구의 오른쪽 손바닥이 살짝 쓸렸어요."
+    response = {"text": "", "special_notes": details, "missing_injury_details": []}
+    assert render_notice(response, incident=True) == "특이사항\n친구가 손을 놓으며 뒤로 주저앉았고 친구가 다쳤어요."
+
+
+def test_notice_keeps_the_teachers_confirmed_color_without_attributing_the_memo_to_the_child():
+    original = "퍼즐을 끼웠다. 처음에는 빨간 조각이라고 메모했지만 교사가 다시 확인한 색은 파란색이었다."
+    source, _ = observations.confirmed_observation(original, [], "sample")
+    assert source == "퍼즐을 끼웠다. 교사가 확인한 색은 파란색이었다."
+    response = {"text": "퍼즐을 끼웠어요. 처음에는 빨간 조각이라고 이야기했지만 선생님과 다시 확인해 보니 파란색이었어요."}
+    assert render_notice(response, incident=False, source=source) == "퍼즐을 끼웠어요. 선생님이 확인한 색은 파란색이었어요."
 
 
 def test_notice_separates_confirmed_ordinary_activity_from_a_later_incident():

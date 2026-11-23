@@ -1,7 +1,7 @@
 """JSON schemas for structured output and the code-side validation of the results."""
 import re
 
-from app.ai.observations import confirmed_injury_details
+from app.ai.observations import confirmed_color, confirmed_injury_details
 from app.ai.types import AIBadOutput
 from app.rules.loader import AREAS
 
@@ -166,11 +166,27 @@ _UNOBSERVED_REFLECTION = re.compile(
 _INCIDENT_START = re.compile(r"^(?:이후에?|그\s*뒤|나중에)\s")
 _INCIDENT_DETAIL = re.compile(r"부딪|넘어[져졌짐]|쓸[렸림]|까[졌짐]|긁[혔힘]|다[쳤침]|다툼|밀었|밴드|상처")
 _PEER_INJURY_DETAILS = re.compile(
-    r"^(?:친구|또래|상대 아이)(?:가|는|도)\s+"
+    r"(?P<continuation>^|,\s*)(?:친구|또래|상대 아이)(?:가|는|도|의)\s+"
     r"(?:(?:왼쪽|오른쪽|좌측|우측)\s+)?[가-힣]{1,5}(?:이|가|을|를)\s+"
     r"(?:(?:살짝|약간|조금)\s+)?(?:긁혔|쓸렸|까졌|부었)"
     r"(?:(?:어요|습니다|답니다)|고,?\s*\d+분\s*뒤\s+붉은\s*기가\s+(?:옅어졌|가라앉았)어요)\.$"
 )
+_COLOR_REVIEW = re.compile(r"^처음(?:\s+말한\s+색|(?:에는|에)\s+.{0,42}라고\s+(?:이야기|말)).{0,36}확인")
+
+
+def _preserve_confirmed_color(text: str, source: str, *, journal: bool = False) -> str:
+    color = confirmed_color(source)
+    if not color or not text.strip():
+        return text
+    confirmed = f"교사가 확인한 색은 {color}임." if journal else f"선생님이 확인한 색은 {color}이었어요."
+    sentences = _SENTENCE_BREAK.split(text.strip())
+    for index, sentence in enumerate(sentences):
+        if _COLOR_REVIEW.search(sentence):
+            sentences[index] = confirmed
+            if index + 1 < len(sentences):
+                sentences[index + 1] = sentences[index + 1].removeprefix("그래도 ")
+            return " ".join(sentences)
+    return text if color in text else f"{text.rstrip()} {confirmed}"
 
 
 def drop_unobserved_reflections(text: str, source: str) -> str:
@@ -213,7 +229,8 @@ def _separate_incident_intro(body: str, notes: str, source: str) -> tuple[str, s
 
 def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, source: str = "") -> str:
     if not incident:
-        return drop_unobserved_reflections(require_text(data, "text"), source)
+        text = drop_unobserved_reflections(require_text(data, "text"), source)
+        return _preserve_confirmed_color(text, source)
 
     body = data.get("text")
     if not isinstance(body, str):
@@ -230,11 +247,12 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, 
     markers = [label for key, label in INJURY_CONFIRMATION_LABELS.items() if key in missing_details]
     body, special_notes = _separate_incident_intro(body.strip(), special_notes, source)
     special_notes = "".join(
-        "친구가 다쳤어요." if _PEER_INJURY_DETAILS.fullmatch(part) else part
+        _PEER_INJURY_DETAILS.sub(lambda match: (" " if match["continuation"] else "") + "친구가 다쳤어요.", part)
         for part in re.split(r"(?<=[.!?])(\s+)", special_notes)
     )
     section = "\n".join((NOTICE_INCIDENT_HEADING, special_notes, *markers))
-    return "\n\n".join(part for part in (drop_unobserved_reflections(body, source), section) if part)
+    body = _preserve_confirmed_color(drop_unobserved_reflections(body, source), source)
+    return "\n\n".join(part for part in (body, section) if part)
 
 
 def _bigrams(sentence: str) -> set[str]:
@@ -273,6 +291,7 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
     content = data.get("content")
     if not isinstance(content, str):
         raise AIBadOutput("AI 응답에 관찰내용이 없습니다.")
+    content = _preserve_confirmed_color(content, source, journal=True)
     parts = [content.strip()] if content.strip() else []
     incident = data.get("incident")
     if isinstance(incident, str) and incident.strip() and incident.strip() not in content:

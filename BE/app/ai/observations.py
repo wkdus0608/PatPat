@@ -45,6 +45,24 @@ _CARE_ACTION = re.compile(
 _UNKNOWN = re.compile(r"는지|인지|모르|모름|미확인|확인(?:이|되지|하지|할\s*수)\s*(?:안|못|않)|아직|아니|않")
 # These connectors can separate a confirmed action from uncertainty about who did it.
 _CARE_CLAUSES = re.compile(r"(?<=었으나)\s+|(?<=었지만)\s+")
+_NO_TREATMENT = re.compile(
+    r"^(?:(?:따로|별도로)\s+씻거나\s+밴드(?:를)?\s*붙이지|(?:별도\s+)?처치(?:를|는)?\s*하지)"
+    r"\s+않(?:았다|았어요|았습니다|음)$"
+)
+_COLOR_CORRECTION = re.compile(
+    r"처음(?:에는|에)\s+[^.!?。\n]+?라고\s+메모했지만\s+교사가\s+다시\s+확인한\s+"
+    r"색(?:깔)?(?:은|는)\s+(?P<color>[가-힣]{1,8}색)이었다(?=[.!?。\n]|$)"
+)
+_CONFIRMED_COLOR = re.compile(r"교사가 확인한 색은 ([가-힣]{1,8}색)이었다(?=[.!?。\n]|$)")
+
+
+def explicit_no_treatment(clause: str) -> bool:
+    return bool(_NO_TREATMENT.fullmatch(clause.strip()))
+
+
+def confirmed_color(text: str) -> str | None:
+    colors = set(_CONFIRMED_COLOR.findall(text))
+    return colors.pop() if len(colors) == 1 else None
 
 
 def confirmed_injury_details(text: str) -> set[str]:
@@ -69,6 +87,8 @@ def confirmed_injury_details(text: str) -> set[str]:
     confirmed = {"body_part", "laterality"}
     related_care = re.compile(rf"{match['part']}(?:에는|에|을|를|은|는)?\s+(?:(?:흐르는\s+)?물로\s+)?(?:{_CARE_ACTION.pattern})")
     for clause in own_clauses:
+        if explicit_no_treatment(clause):
+            confirmed.add("care")
         for action in _CARE_CLAUSES.split(clause):
             if related_care.search(action) and not _UNKNOWN.search(action):
                 confirmed.add("care")
@@ -134,4 +154,5 @@ def confirmed_observation(text: str, flags: list[dict], child_id: str | None) ->
     if has_writing_request:
         extra, _ = strip_writing_requests(answers.get(OBSERVATION_INSTRUCTION, ""))
         cleaned = "\n".join(part for part in (cleaned, extra) if part)
-    return cleaned, unresolved_side
+    corrected = _COLOR_CORRECTION.sub(r"교사가 확인한 색은 \g<color>이었다", cleaned)
+    return corrected, unresolved_side

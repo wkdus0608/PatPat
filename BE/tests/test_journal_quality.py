@@ -1,5 +1,6 @@
 """동료 피드백 ④·⑥·⑦: 관찰 없는 아이의 일지에 해석 문장이 들어가고, 같은 내용이 되풀이된다."""
 from app.ai.lint import drop_unconfirmed_time_prefix
+from app.ai.observations import confirmed_observation
 from app.ai.schemas import drop_repeated_sentences, render_journal
 from app.ai.types import AITask
 from app.journal.store import NO_INDIVIDUAL_NOTE
@@ -56,6 +57,14 @@ def test_a_handoff_does_not_imply_that_children_played_together():
     assert render_journal(data, evidence, ("사회관계",)) == observed
     assert render_journal(data, f"{evidence} 또래가 자동차를 받았다.", ("사회관계",)) == observed
     assert render_journal(data, f"{evidence} 또래와 함께 자동차 놀이를 했다.", ("사회관계",)) == f"{observed} {together}"
+
+
+def test_journal_uses_the_confirmed_correction_and_omits_learning_based_on_the_superseded_memo():
+    original = "퍼즐 조각을 끼웠다. 처음에는 빨간 조각이라고 메모했지만 교사가 다시 확인한 색은 파란색이었다."
+    source, _ = confirmed_observation(original, [], "sample")
+    data = {"content": "퍼즐 조각을 끼움. 처음 말한 색을 교사와 다시 확인함.",
+            "learning": [{"areas": ["의사소통"], "evidence": "빨간 조각이라고 메모", "text": "말을 되짚는 경험을 함."}]}
+    assert render_journal(data, source, ("의사소통",)) == "퍼즐 조각을 끼움. 교사가 확인한 색은 파란색임."
 
 
 def test_individual_draft_only_uses_an_activity_time_with_evidence():
