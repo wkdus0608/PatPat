@@ -40,12 +40,8 @@ def plan_rows(
         return {"block_id": block["block_id"], "block_kind": kind, "text": body, "areas": areas, "place": place,
                 "time_text": time_text, "source_hash": paragraph_hash(f"{rules_hash}\n{body}")}
 
-    def own_place_time():
-        return ((child_block["place"] or (common_block or {}).get("place")),
-                child_block["time_text"])
-
     if common_filled and child_filled:
-        place, time_text = own_place_time()
+        place, time_text = child_block["place"], child_block["time_text"]
         if len(paragraphs) >= 2:
             return [
                 spec(common_block, "common", paragraphs[0], common_block["areas"], common_block["place"], common_block["time_text"]),
@@ -53,12 +49,11 @@ def plan_rows(
             ]
         # the teacher merged the shared paragraph into the child's text: one row, with both blocks' areas
         return [spec(child_block, "individual", text, _union_areas(common_block["areas"], child_block["areas"]),
-                     place, time_text or common_block["time_text"])]
+                     place or common_block["place"], time_text or common_block["time_text"])]
     if common_filled:
         return [spec(common_block, "common", text, common_block["areas"], common_block["place"], common_block["time_text"])]
     if child_filled:
-        place, time_text = own_place_time()
-        return [spec(child_block, "individual", text, child_block["areas"], place, time_text)]
+        return [spec(child_block, "individual", text, child_block["areas"], child_block["place"], child_block["time_text"])]
     return []
 
 

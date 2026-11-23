@@ -85,14 +85,14 @@ def test_review_prompt_lists_the_thin_children_only_when_asked(bundle):
     assert asked.system_text == plain.system_text  # 규칙 묶음은 그대로라 캐시가 유지된다
 
 
-def test_individual_prompt_asks_for_every_fact_and_a_long_text_without_new_facts(bundle):
+def test_individual_prompt_preserves_every_fact_and_keeps_short_notes_brief(bundle):
     child = ChildCtx("A", "다온")
     request = prompts.build_individual(
         bundle, cls=CLS, child=child, block=block("A", "퍼즐을 맞췄다."), common=None, common_paragraph="", other_names=[],
         mode="normal", answers=[{"question": "어떻게 했나요?", "answer": "조각을 돌려 가며 끼웠다."}], joint_facts=[],
         recent_notices=[], writing_examples=None,
     )
-    assert "빠진 사실이 없는지 대조한다" in request.user_text and "분량은 입력 분량에 맞추지 않는다" in request.user_text
+    assert "빠진 사실이 없는지 대조한다" in request.user_text and "사실이 한두 개면 관찰 문장과 안내로 마친다" in request.user_text
     assert "문장을 나누어 사실마다 따로 쓰고" in request.user_text
     assert "- 어떻게 했나요? → 조각을 돌려 가며 끼웠다." in request.user_text
 
@@ -102,5 +102,5 @@ def test_the_rules_state_the_same_limits_the_code_enforces(bundle):
     assert f"{THIN_INPUT_MAX_CHARS}자 이하" in questioning
     assert f"{MAX_THIN_CHILDREN}개" in questioning and "아이마다 1개" in questioning
     guide = bundle.files["notice/guide.md"]
-    assert "분량은 입력 분량에 맞추지 않는다" in guide and "긴 예시" in guide
+    assert "한두 개면 관찰과 안내로 마친다" in guide and "긴 예시" in guide
     assert "긴 예시" in bundle.files["notice/incident.md"]

@@ -159,6 +159,12 @@ def require_text(data: dict, key: str) -> str:
     return value.strip()
 
 
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+_UNOBSERVED_REFLECTION = re.compile(
+    r"(느낌)을\s*살펴보는\s*모습이었|(관심)을\s*(?:넓혀|키워)\s*볼\s*수\s*있었"
+)
+_INCIDENT_START = re.compile(r"^(?:이후에?|그\s*뒤|나중에)\s")
+_INCIDENT_DETAIL = re.compile(r"부딪|넘어[져졌짐]|쓸[렸림]|까[졌짐]|긁[혔힘]|다[쳤침]|다툼|밀었|밴드|상처")
 _PEER_INJURY_DETAILS = re.compile(
     r"^(?:친구|또래|상대 아이)(?:가|는|도)\s+"
     r"(?:(?:왼쪽|오른쪽|좌측|우측)\s+)?[가-힣]{1,5}(?:이|가|을|를)\s+"
@@ -167,9 +173,47 @@ _PEER_INJURY_DETAILS = re.compile(
 )
 
 
+def drop_unobserved_reflections(text: str, source: str) -> str:
+    """Remove standalone, unsupported follow-up interpretations after the actual observation."""
+    parts = re.split(r"(?<=[.!?])(\s+)", text)
+    evidence = _bigrams(source)
+    for index in range(2, len(parts), 2):
+        match = _UNOBSERVED_REFLECTION.search(parts[index])
+        focus = match and (match[1] or match[2])
+        if not focus or focus in source:
+            continue
+        other_sentences = _bigrams(" ".join(parts[:index:2] + parts[index + 2::2]))
+        new_evidence = (_bigrams(parts[index]) & evidence) - other_sentences
+        if len(new_evidence) <= 3:
+            parts[index - 1:index + 1] = ["", ""]
+    return "".join(parts)
+
+
+def _separate_incident_intro(body: str, notes: str, source: str) -> tuple[str, str]:
+    """Move preceding routine sentences only when the memo and notes mark a later incident."""
+    def boundary(sentences: list[str]) -> int:
+        return next((index for index, line in enumerate(sentences) if _INCIDENT_DETAIL.search(line)), 0)
+
+    observed = _SENTENCE_BREAK.split(source.strip())
+    written = _SENTENCE_BREAK.split(notes)
+    observed_start, written_start = boundary(observed), boundary(written)
+    if not observed_start or not written_start:
+        return body, notes
+    if not (_INCIDENT_START.match(observed[observed_start]) and _INCIDENT_START.match(written[written_start])):
+        return body, notes
+
+    reference = _bigrams(" ".join(observed[:observed_start]))
+    for sentence in written[:written_start]:
+        terms = _bigrams(sentence)
+        if len(terms) < 8 or len(terms & reference) / len(terms) < 0.65:
+            return body, notes
+    body = " ".join(drop_repeated_sentences([body, *written[:written_start]]))
+    return body, " ".join(written[written_start:])
+
+
 def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, source: str = "") -> str:
     if not incident:
-        return require_text(data, "text")
+        return drop_unobserved_reflections(require_text(data, "text"), source)
 
     body = data.get("text")
     if not isinstance(body, str):
@@ -184,15 +228,13 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, 
     if unresolved_side:
         missing_details.add("laterality")
     markers = [label for key, label in INJURY_CONFIRMATION_LABELS.items() if key in missing_details]
+    body, special_notes = _separate_incident_intro(body.strip(), special_notes, source)
     special_notes = "".join(
         "친구가 다쳤어요." if _PEER_INJURY_DETAILS.fullmatch(part) else part
         for part in re.split(r"(?<=[.!?])(\s+)", special_notes)
     )
     section = "\n".join((NOTICE_INCIDENT_HEADING, special_notes, *markers))
-    return "\n\n".join(part for part in (body.strip(), section) if part)
-
-
-_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+    return "\n\n".join(part for part in (drop_unobserved_reflections(body, source), section) if part)
 
 
 def _bigrams(sentence: str) -> set[str]:

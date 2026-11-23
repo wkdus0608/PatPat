@@ -32,6 +32,26 @@ def test_guardian_notice_does_not_include_the_other_childs_injury_details():
     assert render_notice(response, incident=True) == f"특이사항\n{own} 친구가 다쳤어요."
 
 
+def test_notice_separates_confirmed_ordinary_activity_from_a_later_incident():
+    activity = "오후 바깥놀이 시간 마당에서 흙을 두 컵 떠서 나무 밑에 놓았어요."
+    accident = "이후 옆 친구와 부딪혀 넘어져 왼쪽 발목이 조금 까졌어요."
+    response = {"text": "", "special_notes": f"{activity} {accident}", "missing_injury_details": []}
+    source = "오후 바깥놀이 시간 마당에서 흙을 두 컵 떠서 나무 밑에 놓았다. 이후 옆 친구와 부딪혀 넘어져 왼쪽 발목이 조금 까졌다."
+    assert render_notice(response, incident=True, source=source) == f"{activity}\n\n특이사항\n{accident}"
+    assert render_notice(response, incident=True, source=accident) == f"특이사항\n{activity} {accident}"
+
+
+def test_notice_omits_unobserved_reflections_and_preserves_a_reported_sensation():
+    action = "오늘 노란 스펀지를 오른손으로 두 번 눌러 보았어요."
+    reflection = "손의 힘을 조절하며 스펀지가 눌리는 느낌을 살펴보는 모습이었답니다."
+    guidance = "자세한 이야기는 하원 시 전해 드리겠습니다."
+    response = {"text": f"{action} {reflection} {guidance}"}
+    assert render_notice(response, incident=False, source="노란 스펀지를 오른손으로 두 번 눌렀다.") == f"{action} {guidance}"
+    assert render_notice(response, incident=False, source="스펀지를 눌렀고 느낌을 살펴봤다고 말했다.") == response["text"]
+    mixed = {"text": f"{action} 파란 바구니에 스펀지를 담으며 눌리는 느낌을 살펴보는 모습이었답니다."}
+    assert render_notice(mixed, incident=False, source="스펀지를 눌렀다. 파란 바구니에 스펀지를 담았다.") == mixed["text"]
+
+
 def ask_about_the_pair(request):
     """검토가 이든·서윤에 관한 직접 입력 질문을 만든 것으로 꾸민다(사건사고 질문은 더 하지 않는다)."""
     data = fake_review(request)

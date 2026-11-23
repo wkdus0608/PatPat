@@ -46,7 +46,8 @@ def test_confirmed_metadata_fills_only_blanks_and_both_drafts_use_the_observatio
         assert own["is_draft"] and own["areas"] == ["예술경험"]
         assert rows[0]["time_text"] == other_rows[0]["time_text"] == "오전 10시"
         assert (own["place"], own["time_text"]) == ("바깥놀이터", None)
-        assert (other["place"], other["time_text"]) == ("우리 교실", None)
+        assert other_rows[0]["place"] == "우리 교실"
+        assert (other["place"], other["time_text"]) == (None, None)
         assert "그림을 만들었어요" in own["content"] and "보호자에게" not in own["content"]
         assert env.client.get(journal + "/export", headers=env.headers).headers["X-Exported-Count"] == "0"
 

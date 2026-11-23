@@ -85,8 +85,8 @@ def _class_info(cls: ClassCtx) -> str:
     return f"[반 정보]\n- 연령: {cls.age_label.strip() or '입력 없음'}\n- 표준보육과정 구간: {band}\n- 호칭: {cls.term}"
 
 
-def _meta(block: BlockCtx, fallback: BlockCtx | None = None) -> str:
-    place = block.place or (fallback.place if fallback else None) or "입력 없음"
+def _meta(block: BlockCtx) -> str:
+    place = block.place or "입력 없음"
     time_text = block.time_text or "입력 없음"
     return f"영역: {', '.join(block.areas) or '선택 없음'}\n장소: {place}\n시간: {time_text}"
 
@@ -227,7 +227,7 @@ def build_review(
     lines.append("[아이별 블록]")
     for block in blocks:
         if block.child_id in names and block.text.strip():
-            lines += [f"- {block.child_id} ({names[block.child_id]})", _wrap(block.text), _meta(block, common)]
+            lines += [f"- {block.child_id} ({names[block.child_id]})", _wrap(block.text), _meta(block)]
     payload = {
         "roster": [{"child_id": child.child_id, "name": child.name} for child in roster],
         "common": {"text": common.text, "areas": list(common.areas)} if common else None,
@@ -290,7 +290,7 @@ def build_common(
         "[작업] 공통 단락 쓰기",
         "반 공통 블록을 바탕으로 알림장의 공통 단락을 쓴다. 출석한 아이 모두의 맨 앞에 같은 글이 들어가므로 아이 이름을 쓰지 않는다.",
         "- 규칙 파일 '알림장 작성 가이드'의 구성·문체와 보육 트렌드의 시선을 따른다.",
-        "- 두세 문장으로 쓴다. 입력에 없는 감정, 원인, 결과를 덧붙이지 않는다.",
+        "- 확인된 사실만 쓴다. 한 문장이면 충분할 때 해석을 덧붙여 늘리지 않는다.",
         "- 결과는 text 하나다.",
         "",
         _class_info(cls),
@@ -335,8 +335,8 @@ def build_individual(
     output_requirements = ["- 결과는 text 하나다."]
     if incident:
         output_requirements = [
-            "- text에는 사건사고와 무관한 일상만 쓴다. 해당 일상 관찰이 없으면 빈 문자열을 반환한다.",
-            "- special_notes에는 이 아이의 사건 경위, 부위·좌우·정도와 처치 중 확인된 사실을 중복 없이 쓴다. 제목과 확인 표시 문구는 서버가 붙인다. 부드럽게 쓰기이면 규칙 파일 '사건사고 알림장'의 구성 순서와 '긴 예시'처럼 상황, 교사의 대응, 아이의 반응, 이후 모습, 하원 시 안내, 가정 연계를 길고 상세하게 쓰고, 입력과 교사 답변에 없는 사실은 쓰지 않는다. 입력의 부위·좌우·정도(예: 왼쪽 무릎이 까졌다)는 그 낱말 그대로 한 번 이상 쓴다. 그대로 쓰기여도 확인된 사실을 사실마다 한 문장 이상으로 풀어 길고 상세하게 쓰되, 존댓말로 쓰고 사실이 적으면 짧아도 된다.",
+            "- text에는 별도의 일상 관찰만 쓴다. 해당 관찰이 없으면 빈 문자열로 둔다.",
+            "- special_notes는 사건 경위부터 시작한다. 부위·좌우·정도는 입력의 표현을 보존한다. 부드럽게 쓰기는 '사건사고 알림장'의 구성 순서를 따르고, 그대로 쓰기는 확인된 사실을 존댓말로 옮긴다.",
             "- 부상이 있었으면 이 아이의 관찰과 교사의 실제 답변을 확인한다. 다친 부위가 불명확하면 missing_injury_details에 body_part를, 같은 부상의 좌우가 상충하고 해소되지 않으면 laterality를 넣는다. 처치 자체가 불명확할 때만 care를 넣는다.",
             "- 같은 부상의 좌우나 부위 기록이 상충하면 교사가 답변으로 확인한 경우에만 확정한다. 답변으로 확인되지 않으면 기록이 일치하는 사실만 쓴다.",
             "- 부상 부위나 처치를 모르면 임의로 채우지 않는다. 질문 자체, 건너뛴 답변, 최근 알림장은 확인 근거가 아니다. 처치를 하지 않았다는 확인된 기록은 처치가 알려진 경우다.",
@@ -350,9 +350,9 @@ def build_individual(
         "- 입력에 없는 감정, 원인, 교사의 행동, 결과를 만들지 않는다.",
         "- 입력과 [교사가 답한 확인 질문]의 답은 모두 오늘 이 아이의 사실이다. 쓰기 전에 사실을 하나씩 세어 두고, 다 쓴 뒤 빠진 사실이 없는지 대조한다. 부위·좌우·정도처럼 입력에 있는 낱말은 흐리게 바꾸지 않고 그대로 쓴다(예: '왼쪽 무릎이 까졌다'를 '다친 곳'으로 바꾸지 않는다).",
         "- 사실마다 한 문장 이상으로 풀어 쓴다. 한 문장에 사실이 둘 이상 들어 있으면 문장을 나누어 사실마다 따로 쓰고, 한 줄로 요약하지 않는다.",
-        "- 분량은 입력 분량에 맞추지 않는다. 규칙 파일 '알림장 작성 가이드'의 '길이'와 '긴 예시'를 따라 길고 상세하게 쓰되 입력과 답에 없는 사실로 채우지 않는다. 방법·순서·모양·크기·횟수·감정·원인 같은 세부도 입력이나 답에 없으면 쓰지 않고, 순서가 나오지 않은 사실에는 먼저·이어서·그 뒤 같은 시간 표현을 쓰지 않는다. 교사가 답하지 않아 사실이 한두 개뿐이면 그 사실 문장 뒤에 안내 문장만 붙인다(가이드의 건너뛴 예시).",
+        "- 확인된 방법·순서·모양·횟수는 살린다. 사실이 한두 개면 관찰 문장과 안내로 마친다. 감각·의도·발달 해석으로 분량을 늘리지 않는다.",
         "- 같은 장면에서 근거가 보여 주는 행동 순서를 지킨다. 질문이나 제안을 답변, 합의, 완료된 행동으로 바꾸지 않는다.",
-        "- 장소는 이 활동의 값이 주어졌으면 쓰고, 시간은 이 아이의 메모나 확인값에서 근거가 있을 때만 쓴다.",
+        "- 개별 활동의 장소와 시간은 이 아이의 메모나 확인값에 근거가 있을 때만 쓴다.",
         "- 아이 특성은 어휘 수준과 가정 연계를 정할 때만 쓰고 오늘의 사실로 쓰지 않는다.",
         "- 다른 아이의 이름을 쓰지 않는다. 상대 아이는 \"친구\"로 쓴다.",
         "- 최근 알림장과 같은 표현을 반복하지 않는다.",
@@ -368,7 +368,7 @@ def build_individual(
         _wrap(masked_traits) if masked_traits.strip() else "입력 없음",
         "[오늘 이 아이의 입력]",
         _wrap(masked_text),
-        _meta(block, common),
+        _meta(block),
         "[앞에 붙는 공통 단락]",
         _wrap(common_paragraph) if common_paragraph.strip() else "없음",
     ]
@@ -514,7 +514,7 @@ def build_journal_individual(
             _wrap(traits) if traits else "입력 없음",
             f"[{source}]",
             _wrap(text),
-            _meta(block, common),
+            _meta(block),
         ]
     )
     payload = {"child_id": child.child_id, "name": child.name, "text": text, "areas": list(block.areas),

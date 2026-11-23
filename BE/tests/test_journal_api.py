@@ -51,7 +51,8 @@ def test_plan_rows_splits_the_confirmed_text_into_shared_and_own_rows():
     both = plan_rows("공통 문단입니다.\n\n개별 문단입니다.\n\n둘째 개별 문단입니다.", child, common)
     assert [(r["block_kind"], r["text"]) for r in both] == [
         ("common", "공통 문단입니다."), ("individual", "개별 문단입니다.\n\n둘째 개별 문단입니다.")]
-    assert both[1]["place"] == "바깥" and both[1]["time_text"] == "11:10"  # falls back to the shared place
+    assert both[0]["place"] == "바깥" and both[0]["time_text"] == "10:30"
+    assert both[1]["place"] is None and both[1]["time_text"] == "11:10"
     merged = plan_rows("하나로 합친 문단입니다.", child, common)
     assert len(merged) == 1 and merged[0]["block_kind"] == "individual" and merged[0]["areas"] == ["신체운동·건강", "자연탐구"]
     empty_child = {**child, "filled": False}
@@ -64,11 +65,13 @@ def test_plan_rows_splits_the_confirmed_text_into_shared_and_own_rows():
     assert revised[0]["source_hash"] != plan_rows("공통 문단입니다.", child, common)[0]["source_hash"]
 
 
-def test_individual_journal_metadata_does_not_inherit_the_common_time():
+def test_individual_journal_metadata_does_not_inherit_the_common_place_and_time():
     common = {"block_id": "c", "filled": True, "areas": [], "place": "교실", "time_text": "14:10", "child_id": None}
     child = {"block_id": "k", "filled": True, "areas": [], "place": None, "time_text": None, "child_id": "x"}
     rows = plan_rows("공통 활동을 함.\n\n공을 한 번 굴림.", child, common)
-    assert [(row["block_kind"], row["time_text"]) for row in rows] == [("common", "14:10"), ("individual", None)]
+    assert [(row["block_kind"], row["place"], row["time_text"]) for row in rows] == [
+        ("common", "교실", "14:10"), ("individual", None, None),
+    ]
 
 
 def test_confirming_a_notice_adds_a_shared_row_and_an_own_row(tmp_path):
@@ -82,7 +85,7 @@ def test_confirming_a_notice_adds_a_shared_row_and_an_own_row(tmp_path):
         shared, own = data["items"]
         assert shared["observed_date"] == "2026-11-06" and shared["areas"] == ["자연탐구"]
         assert shared["place"] == "바깥놀이터" and shared["time_text"] == "10:30~11:00" and "낙엽" in shared["content"]
-        assert own["areas"] == ["신체운동·건강", "자연탐구"] and own["place"] == "바깥놀이터"  # place falls back to the shared one
+        assert own["areas"] == ["신체운동·건강", "자연탐구"] and own["place"] is None
         assert own["included"] is True and own["outdated"] is False and own["version"] == 2 and own["error_code"] is None
         assert journal(env, ids["이든"])["items"] == []  # nothing for children whose notice is not confirmed
 

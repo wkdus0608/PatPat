@@ -161,9 +161,7 @@ class PipelineService:
                                    birth_date=(profile or {}).get("birth_date"), gender=(profile or {}).get("gender")))
             if block["absent"]:
                 absent.add(block["child_id"])
-            child_blocks[block["child_id"]] = replace(
-                self._ctx_block(block), place=block["place"] or (common_block or {}).get("place"),
-            )
+            child_blocks[block["child_id"]] = self._ctx_block(block)
             if block["filled"] and not block["absent"] and not block["areas"]:
                 missing.append({"block_id": block["block_id"], "child_id": block["child_id"]})
         common = None
@@ -403,7 +401,9 @@ class PipelineService:
             self.rules, cls=ctx.cls, common=replace(ctx.common, text=common_text), all_names=ctx.all_names,
             writing_examples=ctx.writing_examples, answers=answers,
         )
-        return mask_names(schemas.require_text(self._call(request, ctx).data, "text"), ctx.all_names)
+        text = schemas.require_text(self._call(request, ctx).data, "text")
+        source = "\n".join([common_text, *(item["answer"] for item in answers)])
+        return mask_names(schemas.drop_unobserved_reflections(text, source), ctx.all_names)
 
     # --- answers ---------------------------------------------------------------------------------------------------------------------
     def submit_answers(self, teacher_id: str, session_id: str, answers: list[dict], skip_remaining: bool) -> dict:
