@@ -1,6 +1,7 @@
 """JSON schemas for structured output and the code-side validation of the results."""
 import re
 
+from app.ai.observations import confirmed_injury_details
 from app.ai.types import AIBadOutput
 from app.rules.loader import AREAS
 
@@ -158,7 +159,7 @@ def require_text(data: dict, key: str) -> str:
     return value.strip()
 
 
-def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False) -> str:
+def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, source: str = "") -> str:
     if not incident:
         return require_text(data, "text")
 
@@ -171,7 +172,9 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False) 
         not isinstance(key, str) or key not in INJURY_CONFIRMATION_LABELS for key in missing
     ):
         raise AIBadOutput("AI 응답의 부상 확인 항목을 읽을 수 없습니다.")
-    missing_details = {*missing, "laterality"} if unresolved_side else set(missing)
+    missing_details = set(missing) - confirmed_injury_details(source)
+    if unresolved_side:
+        missing_details.add("laterality")
     markers = [label for key, label in INJURY_CONFIRMATION_LABELS.items() if key in missing_details]
     section = "\n".join((NOTICE_INCIDENT_HEADING, special_notes, *markers))
     return "\n\n".join(part for part in (body.strip(), section) if part)
@@ -207,6 +210,11 @@ def drop_repeated_sentences(parts: list[str], threshold: float = 0.6) -> list[st
     return result
 
 
+_HANDOFF = re.compile(r"건넸|건네|건넴")
+_MUTUAL_PLAY = re.compile(r"주고\s*받|돌려줬|(?:함께|같이).{0,12}(?:놀|만들|쌓)")
+_JOINT_PLAY_INTERPRETATION = re.compile(r"(?:블록|도구|놀잇감|재료|자동차).{0,14}주고\s*받|(?:함께|같이)\s*놀이")
+
+
 def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
     content = data.get("content")
     if not isinstance(content, str):
@@ -217,6 +225,7 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
         parts.append(incident.strip())  # 일어난 일(내용 → 사건사고)을 먼저 쓰고 해석(learning)은 마지막에 붙인다(2026-11-22 사용자 결정)
     selected = set(areas or AREAS)
     learning = data.get("learning")
+    one_way_handoff = _HANDOFF.search(source) and not _MUTUAL_PLAY.search(source)
     if isinstance(learning, list):
         for item in learning:
             if not isinstance(item, dict):
@@ -230,6 +239,8 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
                 continue
             if isinstance(text, str) and text.strip() and not any(text.strip() in part for part in parts):
                 sentence = text.strip()
+                if one_way_handoff and _JOINT_PLAY_INTERPRETATION.search(sentence):
+                    continue
                 parts.append(sentence if sentence.endswith((".", "!", "?", "…")) else sentence + ".")
     parts = drop_repeated_sentences(parts)
     if not parts:

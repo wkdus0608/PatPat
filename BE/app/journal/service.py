@@ -5,6 +5,7 @@ import re
 from app.ai import observations, prompts, schemas
 from app.ai.anthropic_client import NotConfiguredAIClient
 from app.ai.gateway import AIGateway
+from app.ai.lint import drop_unconfirmed_time_prefix
 from app.ai.privacy import mask_names
 from app.ai.prompts import BlockCtx, ChildCtx, ClassCtx
 from app.ai.types import AIError
@@ -41,7 +42,7 @@ def plan_rows(
 
     def own_place_time():
         return ((child_block["place"] or (common_block or {}).get("place")),
-                (child_block["time_text"] or (common_block or {}).get("time_text")))
+                child_block["time_text"])
 
     if common_filled and child_filled:
         place, time_text = own_place_time()
@@ -51,7 +52,8 @@ def plan_rows(
                 spec(child_block, "individual", "\n\n".join(paragraphs[1:]), child_block["areas"], place, time_text),
             ]
         # the teacher merged the shared paragraph into the child's text: one row, with both blocks' areas
-        return [spec(child_block, "individual", text, _union_areas(common_block["areas"], child_block["areas"]), place, time_text)]
+        return [spec(child_block, "individual", text, _union_areas(common_block["areas"], child_block["areas"]),
+                     place, time_text or common_block["time_text"])]
     if common_filled:
         return [spec(common_block, "common", text, common_block["areas"], common_block["place"], common_block["time_text"])]
     if child_filled:
@@ -227,7 +229,10 @@ class JournalService:
                 incident=notice["incident"], from_inputs=from_inputs,
             )
         result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"])
-        return mask_names(schemas.render_journal(result.data, body, block.areas), other_names), False
+        written = schemas.render_journal(result.data, body, block.areas)
+        if not common:
+            written = drop_unconfirmed_time_prefix(written, source=body, confirmed_time=block.time_text)
+        return mask_names(written, other_names), False
 
     def _generate(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int) -> dict:
         cls, child, other_names = self._writing_context(teacher_id, notice)

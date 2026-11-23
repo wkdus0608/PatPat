@@ -26,3 +26,31 @@ def lint_notice(text: str, source_text: str = "") -> list[dict]:
         if stem in text and stem not in source_text:
             warnings.append({"code": "UNSUPPORTED_FEELING", "word": stem})
     return warnings
+
+
+_ACTIVITY = r"(?:자유놀이|바깥놀이|실내놀이|모임|간식|점심|낮잠|정리|등원|하원|놀이)"
+_CLOCK = r"\d{1,2}:\d{2}"
+_CLOCK_RANGE = rf"{_CLOCK}(?:\s*[~～–—-]\s*{_CLOCK})?"
+_LEADING_ACTIVITY_TIME = re.compile(
+    rf"^(?:오늘\s+)?(?:{_CLOCK_RANGE}\s+)?(?:오전|오후)\s+{_ACTIVITY}"
+    rf"(?:\s+(?:시간(?:에는|에)?|때(?:는)?))?(?:\s*\(\s*{_CLOCK_RANGE}\s*\))?\s+"
+)
+_OBSERVED_TIME = re.compile(
+    rf"오전|오후|아침|저녁|{_ACTIVITY}\s*(?:시간|때)|{_CLOCK}|\d{{1,2}}\s*시(?:에|\s|$)|(?:그|같은)\s*시간"
+)
+
+
+def drop_unconfirmed_time_prefix(
+    text: str, *, source: str, confirmed_time: str | None, child_name: str = "",
+) -> str:
+    """Remove an added activity slot at the start of an individual draft with no time evidence."""
+    if confirmed_time or _OBSERVED_TIME.search(source):
+        return text
+    if child_name:
+        subject = re.match(rf"^{re.escape(child_name)}(?:이는|은|는|이가|가|이)\s+", text)
+        offset = subject.end() if subject else 0
+    else:
+        offset = 0
+    activity = text[offset:]
+    without_time = _LEADING_ACTIVITY_TIME.sub("", activity, count=1)
+    return text[:offset] + without_time if without_time.strip() else text

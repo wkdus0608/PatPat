@@ -82,7 +82,8 @@ def test_the_whole_evening_from_quick_notes_to_the_journal(tmp_path):
         # 개별 관찰이 없는 지안의 일지에는 같은 공통 문단에 ‘개별 관찰 없음’이 덧붙는다
         assert rows["지안"]["items"][0]["content"] == next(iter(shared)) + "\n개별 관찰 없음(반 공통 활동만 기록함)."
         own = rows["이든"]["items"][1]
-        assert (own["place"], own["time_text"], own["areas"]) == ("미끄럼틀 앞", "10:30~11:00", ["사회관계"])
+        assert rows["이든"]["items"][0]["time_text"] == "10:30~11:00"
+        assert (own["place"], own["time_text"], own["areas"]) == ("미끄럼틀 앞", None, ["사회관계"])
         task_counts = Counter(call.task for call in fake.calls)
         assert task_counts[AITask.JOURNAL_COMMON] == 1 and task_counts[AITask.JOURNAL_INDIVIDUAL] == 3
 

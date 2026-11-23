@@ -1,4 +1,5 @@
 """동료 피드백 ④·⑥·⑦: 관찰 없는 아이의 일지에 해석 문장이 들어가고, 같은 내용이 되풀이된다."""
+from app.ai.lint import drop_unconfirmed_time_prefix
 from app.ai.schemas import drop_repeated_sentences, render_journal
 from app.ai.types import AITask
 from app.journal.store import NO_INDIVIDUAL_NOTE
@@ -45,6 +46,28 @@ def test_repeated_sentences_across_content_and_incident_are_dropped():
     text = render_journal(data, "입력", ())
     assert text.count("삽 손잡이") == 1 and text.count("차례를 말로 부탁") == 1
     assert "미안해라고 말함" in text  # 앞에 없던 사실은 남는다
+
+
+def test_a_handoff_does_not_imply_that_children_played_together():
+    evidence = "또래에게 자동차 한 대를 건넸다."
+    observed = "또래에게 자동차 한 대를 건넴."
+    together = "또래와 자동차를 건네며 함께 놀이하는 경험을 함."
+    data = {"content": observed, "learning": [{"areas": ["사회관계"], "evidence": evidence, "text": together}]}
+    assert render_journal(data, evidence, ("사회관계",)) == observed
+    assert render_journal(data, f"{evidence} 또래가 자동차를 받았다.", ("사회관계",)) == observed
+    assert render_journal(data, f"{evidence} 또래와 함께 자동차 놀이를 했다.", ("사회관계",)) == f"{observed} {together}"
+
+
+def test_individual_draft_only_uses_an_activity_time_with_evidence():
+    source = "두 손으로 초록색 공을 한 번 굴렸다."
+    notice = "유나는 오늘 오후 자유놀이 시간에 두 손으로 초록색 공을 한 번 굴렸어요."
+    journal = "오후 자유놀이 시간(14:10~14:40) 두 손으로 초록색 공을 한 번 굴림."
+    assert drop_unconfirmed_time_prefix(notice, source=source, confirmed_time=None, child_name="유나") == (
+        "유나는 두 손으로 초록색 공을 한 번 굴렸어요."
+    )
+    assert drop_unconfirmed_time_prefix(journal, source=source, confirmed_time=None) == "두 손으로 초록색 공을 한 번 굴림."
+    assert drop_unconfirmed_time_prefix(journal, source=source, confirmed_time="오후 자유놀이") == journal
+    assert drop_unconfirmed_time_prefix(journal, source=f"그 시간에는 {source}", confirmed_time=None) == journal
 
 
 def test_different_facts_that_share_a_few_words_are_kept():

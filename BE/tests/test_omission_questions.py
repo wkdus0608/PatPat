@@ -26,7 +26,8 @@ def generate(env, session_id):
 # --- 찾기 ---------------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("text", [
     "간식을 받았지만 먹지 않았다.", "색종이 접기에 참여하지 않았다.", "점심을 안 먹었다.", "낮잠을 못 잤다.", "밥을 많이 남겼어요.",
-    "그림 그리기를 싫다고 했다.", "활동에는 불참했다.", "블록 놀이를 하지 못했다.", "친구들과 놀지 않고 혼자 앉아 있었다.",
+    "그림 그리기를 싫다고 했다.", "활동에는 불참했다.", "블록 놀이를 하지 못했다.", "간식을 먹지 못",
+    "친구들과 놀지 않고 혼자 앉아 있었다.",
 ])
 def test_things_the_child_did_not_do_are_found(text):
     found = find_omissions(text)
@@ -39,6 +40,18 @@ def test_things_the_child_did_not_do_are_found(text):
 ])
 def test_not_doing_something_bad_is_not_asked_about(text):
     assert find_omissions(text) == []
+
+
+@pytest.mark.parametrize("unconfirmed", [
+    "누가 씻었는지는 보지 못했지만 물로 씻은 건 확인했다.",
+    "어느 쪽이 다쳤는지는 확인하지 못했다.",
+    "누가 밴드를 붙였는지 못 봤다.",
+])
+def test_unconfirmed_observations_are_not_things_the_child_did_not_do(unconfirmed):
+    assert find_omissions(unconfirmed) == []
+    assert find_omissions(unconfirmed + " 간식은 먹지 않았다.") == [
+        {"sentence": "간식은 먹지 않았다", "has_reason": False},
+    ]
 
 
 def test_a_reason_already_in_the_input_is_marked():

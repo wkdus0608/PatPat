@@ -64,6 +64,13 @@ def test_plan_rows_splits_the_confirmed_text_into_shared_and_own_rows():
     assert revised[0]["source_hash"] != plan_rows("공통 문단입니다.", child, common)[0]["source_hash"]
 
 
+def test_individual_journal_metadata_does_not_inherit_the_common_time():
+    common = {"block_id": "c", "filled": True, "areas": [], "place": "교실", "time_text": "14:10", "child_id": None}
+    child = {"block_id": "k", "filled": True, "areas": [], "place": None, "time_text": None, "child_id": "x"}
+    rows = plan_rows("공통 활동을 함.\n\n공을 한 번 굴림.", child, common)
+    assert [(row["block_kind"], row["time_text"]) for row in rows] == [("common", "14:10"), ("individual", None)]
+
+
 def test_confirming_a_notice_adds_a_shared_row_and_an_own_row(tmp_path):
     with running_env(tmp_path) as env:
         ids, session, notices = day(env)

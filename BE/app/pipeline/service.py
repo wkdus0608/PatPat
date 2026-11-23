@@ -18,7 +18,7 @@ from app.ai import observations, prompts, schemas
 from app.ai.omissions import find_omissions
 from app.ai.anthropic_client import NotConfiguredAIClient
 from app.ai.gateway import AIGateway
-from app.ai.lint import keep_example_emoticons, lint_notice
+from app.ai.lint import drop_unconfirmed_time_prefix, keep_example_emoticons, lint_notice
 from app.ai.privacy import mask_names
 from app.ai.prompts import BlockCtx, ChildCtx, ClassCtx
 from app.ai.types import AIError
@@ -163,7 +163,6 @@ class PipelineService:
                 absent.add(block["child_id"])
             child_blocks[block["child_id"]] = replace(
                 self._ctx_block(block), place=block["place"] or (common_block or {}).get("place"),
-                time_text=block["time_text"] or (common_block or {}).get("time_text"),
             )
             if block["filled"] and not block["absent"] and not block["areas"]:
                 missing.append({"block_id": block["block_id"], "child_id": block["child_id"]})
@@ -478,8 +477,13 @@ class PipelineService:
             mode=inputs["mode"], answers=inputs["answers"], joint_facts=inputs["joint_facts"],
             recent_notices=inputs["recent"], writing_examples=ctx.writing_examples, incident=inputs["incident"],
         )
+        source = "\n".join([request.payload["text"], *(item["answer"] for item in request.payload["answers"])])
         text = schemas.render_notice(
             self._call(request, ctx).data, incident=inputs["incident"], unresolved_side=inputs["unresolved_side"],
+            source=source,
+        )
+        text = drop_unconfirmed_time_prefix(
+            text, source=source, confirmed_time=inputs["block"].time_text, child_name=child.name,
         )
         return mask_names(text, ctx.other_names(child.child_id))
 

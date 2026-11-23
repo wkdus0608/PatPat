@@ -6,13 +6,23 @@ import pytest
 
 from app.ai import observations
 from app.ai.fake import _review as fake_review
-from app.ai.schemas import INCIDENT_NOTICE_SCHEMA
+from app.ai.schemas import INCIDENT_NOTICE_SCHEMA, render_notice
 from app.ai.types import AITask, AIUnavailable
 from app.pipeline.service import mode_and_answers
 from app.core.timeutil import new_id, now_iso
 from tests.flow_helpers import V2, add_children, block_of, fill, get_session, open_session, running_env
 
 NAMES = ["다온", "이든", "서윤", "하린", "지안"]
+
+
+@pytest.mark.parametrize("note,needs_care", [
+    ("왼쪽 팔꿈치가 살짝 쓸렸다. 팔꿈치를 물로 씻었으나 누가 씻었는지는 확인되지 않았다.", False),
+    ("왼쪽 팔꿈치가 살짝 쓸렸다. 팔꿈치를 씻었는지는 확인되지 않았다.", True),
+    ("왼쪽 팔꿈치가 살짝 쓸렸다. 친구는 팔꿈치에 밴드를 붙였다.", True),
+])
+def test_incident_notice_confirms_the_action_without_guessing_the_caregiver(note, needs_care):
+    response = {"text": "", "special_notes": "왼쪽 팔꿈치가 살짝 쓸렸어요.", "missing_injury_details": ["care"]}
+    assert ("처치 확인 필요" in render_notice(response, incident=True, source=note)) is needs_care
 
 
 def ask_about_the_pair(request):

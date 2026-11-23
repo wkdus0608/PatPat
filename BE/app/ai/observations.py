@@ -8,6 +8,7 @@ OBSERVATION_INSTRUCTION = "observation_instruction"
 INJURY_SIDE = "injury_side"
 SOURCE_CONFIRMATION_KINDS = (OBSERVATION_INSTRUCTION, INJURY_SIDE)
 SIDE_OPTIONS = ("왼쪽", "오른쪽", "양쪽")
+_SIDE_LABELS = {"왼쪽": "left", "좌측": "left", "오른쪽": "right", "우측": "right"}
 
 _CLAUSE_START = r"(?m)(?:^|(?<=[.!?。]))[ \t]*"
 _CLAUSE_END = r"[ \t]*(?:[.!?。]+|$)"
@@ -25,9 +26,53 @@ _SAME_INJURY_NOTE = re.compile(
 _REPORT_LABEL = re.compile(r"(?:^|\n)[ \t]*(?:메모|기록)[ \t]*\d+[ \t]*[.:)][ \t]*")
 _SIDE_AND_PART = re.compile(
     r"(?P<side>왼쪽|오른쪽|좌측|우측)[ \t]*"
-    r"(?P<part>무릎|팔꿈치|발목|손목|어깨|손가락|발가락|손바닥|발바닥|허벅지|종아리|팔|다리|손|발|눈|귀|볼)"
-    r"(?=(?:에서|부터|까지|으로|은|는|이|가|을|를|에|의|도)?(?:[\s.!?。，,]|$))"
+    r"(?P<part>무릎|팔꿈치|발목|손목|어깨|손가락|발가락|손바닥|발바닥|손등|발등|이마|허벅지|종아리|팔|다리|손|발|눈|귀|볼)"
+    r"(?=(?:에서|부터|까지|으로|인지|일|인|은|는|이|가|을|를|에|의|도)?(?:[\s.!?。，,]|$))"
 )
+
+
+_OBSERVATION_CLAUSES = re.compile(r"[^.!?。\n]+")
+_PEER_SUBJECT = re.compile(r"(?:친구|또래)(?:의|가|는|도|\s+(?:손|발|이마|무릎|팔|다리))")
+_INJURY_RESULT = re.compile(
+    r"^(?:이|가|은|는)?\s*(?:(?:살짝|약간|조금|가볍게)\s+)?"
+    r"(?:까졌|까짐|쓸렸|쓸림|긁혔|긁힘|부었|부음|멍이\s*들었)"
+)
+_INJURY_FACT = re.compile(r"까졌|까짐|쓸렸|쓸림|긁혔|긁힘|부었|부음|멍이\s*들었|다쳤|다침")
+_CARE_ACTION = re.compile(
+    r"씻었(?=다|어요|고|으며|으나|지만)|씻음|"
+    r"밴드(?:를)?\s*붙(?:였(?=다|어요|고|으며|으나|지만)|임|여\s*주었(?=다|어요|고))"
+)
+_UNKNOWN = re.compile(r"는지|인지|모르|모름|미확인|확인(?:이|되지|하지|할\s*수)\s*(?:안|못|않)|아직|아니|않")
+# These connectors can separate a confirmed action from uncertainty about who did it.
+_CARE_CLAUSES = re.compile(r"(?<=었으나)\s+|(?<=었지만)\s+")
+
+
+def confirmed_injury_details(text: str) -> set[str]:
+    """Clear model flags only for a clearly identified injury in this child's own evidence."""
+    clauses = [clause.strip() for clause in _OBSERVATION_CLAUSES.findall(text) if clause.strip()]
+    own_clauses = [clause for clause in clauses if not _PEER_SUBJECT.search(clause)]
+    own_injuries = [clause for clause in own_clauses if _INJURY_FACT.search(clause)]
+    if len(own_injuries) != 1:
+        return set()
+    injury, = own_injuries
+    parts = list(_SIDE_AND_PART.finditer(injury))
+    if len(parts) != 1 or _UNKNOWN.search(injury):
+        return set()
+    match, = parts
+    if not _INJURY_RESULT.search(injury[match.end():]):
+        return set()
+    sides = {_SIDE_LABELS[other["side"]] for clause in own_clauses for other in _SIDE_AND_PART.finditer(clause)
+             if other["part"] == match["part"]}
+    if len(sides) != 1:
+        return set()
+
+    confirmed = {"body_part", "laterality"}
+    related_care = re.compile(rf"{match['part']}(?:에는|에|을|를|은|는)?\s+(?:(?:흐르는\s+)?물로\s+)?(?:{_CARE_ACTION.pattern})")
+    for clause in own_clauses:
+        for action in _CARE_CLAUSES.split(clause):
+            if related_care.search(action) and not _UNKNOWN.search(action):
+                confirmed.add("care")
+    return confirmed
 
 
 def strip_writing_requests(text: str) -> tuple[str, bool]:
@@ -60,7 +105,7 @@ def conflicting_injury_side(text: str) -> ConflictingInjurySide | None:
         if len(matches) != 1:
             return None
         match, = matches
-        sides.add("left" if match["side"] in ("왼쪽", "좌측") else "right")
+        sides.add(_SIDE_LABELS[match["side"]])
         shared = report[:match.start()] + report[match.start("part"):]
         common.add(ConflictingInjurySide(shared, match["part"], match.start()))
     return common.pop() if len(sides) == 2 and len(common) == 1 else None
