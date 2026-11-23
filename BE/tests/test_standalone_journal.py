@@ -3,7 +3,11 @@ from io import BytesIO
 from docx import Document
 
 from app.ai.types import AITask
-from flow_helpers import V2, add_children, running_env
+from app.core import migrations
+from app.core.database import Database
+from app.journal.store import JournalStore
+from tests.flow_helpers import V2, add_children, running_env
+from tests.test_journal_api import confirm, day, unconfirm
 
 
 def test_standalone_journal_saves_edits_and_exports_without_a_notice(tmp_path):
@@ -76,3 +80,54 @@ def test_ai_draft_is_private_and_only_the_confirmed_text_is_saved(tmp_path):
         saved = client.post(route, headers=headers, json={**notes, "content": confirmed, "observed_date": "2026-11-18"})
         assert saved.json()["content"] == confirmed
         assert len(env.app.state.ai_client.calls) == 1
+
+
+def test_standalone_observation_remains_visible_after_linked_notice_is_withdrawn(tmp_path):
+    with running_env(tmp_path) as env:
+        children, _, notices = day(env)
+        notice_id = notices["다온"]["notice_id"]
+        confirmed = confirm(env, notice_id, 1)
+        route = f"{V2}/children/{children['다온']}/journal"
+        client, headers = env.client, env.headers
+        date = "2026-11-06"
+        standalone = "자유놀이에서 종이를 반으로 접음."
+
+        def read_day():
+            return client.get(route, headers=headers).json()["days"][0]
+
+        def save_edit(text, revision):
+            result = client.patch(route, headers=headers, json={"days": [{
+                "observed_date": date, "content": text, "expected_revision": revision,
+            }]})
+            assert result.is_success, result.text
+
+        save_edit("낙엽을 두 손으로 모음.", read_day()["revision"])
+        created = client.post(route, headers=headers, json={"observed_date": date, "content": standalone})
+        assert created.is_success, created.text
+        assert read_day()["content"] == "낙엽을 두 손으로 모음.\n\n" + standalone
+        withdrawn = unconfirm(env, notice_id, confirmed["notice"]["version"])
+        assert read_day()["content"] == standalone
+        corrected = "자유놀이에서 종이를 세로로 반 접음."
+        save_edit(corrected, read_day()["revision"])
+        confirm(env, notice_id, withdrawn["version"], update_journal=False)
+        assert corrected in read_day()["content"]
+        assert standalone not in read_day()["content"]
+
+
+def test_standalone_migration_preserves_existing_notice_rows(tmp_path, monkeypatch):
+    with monkeypatch.context() as before_upgrade:
+        before_upgrade.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:-1])
+        with running_env(tmp_path) as env:
+            children, _, notices = day(env)
+            notice_id = notices["다온"]["notice_id"]
+            confirm(env, notice_id, 1)
+            teacher_id, child_id = env.teacher_id, children["다온"]
+            with env.app.state.database.connect() as db:
+                before = db.execute("SELECT entry_id, content FROM journal_entries ORDER BY rowid").fetchall()
+
+    database = Database(str(tmp_path / "flow.sqlite3"))
+    rows = JournalStore(database).list_for_child(teacher_id, child_id)
+    assert [(row["entry_id"], row["content"]) for row in rows] == [tuple(row) for row in before]
+    assert all(row["notice_id"] == notice_id for row in rows)
+    with database.connect() as db:
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []

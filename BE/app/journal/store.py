@@ -13,6 +13,7 @@ from app.journal.days import day_text, editable_day, group_days
 from app.journal.interpretation import split_interpretation
 
 NO_INDIVIDUAL_NOTE = "개별 관찰 없음(반 공통 활동만 기록함)."
+_DAY_ORDER = "(e.notice_id IS NULL), (e.block_kind='individual'), e.created_at, e.rowid"
 
 EditVersions = tuple[int, tuple[tuple[str, int], ...]]
 
@@ -43,6 +44,9 @@ class JournalStore:
         data["included"] = bool(data["included"])
         data["is_draft"] = bool(data["from_inputs"] and data["notice_status"] != "완료")
         data["outdated"] = not data["from_inputs"] and data["source_notice_version"] < data["notice_version"]
+        if data["notice_id"] is None:
+            # A day edit that includes linked observations applies only while linked rows are visible.
+            data.update(day_content=None, day_version=None)
         return data
 
     @staticmethod
@@ -84,7 +88,7 @@ class JournalStore:
         with self.database.connect() as connection:
             rows = connection.execute(
                 _SELECT + " WHERE " + " AND ".join(clauses)
-                + " ORDER BY e.observed_date, (e.block_kind='individual'), e.created_at, e.rowid",
+                + " ORDER BY e.observed_date, " + _DAY_ORDER,
                 values,
             ).fetchall()
         return self._present([self._entry(row) for row in rows])
@@ -94,7 +98,7 @@ class JournalStore:
             rows = connection.execute(
                 _SELECT + " WHERE e.teacher_id=? AND COALESCE(n.withdrawn, 0)=0 "
                 "AND COALESCE(n.status, '완료')='완료' AND e.included=1 "
-                "ORDER BY e.observed_date, c.rowid, (e.block_kind='individual'), e.created_at, e.rowid",
+                "ORDER BY e.observed_date, c.rowid, " + _DAY_ORDER,
                 (teacher_id,),
             ).fetchall()
         days = [day_text(entries) for entries in group_days(self._present([self._entry(row) for row in rows])).values()]
@@ -107,7 +111,7 @@ class JournalStore:
             rows = connection.execute(
                 _SELECT + " WHERE e.teacher_id=? AND e.child_id=? AND COALESCE(n.withdrawn, 0)=0 "
                 "AND e.observed_date BETWEEN ? AND ? "
-                "ORDER BY e.observed_date, (e.block_kind='individual'), e.created_at, e.rowid",
+                "ORDER BY e.observed_date, " + _DAY_ORDER,
                 (teacher_id, child_id, min(changes), max(changes)),
             ).fetchall()
             groups = group_days([self._entry(row) for row in rows])
@@ -122,10 +126,14 @@ class JournalStore:
                         raise ApiError(status_code=409, code="VERSION_CONFLICT",
                                        message=f"{observed_date}의 내용이 바뀌었어요. 수정 화면을 다시 열어 주세요.")
                     first = entries[0]
-                    if len(entries) == 1 and first["notice_id"] is None and first["day_content"] is None:
+                    if first["notice_id"] is None:
                         connection.execute(
                             "UPDATE journal_entries SET content=?, status='edited', version=version+1, updated_at=? "
                             "WHERE entry_id=?", (content, now_iso(), first["entry_id"]),
+                        )
+                        connection.execute(
+                            "DELETE FROM journal_day_edits WHERE teacher_id=? AND child_id=? AND observed_date=?",
+                            (teacher_id, child_id, observed_date),
                         )
                         first.update(content=content, version=first["version"] + 1)
                     else:
