@@ -154,6 +154,8 @@ V2 검토 질문의 `kind`는 같은 부상의 좌우가 충돌하면 `injury_si
 
 교사가 날짜별로 이어진 본문을 편집할 수 있도록 `GET /api/v2/children/{child_id}/journal`의 `days`는 확정된 관찰을 아이와 날짜별로 모아 돌려준다. `PATCH /api/v2/children/{child_id}/journal`은 수정한 날짜의 `observed_date`, `content`, `expected_revision`을 받아 한 번에 저장한다. 날짜별 수정문은 원본 관찰 행과 별도로 보관하므로 장소·시간·영역과 알림장 근거를 유지한다. 저장한 수정문은 텍스트 출력과 `GET /api/v2/journal/archive`의 날짜별 보관함에 반영된다. 보관함은 확정 취소된 기록을 제외하고 명단에서 비활성화한 아이의 과거 기록을 포함한다.
 
+`POST /api/v2/children/{child_id}/journal`은 관찰일(`observed_date`), 확인한 본문(`content`), 선택 항목(`areas`, `place`, `time_text`)으로 독립 관찰일지를 저장한다. 활성 아동의 날짜별 독립 기록은 한 건이며, 같은 요청을 다시 보내면 저장된 행을 돌려준다. 다른 본문을 이미 쓰인 날짜에 저장하려면 기존 일지를 수정한다. 응답의 `session_id`와 `notice_id`는 독립 기록에서 null이다.
+
 ### 관찰일지 텍스트·Word 출력
 
 - `GET|POST|DELETE /api/v2/teacher/journal-template`은 인증된 교사의 공통 Word 양식 하나를 조회·등록 또는 교체·제거한다. `POST ?filename=...`의 본문에 최대 5 MiB의 파일 바이트를 보낸다. 기존 `PUT` multipart의 `file`도 지원한다. 일반 `.docx`는 그대로 저장한다. `.doc`, `.dotx`, `.dot`, `.docm`, `.dotm`, `.rtf`, `.odt`, `.ott`, Word `.xml`, `.fodt`는 서버의 LibreOffice Writer로 변환하며 `.word`는 내부 형식이 지원되면 받는다. 서버의 `PATH`에서 `soffice`를 찾고, `PATPAT_WORD_CONVERTER`로 실행 파일을 지정할 수 있다.
@@ -163,7 +165,7 @@ V2 검토 질문의 `kind`는 같은 부상의 좌우가 충돌하면 `injury_si
 
 ## 문서 적용 범위와 남은 구현
 
-현재 v2 앱은 알림장 작성과 연결 관찰일지의 조회·편집·출력을 제공한다. 알림장 없이 작성하는 관찰일지와 문장별 근거 ID는 별도 구현 과제다. AC4의 특이사항 분리는 알림장에, AC6은 후속 로컬 전사·가명 처리 설계에 적용한다.
+현재 v2는 알림장 작성, 연결·독립 관찰일지의 저장·조회·편집·출력을 제공한다. 문장별 근거 ID는 별도 구현 과제다. AC4의 특이사항 분리는 알림장에, AC6은 후속 로컬 전사·가명 처리 설계에 적용한다.
 
 기능별 상세: [명단](CHILDREN.md), [녹음](RECORDINGS.md), [전사](TRANSCRIPTIONS.md), [작성/수정/확정](WRITING.md). 실행은 [README](../../README.md)를 따른다. OpenAPI는 앱에서 직접 생성하므로 별도 JSON 사본을 저장하지 않는다.
 

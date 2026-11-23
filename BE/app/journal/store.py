@@ -1,4 +1,4 @@
-"""Observation-journal rows. They are created when a notice is confirmed and kept per child and per day.
+"""Observation-journal rows, kept per child and per day.
 
 A row is a copy of one paragraph's worth of the day: the shared (common) paragraph and the child's own
 paragraph are separate rows, as in the 관찰일지 forms the teachers paste into. Rows the teacher edited are
@@ -17,10 +17,12 @@ NO_INDIVIDUAL_NOTE = "개별 관찰 없음(반 공통 활동만 기록함)."
 EditVersions = tuple[int, tuple[tuple[str, int], ...]]
 
 _SELECT = (
-    "SELECT e.*, c.name AS child_name, n.version AS notice_version, n.status AS notice_status, "
-    "n.withdrawn AS notice_withdrawn, d.content AS day_content, d.version AS day_version, room.name AS classroom_name "
-    "FROM journal_entries e JOIN children c ON c.child_id = e.child_id JOIN notices n ON n.notice_id = e.notice_id "
-    "LEFT JOIN writing_sessions s ON s.session_id=n.session_id LEFT JOIN classrooms room ON room.classroom_id=s.classroom_id "
+    "SELECT e.*, c.name AS child_name, COALESCE(n.version, 0) AS notice_version, "
+    "COALESCE(n.status, '완료') AS notice_status, COALESCE(n.withdrawn, 0) AS notice_withdrawn, "
+    "d.content AS day_content, d.version AS day_version, room.name AS classroom_name "
+    "FROM journal_entries e JOIN children c ON c.child_id = e.child_id LEFT JOIN notices n ON n.notice_id = e.notice_id "
+    "LEFT JOIN writing_sessions s ON s.session_id=n.session_id "
+    "LEFT JOIN classrooms room ON room.classroom_id=COALESCE(e.classroom_id, s.classroom_id) "
     "LEFT JOIN journal_day_edits d ON d.teacher_id=e.teacher_id AND d.child_id=e.child_id AND d.observed_date=e.observed_date"
 )
 
@@ -72,7 +74,7 @@ class JournalStore:
     def list_for_child(
         self, teacher_id: str, child_id: str, *, date_from: str | None = None, date_to: str | None = None
     ) -> list[dict]:
-        clauses, values = ["e.teacher_id=?", "e.child_id=?", "n.withdrawn=0"], [teacher_id, child_id]
+        clauses, values = ["e.teacher_id=?", "e.child_id=?", "COALESCE(n.withdrawn, 0)=0"], [teacher_id, child_id]
         if date_from:
             clauses.append("e.observed_date>=?")
             values.append(date_from)
@@ -90,7 +92,8 @@ class JournalStore:
     def archive(self, teacher_id: str) -> list[dict]:
         with self.database.connect() as connection:
             rows = connection.execute(
-                _SELECT + " WHERE e.teacher_id=? AND n.withdrawn=0 AND n.status='완료' AND e.included=1 "
+                _SELECT + " WHERE e.teacher_id=? AND COALESCE(n.withdrawn, 0)=0 "
+                "AND COALESCE(n.status, '완료')='완료' AND e.included=1 "
                 "ORDER BY e.observed_date, c.rowid, (e.block_kind='individual'), e.created_at, e.rowid",
                 (teacher_id,),
             ).fetchall()
@@ -102,7 +105,7 @@ class JournalStore:
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
-                _SELECT + " WHERE e.teacher_id=? AND e.child_id=? AND n.withdrawn=0 "
+                _SELECT + " WHERE e.teacher_id=? AND e.child_id=? AND COALESCE(n.withdrawn, 0)=0 "
                 "AND e.observed_date BETWEEN ? AND ? "
                 "ORDER BY e.observed_date, (e.block_kind='individual'), e.created_at, e.rowid",
                 (teacher_id, child_id, min(changes), max(changes)),
@@ -118,14 +121,22 @@ class JournalStore:
                     if not day["editable"] or expected_revision != day["revision"]:
                         raise ApiError(status_code=409, code="VERSION_CONFLICT",
                                        message=f"{observed_date}의 내용이 바뀌었어요. 수정 화면을 다시 열어 주세요.")
-                    version = day["edit_version"] + 1
-                    connection.execute(
-                        "INSERT INTO journal_day_edits (teacher_id, child_id, observed_date, content, version) VALUES (?,?,?,?,?) "
-                        "ON CONFLICT (teacher_id, child_id, observed_date) DO UPDATE "
-                        "SET content=excluded.content, version=excluded.version",
-                        (teacher_id, child_id, observed_date, content, version),
-                    )
-                    entries[0].update(day_content=content, day_version=version)
+                    first = entries[0]
+                    if len(entries) == 1 and first["notice_id"] is None and first["day_content"] is None:
+                        connection.execute(
+                            "UPDATE journal_entries SET content=?, status='edited', version=version+1, updated_at=? "
+                            "WHERE entry_id=?", (content, now_iso(), first["entry_id"]),
+                        )
+                        first.update(content=content, version=first["version"] + 1)
+                    else:
+                        version = day["edit_version"] + 1
+                        connection.execute(
+                            "INSERT INTO journal_day_edits (teacher_id, child_id, observed_date, content, version) VALUES (?,?,?,?,?) "
+                            "ON CONFLICT (teacher_id, child_id, observed_date) DO UPDATE "
+                            "SET content=excluded.content, version=excluded.version",
+                            (teacher_id, child_id, observed_date, content, version),
+                        )
+                        first.update(day_content=content, day_version=version)
                     day = editable_day(entries)
                 saved.append(day)
         return saved
@@ -142,6 +153,44 @@ class JournalStore:
         return row["content"] if row else None
 
     # --- writing -------------------------------------------------------------------------------------------------------
+    def save_standalone(
+        self, teacher_id: str, child_id: str, observed_date: str, *,
+        content: str, areas: list[str], place: str | None, time_text: str | None,
+    ) -> dict:
+        key = (teacher_id, child_id, observed_date)
+        stamp, entry_id = now_iso(), new_id()
+        encoded_areas = json.dumps(areas, ensure_ascii=False)
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            child = connection.execute(
+                "SELECT p.classroom_id FROM children c LEFT JOIN child_profiles p ON p.child_id=c.child_id "
+                "WHERE c.teacher_id=? AND c.child_id=? AND c.is_active=1", (teacher_id, child_id),
+            ).fetchone()
+            if child is None:
+                raise ApiError(status_code=404, code="NOT_FOUND", message="명단에서 아동을 찾을 수 없어요.")
+            existing = connection.execute(
+                _SELECT + " WHERE e.teacher_id=? AND e.child_id=? AND e.observed_date=? AND e.notice_id IS NULL", key,
+            ).fetchone()
+            if existing:
+                if (existing["content"], existing["areas"], existing["place"], existing["time_text"]) == (
+                    content, encoded_areas, place, time_text,
+                ):
+                    return self._entry(existing)
+                raise ApiError(status_code=409, code="JOURNAL_ALREADY_EXISTS",
+                               message="이 아동의 독립 관찰일지가 이미 있어요. 목록의 수정하기를 이용해 주세요.")
+            connection.execute(
+                "INSERT INTO journal_entries(entry_id, teacher_id, child_id, observed_date, classroom_id, block_kind, "
+                "place, time_text, areas, content, status, source_notice_version, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,'individual',?,?,?,?,'ready',0,?,?)",
+                (entry_id, *key, child["classroom_id"], place, time_text, encoded_areas, content, stamp, stamp),
+            )
+            # An existing day edit replaces its source rows when rendered. Keep the new observation visible there too.
+            connection.execute(
+                "UPDATE journal_day_edits SET content=content || char(10) || char(10) || ?, version=version+1 "
+                "WHERE teacher_id=? AND child_id=? AND observed_date=?", (content, *key),
+            )
+            return self._entry(connection.execute(_SELECT + " WHERE e.entry_id=?", (entry_id,)).fetchone())
+
     def has_input_rows(self, notice_id: str) -> bool:
         with self.database.connect() as connection:
             return connection.execute(
@@ -198,9 +247,11 @@ class JournalStore:
                 f"DELETE FROM journal_entries WHERE teacher_id=? AND notice_id=? AND block_id NOT IN ({placeholders})",
                 (teacher_id, notice_id, *block_ids),
             )
+            day = (teacher_id, notice["child_id"], notice["target_date"])
             connection.execute(
-                "DELETE FROM journal_day_edits WHERE teacher_id=? AND child_id=? AND observed_date=?",
-                (teacher_id, notice["child_id"], notice["target_date"]),
+                "DELETE FROM journal_day_edits WHERE teacher_id=? AND child_id=? AND observed_date=? "
+                "AND NOT EXISTS (SELECT 1 FROM journal_entries "
+                "WHERE teacher_id=? AND child_id=? AND observed_date=? AND notice_id IS NULL)", (*day, *day),
             )
 
     def sync_rows(self, *, teacher_id: str, notice: dict, specs: list[dict], from_inputs: bool = False) -> list[str]:
@@ -305,8 +356,8 @@ class JournalStore:
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT e.* FROM journal_entries e JOIN notices n ON n.notice_id=e.notice_id "
-                "WHERE e.teacher_id=? AND e.entry_id=? AND n.withdrawn=0", (teacher_id, entry_id)
+                "SELECT e.* FROM journal_entries e LEFT JOIN notices n ON n.notice_id=e.notice_id "
+                "WHERE e.teacher_id=? AND e.entry_id=? AND COALESCE(n.withdrawn, 0)=0", (teacher_id, entry_id)
             ).fetchone()
             if row is None:
                 raise entry_not_found()

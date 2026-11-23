@@ -15,7 +15,7 @@ from app.journal import export, output, word, word_import
 from app.journal.days import editable_day, group_days
 from app.journal.schemas import (
     DaysPatch, EntryPatch, JournalArchiveEntry, JournalChild, JournalDayResponse, JournalEntryResponse,
-    JournalOutput, JournalResponse, JournalTemplate,
+    JournalOutput, JournalResponse, JournalTemplate, StandaloneJournalCreate,
 )
 from app.rules.loader import AREAS
 from app.schemas.common import ErrorResponse
@@ -50,7 +50,7 @@ def _child(services: Services, teacher_id: str, child_id: str) -> dict:
     response_model=JournalResponse,
     summary="아이의 관찰일지",
     description="아이 한 명의 관찰일지 행을 날짜순으로 돌려줍니다(공통 행이 그날의 개별 행보다 앞). 상반기·하반기 같은 기간은 from/to로 거릅니다. "
-    "알림장을 확정하면 행이 쌓이고, 만드는 중이면 status가 pending입니다.",
+    "독립 관찰일지와 알림장에 연결된 행을 포함합니다. 연결 일지를 만드는 중이면 status가 pending입니다.",
 )
 def child_journal(
     child_id: str,
@@ -70,6 +70,24 @@ def child_journal(
         days=[JournalDayResponse(**editable_day(entries)) for entries in group_days(rows).values()],
         **output.status(services, teacher.teacher_id, child, rows, date_from, date_to),
     )
+
+
+@journal_router.post(
+    "/children/{child_id}/journal",
+    status_code=201,
+    response_model=JournalEntryResponse,
+    summary="독립 관찰일지 저장",
+)
+def create_standalone(
+    child_id: str, body: StandaloneJournalCreate, teacher: CurrentTeacher, services: ServicesDependency,
+) -> JournalEntryResponse:
+    if not body.content.strip():
+        raise ApiError(status_code=422, code="EMPTY_TEXT", message="관찰내용을 입력해 주세요.")
+    return entry_response(services.journal_store.save_standalone(
+        teacher.teacher_id, child_id, body.observed_date.isoformat(), content=body.content,
+        areas=[area for area in AREAS if area in body.areas],
+        place=(body.place or "").strip() or None, time_text=(body.time_text or "").strip() or None,
+    ))
 
 
 @journal_router.patch(

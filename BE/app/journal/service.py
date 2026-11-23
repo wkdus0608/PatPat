@@ -164,6 +164,8 @@ class JournalService:
     # --- regenerate one row --------------------------------------------------------------------------------------------------------
     def regenerate_entry(self, teacher_id: str, entry_id: str) -> dict:
         entry = self.store.require(teacher_id, entry_id)
+        if entry["notice_id"] is None:
+            raise ApiError(status_code=409, code="NO_LINKED_NOTICE", message="독립 관찰일지는 본문을 직접 수정해 주세요.")
         if entry["notice_withdrawn"]:
             raise ApiError(status_code=409, code="NOT_CONFIRMED", message="알림장을 다시 확정한 뒤 관찰일지를 만들 수 있어요.")
         if entry["status"] == "pending":

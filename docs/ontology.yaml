@@ -1,6 +1,6 @@
 # 핵심 흐름: Teacher가 Child·Activity에 연결된 Observation을 기록하고,
 # DailyNote·Journal에 공통 활동과 아이별 사실을 구분해 담는다.
-# 현재 v2에서는 Teacher가 DailyNote를 검토·확정하고 연결된 Journal을 조회·편집한다.
+# 현재 v2에서는 Teacher가 DailyNote를 검토·확정하고 연결 또는 독립 Journal을 조회·편집한다.
 # Guardian·WritingSession의 업무 배경은 조사 문서에서 설명한다.
 # evidence는 조사 근거를, note의 SPEC 참조는 팀 설계를 설명한다.
 # 현재 API·서버 설계는 SPEC 5-1~5-2와 BE/docs/API_CONTRACT.md를 따른다.
