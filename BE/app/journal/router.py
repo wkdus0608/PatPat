@@ -14,7 +14,7 @@ from app.jobs.router import JobResponse, job_response
 from app.journal import export, output, word, word_import
 from app.journal.days import editable_day, group_days
 from app.journal.schemas import (
-    DaysPatch, EntryPatch, JournalArchiveEntry, JournalChild, JournalDayResponse, JournalEntryResponse,
+    DaysPatch, EntryPatch, JournalArchiveEntry, JournalChild, JournalDayResponse, JournalEntryResponse, JournalObservation,
     JournalOutput, JournalResponse, JournalTemplate, StandaloneJournalCreate,
 )
 from app.rules.loader import AREAS
@@ -106,6 +106,15 @@ def patch_days(
     if any(not day.content.strip() for day in body.days):
         raise ApiError(status_code=422, code="EMPTY_TEXT", message="관찰내용을 입력해 주세요.")
     return [JournalDayResponse(**day) for day in services.journal_store.update_days(teacher.teacher_id, child_id, changes)]
+
+
+@journal_router.post(
+    "/children/{child_id}/journal/draft", status_code=202, response_model=JobResponse, summary="독립 관찰일지 AI 초안",
+)
+def draft_standalone(
+    child_id: str, body: JournalObservation, teacher: CurrentTeacher, services: ServicesDependency,
+) -> JobResponse:
+    return job_response(services.journal.draft_standalone(teacher.teacher_id, child_id, body))
 
 
 @journal_router.get(

@@ -156,6 +156,8 @@ V2 검토 질문의 `kind`는 같은 부상의 좌우가 충돌하면 `injury_si
 
 `POST /api/v2/children/{child_id}/journal`은 관찰일(`observed_date`), 확인한 본문(`content`), 선택 항목(`areas`, `place`, `time_text`)으로 독립 관찰일지를 저장한다. 활성 아동의 날짜별 독립 기록은 한 건이며, 같은 요청을 다시 보내면 저장된 행을 돌려준다. 다른 본문을 이미 쓰인 날짜에 저장하려면 기존 일지를 수정한다. 응답의 `session_id`와 `notice_id`는 독립 기록에서 null이다.
 
+`POST /api/v2/children/{child_id}/journal/draft`는 관찰 메모(`content`)와 같은 선택 항목을 받아 초안 작업을 시작한다. 완료된 작업의 `result.content`가 초안이며, 일지 저장은 교사가 확인한 본문을 위 저장 경로에 제출할 때 이뤄진다.
+
 ### 관찰일지 텍스트·Word 출력
 
 - `GET|POST|DELETE /api/v2/teacher/journal-template`은 인증된 교사의 공통 Word 양식 하나를 조회·등록 또는 교체·제거한다. `POST ?filename=...`의 본문에 최대 5 MiB의 파일 바이트를 보낸다. 기존 `PUT` multipart의 `file`도 지원한다. 일반 `.docx`는 그대로 저장한다. `.doc`, `.dotx`, `.dot`, `.docm`, `.dotm`, `.rtf`, `.odt`, `.ott`, Word `.xml`, `.fodt`는 서버의 LibreOffice Writer로 변환하며 `.word`는 내부 형식이 지원되면 받는다. 서버의 `PATH`에서 `soffice`를 찾고, `PATPAT_WORD_CONVERTER`로 실행 파일을 지정할 수 있다.

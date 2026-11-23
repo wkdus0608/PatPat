@@ -10,6 +10,7 @@ from app.ai.privacy import mask_names
 from app.ai.prompts import BlockCtx, ChildCtx, ClassCtx
 from app.ai.types import AIError
 from app.core.errors import ApiError
+from app.journal.schemas import JournalObservation
 from app.journal.store import JournalStore
 from app.jobs.runner import JobRunner
 from app.notices.store import NoticeStore
@@ -77,6 +78,46 @@ class JournalService:
         self.jobs = jobs
         self.ai = ai
         jobs.register_recovery("journal", lambda job: self.store.fail_all_pending_for_notice(job["ref_id"], "SERVER_RESTART"))
+
+    def draft_standalone(self, teacher_id: str, child_id: str, observation: JournalObservation) -> dict:
+        child = self.profile.get_child(teacher_id, child_id)
+        if child is None or not child["is_active"]:
+            raise ApiError(status_code=404, code="NOT_FOUND", message="명단에서 아동을 찾을 수 없어요.")
+        source, has_request = observations.strip_writing_requests(observation.content)
+        if has_request:
+            raise ApiError(status_code=422, code="OBSERVATION_REVIEW_REQUIRED", message="작성 요청을 빼고 직접 관찰한 내용을 입력해 주세요.")
+        if not source:
+            raise ApiError(status_code=422, code="EMPTY_TEXT", message="관찰내용을 입력해 주세요.")
+        source, unresolved_side = observations.confirmed_observation(source, [], child_id)
+        if unresolved_side:
+            raise ApiError(status_code=422, code="OBSERVATION_REVIEW_REQUIRED", message="부상 부위를 확인한 뒤 관찰내용을 고쳐 주세요.")
+        if isinstance(self.ai.client, NotConfiguredAIClient):
+            raise ApiError(status_code=503, code="AI_NOT_CONFIGURED", message="AI 연결을 확인하거나 관찰일지를 직접 작성해 주세요.")
+        details = self.profile.get_details(child_id)
+        rooms = self.profile.list_classrooms(teacher_id)
+        default = rooms[0] if rooms else None
+        room = next((room for room in rooms if room["classroom_id"] == details["classroom_id"]), default)
+        age_label = room["age_label"] if room else ""
+        cls = ClassCtx(age_label=age_label, band=age_band_from_label(age_label))
+        other_names = self.profile.other_child_names(teacher_id, child_id)
+        block = BlockCtx(
+            block_id=child_id, child_id=child_id, text=mask_names(source, other_names, replacement="또래"),
+            areas=tuple(area for area in AREAS if area in observation.areas),
+            place=(observation.place or "").strip() or None,
+            time_text=(observation.time_text or "").strip() or None,
+        )
+        request = prompts.build_journal_individual(
+            self.rules, cls=cls, child=ChildCtx(child_id=child_id, name=child["name"]), text=block.text,
+            block=block, common=None, incident=None, from_inputs=True,
+        )
+
+        def write() -> dict:
+            result = self.ai.call(request, teacher_id=teacher_id)
+            content = schemas.render_journal(result.data, block.text, block.areas)
+            content = drop_unconfirmed_time_prefix(content, source=block.text, confirmed_time=block.time_text)
+            return {"content": mask_names(content, other_names, replacement="또래")}
+
+        return self.jobs.start(teacher_id, "standalone_journal_draft", child_id, write)
 
     # --- planning ------------------------------------------------------------------------------------------------------
     def _specs(self, notice: dict, notice_text: str) -> list[dict]:
