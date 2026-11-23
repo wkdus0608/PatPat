@@ -92,6 +92,16 @@ def test_the_rules_state_the_omission_policy_and_the_default_soft_mode(bundle):
 
 
 # --- 흐름 ---------------------------------------------------------------------------------------------------------
+def test_fallback_asks_only_why_when_the_same_time_activity_is_already_recorded(tmp_path):
+    with running_env(tmp_path) as env:
+        add_children(env, ["평가아동가"])
+        session = open_session(env)
+        fill(env, session, "평가아동가", "종이컵 놀이에 참여하지 않았다. 그 시간에는 자동차를 굴렸다.")
+        assert generate(env, session["session_id"])["result"]["phase"] == "asking"
+        flag, = get_session(env, session["session_id"])["flags"]
+        assert flag["question"] == "평가아동가의 메모 ‘종이컵 놀이에 참여하지 않았다’에 대해, 이유를 알려 주세요."
+
+
 def test_a_child_who_did_not_do_something_is_asked_why_and_what_they_did_instead(tmp_path):
     with running_env(tmp_path) as env:
         child_id, = add_children(env, ["평가아동가"])

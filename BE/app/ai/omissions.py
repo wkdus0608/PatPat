@@ -17,6 +17,7 @@ NEGATION = re.compile(
 PROBLEM_STEMS = ("울", "다투", "싸우", "때리", "밀", "던지", "넘어지", "다치", "떼쓰", "소리", "깨물", "물", "부딪", "화내", "아프", "아팠", "힘들어하")
 # ‘누가 했는지 보지 못함’은 교사의 확인 한계다.
 UNCONFIRMED_DETAIL = re.compile(r"(?:는지|인지)(?:는|도|를)?\s*$")
+ALTERNATIVE_ACTION = re.compile(r"^[.!?\s]+(?:그\s*시간(?:에는|에)?|그때(?:는)?)\s+([^.!?\n]+)")
 
 # 이유나 대신 한 일이 입력에 이미 있다는 표지
 REASON = re.compile(
@@ -27,6 +28,11 @@ REASON = re.compile(
 
 def _is_problem(text: str) -> bool:
     return any(text.startswith(stem) or text.endswith(stem) for stem in PROBLEM_STEMS)
+
+
+def has_recorded_alternative(text: str, omitted: str) -> bool:
+    match = ALTERNATIVE_ACTION.match(text.partition(omitted)[2])
+    return bool(match and not NEGATION.search(match[1]) and not re.search(r"확인되지|모르|모름", match[1]))
 
 
 def find_omissions(text: str) -> list[dict]:

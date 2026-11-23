@@ -25,6 +25,13 @@ def test_incident_notice_confirms_the_action_without_guessing_the_caregiver(note
     assert ("처치 확인 필요" in render_notice(response, incident=True, source=note)) is needs_care
 
 
+def test_guardian_notice_does_not_include_the_other_childs_injury_details():
+    own = "친구와 부딪혀 왼쪽 팔꿈치가 쓸렸어요. 20분 뒤 붉은 기가 옅어졌어요."
+    peer = "친구는 오른쪽 손등이 살짝 긁혔고, 10분 뒤 붉은 기가 가라앉았어요."
+    response = {"text": "", "special_notes": f"{own} {peer}", "missing_injury_details": []}
+    assert render_notice(response, incident=True) == f"특이사항\n{own} 친구가 다쳤어요."
+
+
 def ask_about_the_pair(request):
     """검토가 이든·서윤에 관한 직접 입력 질문을 만든 것으로 꾸민다(사건사고 질문은 더 하지 않는다)."""
     data = fake_review(request)

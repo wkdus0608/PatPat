@@ -159,6 +159,14 @@ def require_text(data: dict, key: str) -> str:
     return value.strip()
 
 
+_PEER_INJURY_DETAILS = re.compile(
+    r"^(?:친구|또래|상대 아이)(?:가|는|도)\s+"
+    r"(?:(?:왼쪽|오른쪽|좌측|우측)\s+)?[가-힣]{1,5}(?:이|가|을|를)\s+"
+    r"(?:(?:살짝|약간|조금)\s+)?(?:긁혔|쓸렸|까졌|부었)"
+    r"(?:(?:어요|습니다|답니다)|고,?\s*\d+분\s*뒤\s+붉은\s*기가\s+(?:옅어졌|가라앉았)어요)\.$"
+)
+
+
 def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, source: str = "") -> str:
     if not incident:
         return require_text(data, "text")
@@ -176,6 +184,10 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, 
     if unresolved_side:
         missing_details.add("laterality")
     markers = [label for key, label in INJURY_CONFIRMATION_LABELS.items() if key in missing_details]
+    special_notes = "".join(
+        "친구가 다쳤어요." if _PEER_INJURY_DETAILS.fullmatch(part) else part
+        for part in re.split(r"(?<=[.!?])(\s+)", special_notes)
+    )
     section = "\n".join((NOTICE_INCIDENT_HEADING, special_notes, *markers))
     return "\n\n".join(part for part in (body.strip(), section) if part)
 

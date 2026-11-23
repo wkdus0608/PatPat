@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 
 from app.ai import observations, prompts, schemas
-from app.ai.omissions import find_omissions
+from app.ai.omissions import find_omissions, has_recorded_alternative
 from app.ai.anthropic_client import NotConfiguredAIClient
 from app.ai.gateway import AIGateway
 from app.ai.lint import drop_unconfirmed_time_prefix, keep_example_emoticons, lint_notice
@@ -296,7 +296,7 @@ class PipelineService:
         data = self._call(review_request, ctx).data
         review = schemas.parse_review(data, set(names), allow_common=ctx.common is not None, detail_rank=detail_rank)
         if omissions:
-            fallback = self._omission_questions(review["flags"], omissions, names)
+            fallback = self._omission_questions(review["flags"], omissions, names, reviewed_blocks)
             review["flags"] = schemas.cap_detail_questions([*fallback, *review["flags"]], detail_rank)
         review["flags"] = [*local_flags, *review["flags"]][:schemas.MAX_FLAGS]
         if confirmation_sources:
@@ -329,14 +329,22 @@ class PipelineService:
         return self._run_draft(teacher_id, session_id)
 
     @staticmethod
-    def _omission_questions(flags: list[dict], omissions: dict[str, list[str]], names: dict[str, str]) -> list[dict]:
-        """모델이 하지 않은 일에 질문을 만들지 않았으면 이유와 그 시간에 한 일을 묻는 질문을 서버가 만든다."""
+    def _omission_questions(
+        flags: list[dict], omissions: dict[str, list[str]], names: dict[str, str], blocks: dict[str | None, BlockCtx],
+    ) -> list[dict]:
+        """하지 않은 일에 대한 질문이 없으면 빠진 항목만 따로 묻는다."""
         asked = {child_id for flag in flags if flag["kind"] == "missing_fact" for child_id in flag["child_ids"]}
-        return [
-            {"kind": "missing_fact", "child_ids": [child_id], "options": [],
-             "question": f"{names[child_id]}의 메모 ‘{sentences[0].rstrip('.')}’에 대해, 이유와 그 시간에 한 일을 알려 주세요."}
-            for child_id, sentences in omissions.items() if child_id not in asked
-        ]
+        questions = []
+        for child_id, sentences in omissions.items():
+            if child_id in asked:
+                continue
+            omitted = sentences[0].rstrip(".")
+            detail = "이유를" if has_recorded_alternative(blocks[child_id].text, omitted) else "이유와 그 시간에 한 일을"
+            questions.append({
+                "kind": "missing_fact", "child_ids": [child_id], "options": [],
+                "question": f"{names[child_id]}의 메모 ‘{omitted}’에 대해, {detail} 알려 주세요.",
+            })
+        return questions
 
     @staticmethod
     def _metadata_questions(ctx: DraftContext, data: dict, sources: dict) -> list[dict]:
