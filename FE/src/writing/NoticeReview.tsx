@@ -23,6 +23,7 @@ export async function waitForJob(api: V2Api, job: Job) {
     job = await api.job(job.job_id);
   }
   if (job.status === 'failed') throw new ApiError(0, job.error_code ?? 'JOB_FAILED', jobMessage(job.error_code));
+  return job;
 }
 
 export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatusChange }: {

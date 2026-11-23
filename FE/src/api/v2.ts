@@ -47,7 +47,7 @@ export interface Job {
   job_id: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
   error_code: string | null;
-  result: { failed?: { child_id: string; error_code: string }[] } | null;
+  result: { content?: string; failed?: { child_id: string; error_code: string }[] } | null;
 }
 
 export interface NoticeSummary {
@@ -154,6 +154,8 @@ export interface Journal {
 }
 export type JournalOutput = { text: string; revision: string; can_export_word: boolean };
 export type JournalEdit = Pick<JournalEntry, 'content' | 'place' | 'time_text'>;
+export type JournalObservation = JournalEdit & { areas: Area[] };
+export type JournalCreate = JournalObservation & { observed_date: string };
 
 const id = encodeURIComponent;
 const recordingDraftPath = (sessionId: string, runId?: string) =>
@@ -243,6 +245,10 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     adoptRevision: (noticeId: string, revisionId: string, expected_version: number) =>
       send<Notice>('/notices/' + id(noticeId) + '/revisions/' + id(revisionId) + '/adopt', 'POST', { expected_version }),
     journal: (childId: string, range?: DateRange) => send<Journal>('/children/' + id(childId) + '/journal' + journalQuery(range)),
+    draftStandaloneJournal: (childId: string, observation: JournalObservation) =>
+      send<Job>('/children/' + id(childId) + '/journal/draft', 'POST', observation),
+    createJournal: (childId: string, entry: JournalCreate) =>
+      send<JournalEntry>('/children/' + id(childId) + '/journal', 'POST', entry),
     saveJournalDays: (childId: string, days: JournalDayEdit[]) =>
       send<JournalDay[]>('/children/' + id(childId) + '/journal', 'PATCH', { days }),
     journalArchive: () => send<JournalArchiveEntry[]>('/journal/archive'),
