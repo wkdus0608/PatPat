@@ -8,7 +8,11 @@ from collections import defaultdict
 UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 TRANSPORT = rf"⟦C:({UUID})⟧"
 CONTACT = r"(?i:[\w.+-]+@[\w.-]+\.[a-z]{2,})|(?<!\d)(?:\+82[ -]?)?0?1[016789][ -]?\d{3,4}[ -]?\d{4}(?!\d)"
-RESULT_NAME = re.compile(r"(?<![a-z0-9_])C\d{2,}(?![a-z0-9_])", re.IGNORECASE)
+RESULT_NAME = re.compile(
+    r"(?<![a-z0-9_])(C\d{2,})(?![a-z0-9_])(이(?=[를은는가와랑의도만에께라\s.,!?]|$))?([을은과])?",
+    re.IGNORECASE,
+)
+PEER_PARTICLES = {"을": "를", "은": "는", "과": "와"}
 
 
 def is_protected(session: dict) -> bool:
@@ -21,9 +25,11 @@ class TextPrivacy:
         secrets.SystemRandom().shuffle(ids)
         self.names = {child_id: f"C{index:02d}" for index, child_id in enumerate(ids, 1)}
         self.results = {
-            alias: f"⟦C:{child_id}⟧" if visible_child is None or child_id == visible_child else "또래"
+            alias: f"⟦C:{child_id}⟧"
             for child_id, alias in self.names.items()
+            if visible_child is None or child_id == visible_child
         }
+        self.peer_aliases = set(self.names.values()) - self.results.keys()
         people: dict[str, list[str]] = defaultdict(list)
         for child_id, name in roster:
             name = unicodedata.normalize("NFC", name.strip())
@@ -66,9 +72,16 @@ class TextPrivacy:
         if isinstance(value, str):
             if value in identifiers:
                 return identifiers[value]
-            return RESULT_NAME.sub(lambda match: self.results.get(match[0].upper(), "아동"), value)
+            return RESULT_NAME.sub(self._restore_name, value)
         if isinstance(value, list):
             return [self._decode(item, identifiers) for item in value]
         if isinstance(value, dict):
             return {self._decode(key, identifiers): self._decode(item, identifiers) for key, item in value.items()}
         return value
+
+    def _restore_name(self, match: re.Match) -> str:
+        alias, ending, particle = match.groups()
+        alias = alias.upper()
+        if name := self.results.get(alias):
+            return name + (ending or "") + (particle or "")
+        return ("또래" if alias in self.peer_aliases else "아이") + PEER_PARTICLES.get(particle, "")

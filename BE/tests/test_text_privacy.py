@@ -1,4 +1,6 @@
 from app.ai.types import AITask
+from app.ai.schemas import render_journal, render_notice
+from app.ai.text_privacy import TextPrivacy
 from tests.flow_helpers import V2, add_children, fill, get_session, open_session, running_env
 
 
@@ -61,3 +63,25 @@ def test_standalone_journal_draft_uses_alias_and_keeps_peer_generic(tmp_path):
                                    json={"content": f"⟦C:{first}⟧가 ⟦C:{peer}⟧에게 블록을 건넸어요."})
         assert response.status_code == 202, response.text
         assert response.json()["result"]["content"] == f"⟦C:{first}⟧가 또래에게 블록을 건넴."
+
+
+def test_masked_peer_injury_leaves_the_teachers_action_visible():
+    own = "64ee8f9a-b185-4213-a7a3-45644fbab480"
+    peer = "3f79d947-cad9-4b33-9421-1ff728df6d25"
+    privacy = TextPrivacy([(own, "가상아동가"), (peer, "가상아동나")], "가상교사", own)
+    alias = privacy.names[peer]
+    data = privacy.decode({"text": "", "missing_injury_details": [],
+                           "special_notes": f"{alias}이가 뒤로 주저앉았어요. {alias}이의 오른쪽 손바닥이 살짝 쓸렸으며, 교사가 확인했어요."})
+    assert render_notice(data, incident=True) == "특이사항\n또래가 뒤로 주저앉았어요. 친구가 다쳤어요. 교사가 확인했어요."
+
+
+def test_journal_keeps_confirmed_utterance_used_as_learning_evidence():
+    interpretation = "맞는 자리를 말로 표현해 봄."
+    data = {"content": "조각을 뒤집어 다시 끼움.", "incident": "",
+            "learning": [{"areas": ["의사소통"], "evidence": "여기 들어가네", "text": interpretation}]}
+    source = "조각을 뒤집어 다시 끼웠다. '여기 들어가네'라고 말했다."
+    assert render_journal(data, source, ("의사소통",)) == (
+        "조각을 뒤집어 다시 끼움. “여기 들어가네”라는 발화가 있었음. " + interpretation
+    )
+    uncertain = "조각을 뒤집어 다시 끼웠다. '여기 들어가네'라고 말했다고 들었으나 확인하지 못했다."
+    assert "발화가 있었음" not in render_journal(data, uncertain, ("의사소통",))

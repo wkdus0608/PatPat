@@ -169,7 +169,8 @@ _PEER_INJURY_DETAILS = re.compile(
     r"(?P<continuation>^|,\s*)(?:친구|또래|상대 아이)(?:가|는|도|의)\s+"
     r"(?:(?:왼쪽|오른쪽|좌측|우측)\s+)?[가-힣]{1,5}(?:이|가|을|를)\s+"
     r"(?:(?:살짝|약간|조금)\s+)?(?:긁혔|쓸렸|까졌|부었)"
-    r"(?:(?:어요|습니다|답니다)|고,?\s*\d+분\s*뒤\s+붉은\s*기가\s+(?:옅어졌|가라앉았)어요)\.$"
+    r"(?:(?:(?:어요|습니다|답니다)|고,?\s*\d+분\s*뒤\s+붉은\s*기가\s+(?:옅어졌|가라앉았)어요)\.$"
+    r"|(?P<linked>으며,\s+|고,\s+))"
 )
 _COLOR_REVIEW = re.compile(r"^처음(?:\s+말한\s+색|(?:에는|에)\s+.{0,42}라고\s+(?:이야기|말)).{0,36}확인")
 
@@ -247,7 +248,10 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, 
     markers = [label for key, label in INJURY_CONFIRMATION_LABELS.items() if key in missing_details]
     body, special_notes = _separate_incident_intro(body.strip(), special_notes, source)
     special_notes = "".join(
-        _PEER_INJURY_DETAILS.sub(lambda match: (" " if match["continuation"] else "") + "친구가 다쳤어요.", part)
+        _PEER_INJURY_DETAILS.sub(
+            lambda match: (" " if match["continuation"] else "") + "친구가 다쳤어요." + (" " if match["linked"] else ""),
+            part,
+        )
         for part in re.split(r"(?<=[.!?])(\s+)", special_notes)
     )
     section = "\n".join((NOTICE_INCIDENT_HEADING, special_notes, *markers))
@@ -285,6 +289,10 @@ def drop_repeated_sentences(parts: list[str], threshold: float = 0.6) -> list[st
 _HANDOFF = re.compile(r"건넸|건네|건넴")
 _MUTUAL_PLAY = re.compile(r"주고\s*받|돌려줬|(?:함께|같이).{0,12}(?:놀|만들|쌓)")
 _JOINT_PLAY_INTERPRETATION = re.compile(r"(?:블록|도구|놀잇감|재료|자동차).{0,14}주고\s*받|(?:함께|같이)\s*놀이")
+_OBSERVED_UTTERANCE = re.compile(
+    r"""["'“‘]([^"'”’\n]{1,80})["'”’]\s*이?라고\s*(?:말했|이야기했|대답했|물었|외쳤)"""
+    r"(?:다|어요|습니다|음)(?=\s*(?:[.!?]|$))"
+)
 
 
 def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
@@ -298,6 +306,8 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
         parts.append(incident.strip())  # 일어난 일(내용 → 사건사고)을 먼저 쓰고 해석(learning)은 마지막에 붙인다(2026-11-22 사용자 결정)
     selected = set(areas or AREAS)
     learning = data.get("learning")
+    interpretations = []
+    utterances = set(_OBSERVED_UTTERANCE.findall(source))
     one_way_handoff = _HANDOFF.search(source) and not _MUTUAL_PLAY.search(source)
     if isinstance(learning, list):
         for item in learning:
@@ -310,12 +320,15 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
                 continue
             if not isinstance(evidence, str) or not evidence.strip() or evidence.strip() not in source:
                 continue
-            if isinstance(text, str) and text.strip() and not any(text.strip() in part for part in parts):
+            if isinstance(text, str) and text.strip() and not any(text.strip() in part for part in parts + interpretations):
                 sentence = text.strip()
                 if one_way_handoff and _JOINT_PLAY_INTERPRETATION.search(sentence):
                     continue
-                parts.append(sentence if sentence.endswith((".", "!", "?", "…")) else sentence + ".")
-    parts = drop_repeated_sentences(parts)
+                quote = evidence.strip()
+                if quote in utterances and not any(quote in part for part in parts):
+                    parts.append(f'“{quote}”라는 발화가 있었음.')
+                interpretations.append(sentence if sentence.endswith((".", "!", "?", "…")) else sentence + ".")
+    parts = drop_repeated_sentences(parts + interpretations)
     if not parts:
         raise AIBadOutput("AI 응답에 작성된 관찰내용이 없습니다.")
     return " ".join(parts)
