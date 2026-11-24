@@ -284,15 +284,21 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
     setSaved(false);
   }
 
-  async function saveInputs(current: WritingSession) {
+  async function saveInputs(current: WritingSession, forRecording = false) {
     const common = current.blocks.find(block => block.is_common);
     const changes = { ...edits };
     if (common?.areas.length) changes[common.block_id] = { ...changes[common.block_id], areas: [] };
+    if (forRecording) {
+      for (const block of current.blocks) {
+        changes[block.block_id] = { text: block.text, place: block.place, time_text: block.time_text, ...changes[block.block_id] };
+      }
+    }
     for (const [blockId, change] of Object.entries(changes)) {
       const values = { ...change };
       if ('place' in values) values.place = values.place?.trim() || null;
       if ('time_text' in values) values.time_text = values.time_text?.trim() || null;
-      await api.saveBlock(current.session_id, blockId, values);
+      const childId = current.blocks.find(block => block.block_id === blockId)?.child_id;
+      await api.saveBlock(current.session_id, blockId, values, childId, !forRecording);
     }
     const value = await api.session(current.session_id);
     setSession(value);
@@ -329,7 +335,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
 
   async function generate(current: WritingSession) {
     if (!canUseSelectedRecordings()) return;
-    await saveInputs(current);
+    await saveInputs(current, selected.length > 0);
     if (selected.length) setAudio(await api.startRecordingDraft(current.session_id, selected));
     else await api.generate(current.session_id);
     setSession(await api.session(current.session_id));
@@ -453,7 +459,10 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
             </View>
             <View style={styles.regenerateAction}>
               <WorkButton label="녹음으로 초안 다시 만들기" disabled={!canRegenerate || !targets.length || (!selected.length && !defaults.size)}
-                onPress={() => recordingAction(() => api.startRecordingDraft(session.session_id, selected, targets))} />
+                onPress={() => recordingAction(async () => {
+                  await saveInputs(session, true);
+                  return api.startRecordingDraft(session.session_id, selected, targets);
+                })} />
             </View>
           </>}
         </NoticeRecordingList>}

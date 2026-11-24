@@ -16,8 +16,9 @@ function RecordingApp({ account, api }: { account: Account; api: V2Api }) {
 }
 
 function SignedInApp({ account }: { account: Account }) {
-  const api = useMemo(() => createV2Api(account.api.baseUrl, account.session.token, account.unauthorized),
-    [account.api.baseUrl, account.session.token, account.unauthorized]);
+  const api = useMemo(() => createV2Api(account.api.baseUrl, account.session.token, account.unauthorized,
+    () => account.api.listChildren(account.session.token, true)),
+    [account.api, account.session.token, account.unauthorized]);
   return (
     <OnboardingGate account={account} api={api}>
       <RecordingApp account={account} api={api} />

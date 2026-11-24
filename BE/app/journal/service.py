@@ -8,6 +8,7 @@ from app.ai.gateway import AIGateway
 from app.ai.lint import drop_unconfirmed_time_prefix
 from app.ai.privacy import mask_names
 from app.ai.prompts import BlockCtx, ChildCtx, ClassCtx
+from app.ai.text_privacy import is_protected
 from app.ai.types import AIError
 from app.core.errors import ApiError
 from app.journal.schemas import JournalObservation
@@ -79,7 +80,7 @@ class JournalService:
         self.ai = ai
         jobs.register_recovery("journal", lambda job: self.store.fail_all_pending_for_notice(job["ref_id"], "SERVER_RESTART"))
 
-    def draft_standalone(self, teacher_id: str, child_id: str, observation: JournalObservation) -> dict:
+    def draft_standalone(self, teacher_id: str, child_id: str, observation: JournalObservation, *, protect_text: bool = False) -> dict:
         child = self.profile.get_child(teacher_id, child_id)
         if child is None or not child["is_active"]:
             raise ApiError(status_code=404, code="NOT_FOUND", message="명단에서 아동을 찾을 수 없어요.")
@@ -112,7 +113,7 @@ class JournalService:
         )
 
         def write() -> dict:
-            result = self.ai.call(request, teacher_id=teacher_id)
+            result = self.ai.call(request, teacher_id=teacher_id, protect_text=protect_text, visible_child=child_id)
             content = schemas.render_journal(result.data, block.text, block.areas)
             content = drop_unconfirmed_time_prefix(content, source=block.text, confirmed_time=block.time_text)
             return {"content": mask_names(content, other_names, replacement="또래")}
@@ -159,15 +160,16 @@ class JournalService:
         text = "\n\n".join(part for part in (source(common, None, all_names), source(child, child_id, other_names)) if part)
         return plan_rows(text, child, common, rules_hash=self.rules.rules_hash)
 
-    def prepare(self, *, teacher_id: str, notice: dict, flags: list[dict]) -> dict | None:
+    def prepare(self, *, teacher_id: str, notice: dict, flags: list[dict], protect_text: bool = False) -> dict | None:
         specs = self._input_specs(notice, flags)
         entry_ids = self.store.sync_rows(teacher_id=teacher_id, notice=notice, specs=specs, from_inputs=True)
         if not entry_ids:
             return None
-        return self._start(teacher_id, notice, entry_ids, {spec["block_id"]: spec["text"] for spec in specs}, notice["version"])
+        return self._start(teacher_id, notice, entry_ids, {spec["block_id"]: spec["text"] for spec in specs},
+                           notice["version"], protect_text=protect_text)
 
     # --- on confirm ----------------------------------------------------------------------------------------------------------
-    def on_confirm(self, teacher_id: str, notice: dict) -> dict | None:
+    def on_confirm(self, teacher_id: str, notice: dict, *, protect_text: bool = False) -> dict | None:
         if self.store.has_input_rows(notice["notice_id"]):
             return None
         source = self.notices.recording_source(notice["notice_id"])
@@ -175,9 +177,10 @@ class JournalService:
         entry_ids = self.store.sync_rows(teacher_id=teacher_id, notice=notice, specs=specs)
         if not entry_ids:
             return None
-        return self._start(teacher_id, notice, entry_ids, {spec["block_id"]: spec["text"] for spec in specs}, notice["version"])
+        return self._start(teacher_id, notice, entry_ids, {spec["block_id"]: spec["text"] for spec in specs},
+                           notice["version"], protect_text=protect_text)
 
-    def refresh_from_notice(self, teacher_id: str, notice: dict) -> dict | None:
+    def refresh_from_notice(self, teacher_id: str, notice: dict, *, protect_text: bool = False) -> dict | None:
         specs = self._specs(notice, notice["edited_text"])
         if not specs:
             return None
@@ -187,7 +190,10 @@ class JournalService:
             cls, child, other_names = self._writing_context(teacher_id, notice)
             rows, reused = [], 0
             for spec in specs:
-                content, shared = self._write_row(teacher_id, notice, spec, spec["text"], cls, child, other_names)
+                content, shared = self._write_row(
+                    teacher_id, notice, spec, spec["text"], cls, child, other_names,
+                    protect_text=self._protect_notice(teacher_id, notice, protect_text),
+                )
                 rows.append({**spec, "content": content})
                 reused += int(shared)
             self.store.apply_notice_refresh(notice, rows, expected_edits)
@@ -195,10 +201,17 @@ class JournalService:
 
         return self.jobs.start(teacher_id, "journal_refresh", notice["notice_id"], refresh)
 
-    def _start(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int) -> dict:
+    def _protect_notice(self, teacher_id: str, notice: dict, requested: bool = False) -> bool:
+        return not self.notices.recording_source(notice["notice_id"]) and (
+            requested or is_protected(self.sessions.require(teacher_id, notice["session_id"]))
+        )
+
+    def _start(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int,
+               *, protect_text: bool = False) -> dict:
+        private = self._protect_notice(teacher_id, notice, protect_text)
         return self.jobs.start(
             teacher_id, "journal", notice["notice_id"],
-            lambda: self._generate(teacher_id, notice, entry_ids, texts, source_version),
+            lambda: self._generate(teacher_id, notice, entry_ids, texts, source_version, protect_text=private),
             on_error=lambda code: self.store.fail_all_pending_for_notice(notice["notice_id"], code, source_version),
         )
 
@@ -247,6 +260,7 @@ class JournalService:
 
     def _write_row(
         self, teacher_id: str, notice: dict, row: dict, body: str, cls: ClassCtx, child: ChildCtx, other_names: list[str],
+        *, protect_text: bool,
     ) -> tuple[str, bool]:
         common = row["block_kind"] == "common"
         block = BlockCtx(
@@ -266,13 +280,15 @@ class JournalService:
                 self.rules, cls=cls, child=child, text=body, block=block, common=None,
                 incident=notice["incident"], from_inputs=from_inputs,
             )
-        result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"])
+        result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"],
+                              protect_text=protect_text, visible_child="" if common else child.child_id)
         written = schemas.render_journal(result.data, body, block.areas)
         if not common:
             written = drop_unconfirmed_time_prefix(written, source=body, confirmed_time=block.time_text)
         return mask_names(written, other_names), False
 
-    def _generate(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int) -> dict:
+    def _generate(self, teacher_id: str, notice: dict, entry_ids: list[str], texts: dict[str, str], source_version: int,
+                  *, protect_text: bool) -> dict:
         cls, child, other_names = self._writing_context(teacher_id, notice)
         generated, reused, failed, first_error = 0, 0, [], None
         for entry_id in entry_ids:
@@ -281,7 +297,7 @@ class JournalService:
                 continue  # changed by the teacher while the job was waiting
             try:
                 content, shared = self._write_row(
-                    teacher_id, notice, entry, texts[entry["block_id"]], cls, child, other_names,
+                    teacher_id, notice, entry, texts[entry["block_id"]], cls, child, other_names, protect_text=protect_text,
                 )
                 reused += int(shared)
                 generated += int(not shared)

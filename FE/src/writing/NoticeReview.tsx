@@ -83,7 +83,7 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
     let stored = current;
     if (draft !== null && draft.text !== stored.text) {
       if (!draft.text.trim()) { action.setError('알림장 내용을 입력해 주세요.'); return; }
-      stored = await api.saveNotice(noticeId, draft.text, draft.version);
+      stored = await api.saveNotice(noticeId, draft.text, draft.version, current.child_id, !current.from_recording);
       setNotice(stored);
     }
     setDraft(null);
@@ -99,7 +99,7 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
   }
 
   async function revise(current: Notice) {
-    const request = await api.requestRevision(noticeId, instruction?.trim() ?? '', current.version);
+    const request = await api.requestRevision(noticeId, instruction?.trim() ?? '', current.version, current.child_id, !current.from_recording);
     if (request.job_id && (request.status === 'queued' || request.status === 'running')) {
       await waitForJob(api, await api.job(request.job_id));
     }

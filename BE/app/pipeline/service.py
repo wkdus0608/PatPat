@@ -21,6 +21,7 @@ from app.ai.gateway import AIGateway
 from app.ai.lint import drop_unconfirmed_time_prefix, keep_example_emoticons, lint_notice
 from app.ai.privacy import mask_names
 from app.ai.prompts import BlockCtx, ChildCtx, ClassCtx
+from app.ai.text_privacy import is_protected
 from app.ai.types import AIError
 from app.core.errors import ApiError
 from app.jobs.runner import JobRunner
@@ -63,6 +64,7 @@ class DraftContext:
     blocks: dict[str, BlockCtx]  # child_id -> that child's block
     writing_examples: str | None
     areas_missing: list[dict] = field(default_factory=list)
+    protect_text: bool = False
 
     @property
     def all_names(self) -> list[str]:
@@ -171,6 +173,7 @@ class PipelineService:
         return DraftContext(
             teacher_id=teacher_id, session=session, cls=cls, roster=roster, absent=absent, common=common,
             blocks=child_blocks, writing_examples=examples, areas_missing=missing,
+            protect_text=input_blocks is None and is_protected(session),
         )
 
     @staticmethod
@@ -180,8 +183,9 @@ class PipelineService:
             place=block["place"], time_text=block["time_text"],
         )
 
-    def _call(self, request, ctx: DraftContext):
-        return self.ai.call(request, teacher_id=ctx.teacher_id, session_id=ctx.session["session_id"])
+    def _call(self, request, ctx: DraftContext, visible_child: str | None = None):
+        return self.ai.call(request, teacher_id=ctx.teacher_id, session_id=ctx.session["session_id"],
+                            protect_text=ctx.protect_text, visible_child=visible_child)
 
     def _ensure_ai_ready(self) -> None:
         if isinstance(self.ai.client, NotConfiguredAIClient):
@@ -207,7 +211,7 @@ class PipelineService:
     # --- generate --------------------------------------------------------------------------------------------------------------
     def start_generate(
         self, teacher_id: str, session_id: str, *, ask_missing_areas: bool = False, prepare_journals: bool = False,
-        manual_areas: bool = False,
+        manual_areas: bool = False, protect_text: bool = False,
     ) -> dict:
         session = self.sessions.require(teacher_id, session_id)
         if session["status"] not in ("writing", "failed"):
@@ -218,7 +222,7 @@ class PipelineService:
         ctx = self._load(teacher_id, session_id)
         self._check_inputs(ctx, allow_missing_areas=manual_areas or ask_missing_areas)
         self.sessions.begin_generation(
-            session_id, snapshot=json.dumps({"common": common_snapshot(ctx.common)}, ensure_ascii=False),
+            session_id, snapshot=json.dumps({"common": common_snapshot(ctx.common), "protect_text": protect_text}, ensure_ascii=False),
             rules_hash=self.rules.rules_hash, model=self.ai.model,
         )
         return self.jobs.start(
@@ -401,12 +405,13 @@ class PipelineService:
             self.rules, cls=ctx.cls, common=replace(ctx.common, text=common_text), all_names=ctx.all_names,
             writing_examples=ctx.writing_examples, answers=answers,
         )
-        text = schemas.require_text(self._call(request, ctx).data, "text")
+        text = schemas.require_text(self._call(request, ctx, visible_child="").data, "text")
         source = "\n".join([common_text, *(item["answer"] for item in answers)])
         return mask_names(schemas.drop_unobserved_reflections(text, source), ctx.all_names)
 
     # --- answers ---------------------------------------------------------------------------------------------------------------------
-    def submit_answers(self, teacher_id: str, session_id: str, answers: list[dict], skip_remaining: bool) -> dict:
+    def submit_answers(self, teacher_id: str, session_id: str, answers: list[dict], skip_remaining: bool,
+                       *, protect_text: bool = False) -> dict:
         session = self.sessions.require(teacher_id, session_id)
         if session["status"] != "asking":
             raise ApiError(status_code=409, code="NOT_ASKING", message="지금은 질문에 답하는 단계가 아니에요.",
@@ -445,7 +450,7 @@ class PipelineService:
                            details={"flag_ids": open_ids})
         for flag_id in open_ids:
             decided[flag_id] = None
-        self.sessions.finish_review(teacher_id, session_id, decided, area_updates, metadata_updates)
+        self.sessions.finish_review(teacher_id, session_id, decided, area_updates, metadata_updates, protect_text=protect_text)
         return self.jobs.start(
             teacher_id, "draft", session_id, lambda: self._run_draft(teacher_id, session_id),
             on_error=lambda code: self.sessions.set_status(session_id, "failed", error_code=code),
@@ -487,7 +492,8 @@ class PipelineService:
         )
         source = "\n".join([request.payload["text"], *(item["answer"] for item in request.payload["answers"])])
         text = schemas.render_notice(
-            self._call(request, ctx).data, incident=inputs["incident"], unresolved_side=inputs["unresolved_side"],
+            self._call(request, ctx, visible_child=child.child_id).data,
+            incident=inputs["incident"], unresolved_side=inputs["unresolved_side"],
             source=source,
         )
         text = drop_unconfirmed_time_prefix(
@@ -558,7 +564,7 @@ class PipelineService:
         return {"phase": "reviewing", "drafted": drafted, "failed": failed}
 
     # --- regenerate one child ----------------------------------------------------------------------------------------------------
-    def start_regenerate_child(self, teacher_id: str, session_id: str, child_id: str) -> dict:
+    def start_regenerate_child(self, teacher_id: str, session_id: str, child_id: str, *, protect_text: bool = False) -> dict:
         session = self.sessions.require(teacher_id, session_id)
         if session["status"] not in ("reviewing", "failed"):
             raise ApiError(status_code=409, code="SESSION_BUSY", message="아직 처음 초안을 만드는 중이거나 만들기 전이에요.",
@@ -584,10 +590,13 @@ class PipelineService:
             ):
                 raise ApiError(status_code=422, code="AREAS_REQUIRED", message="관찰영역을 하나 이상 골라 주세요.",
                                details={"block_ids": missing_blocks})
-        return self.jobs.start(teacher_id, "regenerate_child", ref_id, lambda: self._run_regenerate(teacher_id, session_id, child_id))
+        return self.jobs.start(
+            teacher_id, "regenerate_child", ref_id, lambda: self._run_regenerate(teacher_id, session_id, child_id, protect_text),
+        )
 
-    def _run_regenerate(self, teacher_id: str, session_id: str, child_id: str) -> dict:
+    def _run_regenerate(self, teacher_id: str, session_id: str, child_id: str, protect_text: bool = False) -> dict:
         ctx = self._load(teacher_id, session_id)
+        ctx.protect_text = ctx.protect_text or protect_text
         session = ctx.session
         review = json.loads(session["review_json"]) if session["review_json"] else dict(EMPTY_REVIEW)
         flags = self.sessions.list_flags(session_id)
@@ -607,7 +616,7 @@ class PipelineService:
             common_paragraph = self._write_common(ctx, flags) if ctx.common else ""
             self.sessions.set_status(
                 session_id, session["status"], common_paragraph=common_paragraph,
-                snapshot=json.dumps({"common": common_snapshot(ctx.common)}, ensure_ascii=False),
+                snapshot=json.dumps({**stored, "common": common_snapshot(ctx.common), "protect_text": ctx.protect_text}, ensure_ascii=False),
             )
         child = next(item for item in ctx.roster if item.child_id == child_id)
         incident = child_id in incident_ids_of(review, flags)
@@ -617,7 +626,7 @@ class PipelineService:
         individual = self._write_individual(ctx, inputs) if inputs["has_input"] else ""
         notice = self._save_notice(ctx, inputs, individual)
         if self.journal and review.get("prepare_journals"):
-            self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags)
+            self.journal.prepare(teacher_id=ctx.teacher_id, notice=notice, flags=flags, protect_text=ctx.protect_text)
         if session["status"] == "failed":
             self.sessions.set_status(session_id, "reviewing", error_code=None)
         return {"notice_id": notice["notice_id"], "version": notice["version"]}

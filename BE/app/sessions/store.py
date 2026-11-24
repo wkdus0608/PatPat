@@ -221,11 +221,12 @@ class SessionStore:
     def finish_review(
         self, teacher_id: str, session_id: str, answers: dict[str, str | None], areas_by_child: dict[str, list[str]],
         metadata_by_child: dict[str | None, dict[str, str]],
+        *, protect_text: bool = False,
     ) -> None:
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             session = connection.execute(
-                "SELECT status FROM writing_sessions WHERE teacher_id=? AND session_id=?", (teacher_id, session_id),
+                "SELECT status, snapshot FROM writing_sessions WHERE teacher_id=? AND session_id=?", (teacher_id, session_id),
             ).fetchone()
             if session is None or session["status"] != "asking":
                 raise ApiError(status_code=409, code="NOT_ASKING", message="지금은 질문에 답하는 단계가 아니에요.")
@@ -254,9 +255,12 @@ class SessionStore:
                             f"WHERE session_id=? AND child_id IS ? AND trim(coalesce({key}, ''))=''",
                             (metadata[key], stamp, session_id, child_id),
                         )
+            snapshot = session["snapshot"]
+            if protect_text:
+                snapshot = json.dumps({**json.loads(snapshot or "{}"), "protect_text": True}, ensure_ascii=False)
             connection.execute(
-                "UPDATE writing_sessions SET status='drafting', updated_at=?, error_code=NULL WHERE session_id=?",
-                (stamp, session_id),
+                "UPDATE writing_sessions SET status='drafting', updated_at=?, error_code=NULL, snapshot=? WHERE session_id=?",
+                (stamp, snapshot, session_id),
             )
 
     def reopen_review(self, teacher_id: str, session_id: str) -> None:
