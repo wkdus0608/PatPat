@@ -28,6 +28,7 @@ class NoticeResponse(BaseModel):
     generated_text: str = Field(description="AI가 처음 쓴 글")
     needs_check: bool = Field(description="아이 입력이 없어 공통 단락만 들어간 초안이면 true")
     incident: bool
+    from_recording: bool
     warnings: list[WarningItem] = Field(description="교사 주도 표현·입력에 없는 감정 같은 점검 결과(막지 않고 알립니다)")
     edit_ratio: float = Field(description="AI 초안에서 교사가 고친 정도. 0이면 그대로, 1에 가까울수록 많이 고침")
     can_share: bool = Field(description="완료된 알림장만 공유할 수 있습니다.")

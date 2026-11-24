@@ -5,6 +5,7 @@ from app.ai.gateway import AIGateway
 from app.ai.lint import lint_notice
 from app.ai.privacy import mask_names
 from app.ai.prompts import ChildCtx
+from app.ai.text_privacy import is_protected
 from app.core.errors import ApiError
 from app.jobs.runner import JobRunner
 from app.notices.store import NoticeStore
@@ -55,15 +56,16 @@ class NoticeService:
 
     def confirm(
         self, teacher_id: str, notice_id: str, expected_version: int, *, update_journal: bool | None = None,
+        protect_text: bool = False,
     ) -> tuple[dict, dict | None]:
         """Confirm the saved text, then start the journal work selected for this version."""
         self._idle(teacher_id, notice_id)
         notice, journal_action = self.store.confirm(teacher_id, notice_id, expected_version, update_journal=update_journal)
         if self.journal is not None:
             if journal_action == "refresh":
-                return notice, self.journal.refresh_from_notice(teacher_id, notice)
+                return notice, self.journal.refresh_from_notice(teacher_id, notice, protect_text=protect_text)
             if journal_action == "sync":
-                return notice, self.journal.on_confirm(teacher_id, notice)
+                return notice, self.journal.on_confirm(teacher_id, notice, protect_text=protect_text)
         return notice, None
 
     def unconfirm(self, teacher_id: str, notice_id: str, expected_version: int) -> dict:
@@ -71,7 +73,8 @@ class NoticeService:
         return self.store.unconfirm(teacher_id, notice_id, expected_version)
 
     # --- AI revision -------------------------------------------------------------------------------------------------
-    def start_revision(self, teacher_id: str, notice_id: str, base_version: int, instruction: str) -> tuple[dict, dict]:
+    def start_revision(self, teacher_id: str, notice_id: str, base_version: int, instruction: str,
+                       *, protect_text: bool = False) -> tuple[dict, dict]:
         notice = self._idle(teacher_id, notice_id)
         if isinstance(self.ai.client, NotConfiguredAIClient):
             raise ApiError(status_code=503, code="AI_NOT_CONFIGURED",
@@ -85,6 +88,7 @@ class NoticeService:
         other_names = self.sessions.other_child_names(notice["session_id"], notice["child_id"])
         source = self.sessions.child_source_text(notice["session_id"], notice["child_id"])
         audio = self.store.recording_source(notice_id)
+        private = not audio and (protect_text or is_protected(self.sessions.require(teacher_id, notice["session_id"])))
         if audio:
             source = "\n\n".join(block["text"] for block in audio["blocks"] if block["filled"])
         child = ChildCtx(child_id=notice["child_id"], name=notice["child_name"])
@@ -95,7 +99,8 @@ class NoticeService:
                 self.rules, child=child, current_text=base_text, instruction=instruction, source_text=source,
                 other_names=other_names,
             )
-            result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"])
+            result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"],
+                                  protect_text=private, visible_child=child.child_id)
             candidate = mask_names(schemas.require_text(result.data, "text"), other_names)
             self.store.finish_revision(revision_id, candidate)
             return {"revision_id": revision_id}

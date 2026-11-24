@@ -160,6 +160,8 @@ V2 검토 질문의 `kind`는 같은 부상의 좌우가 충돌하면 `injury_si
 
 ### 관찰일지 텍스트·Word 출력
 
+앱은 `GET /api/v2/sessions/text-privacy`로 지원 여부를 확인하고, 텍스트 생성에 `protect_text=true`를 사용한다. 작성 앱은 입력 본문의 명단 이름을 아동 참조 표기로 바꿔 전송한다. 외부 모델 요청에는 매 호출 새로 정한 가명과 임시 ID를 쓴다. 앱은 초안·보관함·Word에서 본문의 아동 참조를 명단과 연결한다. 계정 인증 및 기존 명단은 서비스 내부에서 사용한다.
+
 - `GET|POST|DELETE /api/v2/teacher/journal-template`은 인증된 교사의 공통 Word 양식 하나를 조회·등록 또는 교체·제거한다. `POST ?filename=...`의 본문에 최대 5 MiB의 파일 바이트를 보낸다. 기존 `PUT` multipart의 `file`도 지원한다. 일반 `.docx`는 그대로 저장한다. `.doc`, `.dotx`, `.dot`, `.docm`, `.dotm`, `.rtf`, `.odt`, `.ott`, Word `.xml`, `.fodt`는 서버의 LibreOffice Writer로 변환하며 `.word`는 내부 형식이 지원되면 받는다. 서버의 `PATH`에서 `soffice`를 찾고, `PATPAT_WORD_CONVERTER`로 실행 파일을 지정할 수 있다.
 - `POST /api/v2/children/{child_id}/journal/output`은 `from`·`to`로 고른 기간의 텍스트 미리보기, `revision`, 양식 등록 여부를 반환한다. 같은 기간과 `revision`으로 `POST /api/v2/children/{child_id}/journal/output/word`를 호출하면 `.docx`를 생성하거나 기존 파일을 돌려준다. 같은 경로의 `GET`은 저장된 파일을 내려준다.
 - 새 출력본 생성 시 실제 텍스트 AI 설정에서는 양식의 항목·빈칸과 교사의 `record_format`을 모델에 보내 입력 위치를 정한다. 서버가 저장된 관찰일지의 값을 채운다. `PATPAT_AI_PROVIDER=fake`에서는 정해진 항목명과 인접 빈칸을 서버에서 연결하며 관찰내용을 넣을 칸을 찾지 못하면 출력을 중단한다. 텍스트 미리보기와 저장된 Word 파일 재사용에는 모델 호출이 없다.

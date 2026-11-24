@@ -52,11 +52,11 @@ class AnswersBody(BaseModel):
 )
 def generate(
     session_id: str, teacher: CurrentTeacher, services: ServicesDependency, ask_missing_areas: bool = False,
-    prepare_journals: bool = False, manual_areas: bool = False,
+    prepare_journals: bool = False, manual_areas: bool = False, protect_text: bool = False,
 ) -> JobResponse:
     return job_response(services.pipeline.start_generate(
         teacher.teacher_id, session_id, ask_missing_areas=ask_missing_areas, prepare_journals=prepare_journals,
-        manual_areas=manual_areas,
+        manual_areas=manual_areas, protect_text=protect_text,
     ))
 
 
@@ -68,9 +68,12 @@ def generate(
     description="모든 질문에 답하거나 건너뛰어야 합니다(남은 질문을 한꺼번에 건너뛰려면 skip_remaining). "
     "사건사고로 보이는 아이는 질문 없이 부드러운 사건사고 알림장으로 씁니다(보호자 안내용으로 쓸지 묻지 않습니다).",
 )
-def answers(session_id: str, body: AnswersBody, teacher: CurrentTeacher, services: ServicesDependency) -> JobResponse:
+def answers(session_id: str, body: AnswersBody, teacher: CurrentTeacher, services: ServicesDependency,
+            protect_text: bool = False) -> JobResponse:
     items = [item.model_dump() for item in body.answers]
-    return job_response(services.pipeline.submit_answers(teacher.teacher_id, session_id, items, body.skip_remaining))
+    return job_response(services.pipeline.submit_answers(
+        teacher.teacher_id, session_id, items, body.skip_remaining, protect_text=protect_text,
+    ))
 
 
 @pipeline_router.post(
@@ -92,5 +95,6 @@ def reopen(session_id: str, teacher: CurrentTeacher, services: ServicesDependenc
     description="그 아이의 지금 입력으로 새 버전을 씁니다(이전 버전은 이력에 남습니다). 초안이 없던 아이의 알림장을 처음 쓸 때도 씁니다. "
     "공통 블록을 고쳤다면 공통 단락도 다시 씁니다.",
 )
-def regenerate_child(session_id: str, child_id: str, teacher: CurrentTeacher, services: ServicesDependency) -> JobResponse:
-    return job_response(services.pipeline.start_regenerate_child(teacher.teacher_id, session_id, child_id))
+def regenerate_child(session_id: str, child_id: str, teacher: CurrentTeacher, services: ServicesDependency,
+                     protect_text: bool = False) -> JobResponse:
+    return job_response(services.pipeline.start_regenerate_child(teacher.teacher_id, session_id, child_id, protect_text=protect_text))

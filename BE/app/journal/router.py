@@ -112,9 +112,9 @@ def patch_days(
     "/children/{child_id}/journal/draft", status_code=202, response_model=JobResponse, summary="독립 관찰일지 AI 초안",
 )
 def draft_standalone(
-    child_id: str, body: JournalObservation, teacher: CurrentTeacher, services: ServicesDependency,
+    child_id: str, body: JournalObservation, teacher: CurrentTeacher, services: ServicesDependency, protect_text: bool = False,
 ) -> JobResponse:
-    return job_response(services.journal.draft_standalone(teacher.teacher_id, child_id, body))
+    return job_response(services.journal.draft_standalone(teacher.teacher_id, child_id, body, protect_text=protect_text))
 
 
 @journal_router.get(

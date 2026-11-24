@@ -1,7 +1,9 @@
 """Every AI call goes through here so token usage, latency, and failures are recorded."""
 import logging
 import time
+from dataclasses import replace
 
+from app.ai.text_privacy import TextPrivacy
 from app.ai.types import AIClient, AIError, AIRequest, AIResult, AIUsage
 from app.core.database import Database
 from app.core.timeutil import new_id, now_iso
@@ -19,15 +21,26 @@ class AIGateway:
     def model(self) -> str:
         return getattr(self.client, "model", "")
 
-    def call(self, request: AIRequest, *, teacher_id: str, session_id: str | None = None) -> AIResult:
+    def call(self, request: AIRequest, *, teacher_id: str, session_id: str | None = None,
+             protect_text: bool = False, visible_child: str | None = None) -> AIResult:
         started = time.monotonic()
+        privacy = self._text_privacy(teacher_id, visible_child) if protect_text else None
+        outbound = replace(request, user_text=privacy.encode(request.user_text), payload=privacy.encode(request.payload)) if privacy else request
         try:
-            result = self.client.complete(request)
+            result = self.client.complete(outbound)
         except AIError as error:
             self._log(request, teacher_id, session_id, started, AIUsage(), "error", error.code)
             raise
         self._log(request, teacher_id, session_id, started, result.usage, "ok", None)
-        return result
+        return replace(result, data=privacy.decode(result.data)) if privacy else result
+
+    def _text_privacy(self, teacher_id: str, visible_child: str | None) -> TextPrivacy:
+        with self.database.connect() as connection:
+            roster = [tuple(row) for row in connection.execute(
+                "SELECT child_id, name FROM children WHERE teacher_id=? ORDER BY rowid", (teacher_id,),
+            )]
+            teacher = connection.execute("SELECT display_name FROM teachers WHERE teacher_id=?", (teacher_id,)).fetchone()
+        return TextPrivacy(roster, teacher["display_name"] if teacher else "", visible_child)
 
     def _log(self, request, teacher_id, session_id, started, usage: AIUsage, status: str, error_code: str | None) -> None:
         try:

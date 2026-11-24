@@ -46,6 +46,7 @@ def notice_response(services: Services, notice: dict) -> NoticeResponse:
         child_name=notice["child_name"], target_date=notice["target_date"], version=notice["version"],
         status=notice["status"], text=notice["edited_text"], generated_text=notice["generated_text"],
         needs_check=notice["needs_check"], incident=notice["incident"],
+        from_recording=services.notices.recording_source(notice["notice_id"]) is not None,
         warnings=[WarningItem(**item) for item in notice["warnings"]],
         edit_ratio=edit_ratio(notice["generated_text"], notice["edited_text"]),
         can_share=confirmed, share_text=notice["edited_text"] if confirmed else None,
@@ -114,9 +115,10 @@ def edit_notice(notice_id: str, body: NoticePatch, teacher: CurrentTeacher, serv
     "확정 취소 후 본문을 수정했으면 update_journal로 기존 관찰일지를 유지하거나 업데이트할지 선택합니다. "
     "같은 요청을 다시 보내도 알림장이나 일지를 중복 저장하지 않습니다.",
 )
-def confirm_notice(notice_id: str, body: ConfirmBody, teacher: CurrentTeacher, services: ServicesDependency) -> ConfirmResponse:
+def confirm_notice(notice_id: str, body: ConfirmBody, teacher: CurrentTeacher, services: ServicesDependency,
+                   protect_text: bool = False) -> ConfirmResponse:
     notice, job = services.notice_service.confirm(
-        teacher.teacher_id, notice_id, body.expected_version, update_journal=body.update_journal,
+        teacher.teacher_id, notice_id, body.expected_version, update_journal=body.update_journal, protect_text=protect_text,
     )
     return ConfirmResponse(
         notice=notice_response(services, notice),
@@ -143,8 +145,10 @@ def notice_history(notice_id: str, teacher: CurrentTeacher, services: ServicesDe
     description="수정안을 만들어 두기만 합니다. 마음에 들면 adopt로 반영하고, 아니면 버립니다. "
     "요청한 뒤 글이 바뀌면(base_version이 달라지면) 반영할 수 없습니다.",
 )
-def request_revision(notice_id: str, body: RevisionBody, teacher: CurrentTeacher, services: ServicesDependency) -> RevisionResponse:
-    revision, _job = services.notice_service.start_revision(teacher.teacher_id, notice_id, body.base_version, body.instruction)
+def request_revision(notice_id: str, body: RevisionBody, teacher: CurrentTeacher, services: ServicesDependency,
+                     protect_text: bool = False) -> RevisionResponse:
+    revision, _job = services.notice_service.start_revision(teacher.teacher_id, notice_id, body.base_version, body.instruction,
+                                                            protect_text=protect_text)
     return revision_response(services, services.notices.require(teacher.teacher_id, notice_id), revision)
 
 

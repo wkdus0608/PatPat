@@ -68,6 +68,11 @@ def open_session(body: SessionCreate, response: Response, teacher: CurrentTeache
     return session_response(services, session)
 
 
+@sessions_router.get("/text-privacy", summary="텍스트 가명 처리 지원 확인")
+def text_privacy(teacher: CurrentTeacher) -> dict[str, bool]:
+    return {"supported": True}
+
+
 @sessions_router.get("/{session_id}", response_model=SessionResponse, summary="작성 세션 조회")
 def get_session(session_id: str, teacher: CurrentTeacher, services: ServicesDependency) -> SessionResponse:
     session = services.sessions.require(teacher.teacher_id, session_id)
