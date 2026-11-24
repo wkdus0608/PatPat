@@ -485,14 +485,19 @@ def build_journal_individual(
     text: str,
     block: BlockCtx,
     common: BlockCtx | None,
-    incident: bool,
+    incident: bool | None,
     from_inputs: bool = False,
 ) -> AIRequest:
-    incident_line = (
-        "- 입력에 사건사고가 있다. 사건의 경위, 이 아이의 행동이나 결과, 교사의 조치 중 확인된 내용을 incident에 반드시 기록하고, content에는 사건사고와 무관한 관찰만 써서 같은 사실을 되풀이하지 않는다. 모호한 일부 사실을 이유로 사건 전체를 생략하지 않는다. 다친 부위가 확실한 신체 부위로 확인되지 않으면 그 구절을 옮기지 말고 쓸린 사실과 조치만 남긴다. 예: '살짝 쓸린 곳을 교사가 살핌.' 방향과 정도도 확인된 것만 쓴다."
-        if incident
-        else "- 사건사고가 아니면 놀이 관찰로 쓴다."
-    )
+    if incident is False:
+        incident_line = "- 사건사고가 아니면 놀이 관찰로 쓴다."
+    else:
+        incident_line = "- 입력에 사건사고가 있다. " if incident else "- 입력에 사건사고가 있으면 다음 규칙을 적용한다. "
+        incident_line += (
+            "사건의 경위, 이 아이의 행동이나 결과, 교사의 조치 중 확인된 내용을 incident에 반드시 기록하고, "
+            "content에는 사건사고와 무관한 관찰만 써서 같은 사실을 되풀이하지 않는다. "
+            "모호한 일부 사실을 이유로 사건 전체를 생략하지 않는다. 다친 부위가 확실한 신체 부위로 확인되지 않으면 "
+            "그 구절을 옮기지 말고 쓸린 사실과 조치만 남긴다. 예: '살짝 쓸린 곳을 교사가 살핌.' 방향과 정도도 확인된 것만 쓴다."
+        )
     traits = (child.characteristics or "").strip()
     source = "관찰 입력과 교사 확인" if from_inputs else "확정 글"
     user_text = "\n".join(

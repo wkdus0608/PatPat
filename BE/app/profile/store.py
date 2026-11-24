@@ -62,6 +62,13 @@ class ProfileStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def other_child_names(self, teacher_id: str, child_id: str) -> list[str]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                "SELECT name FROM children WHERE teacher_id=? AND child_id<>?", (teacher_id, child_id),
+            ).fetchall()
+        return [row["name"] for row in rows]
+
     # --- child characteristics (free text) -------------------------------------------
     def get_characteristics(self, child_id: str) -> tuple[str | None, str | None]:
         with self.database.connect() as connection:

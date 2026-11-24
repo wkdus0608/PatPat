@@ -316,6 +316,54 @@ MIGRATIONS: tuple[tuple[str, str], ...] = (
         UPDATE journal_outputs SET word_revision=revision WHERE word IS NOT NULL;
         """,
     ),
+    (
+        "014_standalone_journal",
+        """
+        CREATE TABLE journal_entries_next (
+            entry_id TEXT PRIMARY KEY,
+            teacher_id TEXT NOT NULL REFERENCES teachers(teacher_id),
+            child_id TEXT NOT NULL REFERENCES children(child_id),
+            session_id TEXT REFERENCES writing_sessions(session_id),
+            block_id TEXT REFERENCES input_blocks(block_id),
+            notice_id TEXT REFERENCES notices(notice_id),
+            block_kind TEXT NOT NULL CHECK(block_kind IN ('common','individual')),
+            observed_date TEXT NOT NULL,
+            place TEXT,
+            time_text TEXT,
+            areas TEXT NOT NULL DEFAULT '[]',
+            content TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK(status IN ('pending','ready','edited','failed')),
+            error_code TEXT,
+            included INTEGER NOT NULL DEFAULT 1 CHECK(included IN (0,1)),
+            version INTEGER NOT NULL DEFAULT 1,
+            source_notice_version INTEGER NOT NULL DEFAULT 1,
+            source_hash TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            from_inputs INTEGER NOT NULL DEFAULT 0 CHECK(from_inputs IN (0,1)),
+            classroom_id TEXT REFERENCES classrooms(classroom_id),
+            UNIQUE(child_id, block_id),
+            CHECK (
+                (notice_id IS NOT NULL AND session_id IS NOT NULL AND block_id IS NOT NULL)
+                OR (notice_id IS NULL AND session_id IS NULL AND block_id IS NULL AND block_kind='individual')
+            )
+        );
+        INSERT INTO journal_entries_next (
+            entry_id, teacher_id, child_id, session_id, block_id, notice_id, block_kind, observed_date,
+            place, time_text, areas, content, status, error_code, included, version, source_notice_version,
+            source_hash, created_at, updated_at, from_inputs
+        ) SELECT
+            entry_id, teacher_id, child_id, session_id, block_id, notice_id, block_kind, observed_date,
+            place, time_text, areas, content, status, error_code, included, version, source_notice_version,
+            source_hash, created_at, updated_at, from_inputs
+        FROM journal_entries ORDER BY rowid;
+        DROP TABLE journal_entries;
+        ALTER TABLE journal_entries_next RENAME TO journal_entries;
+        CREATE INDEX journal_child_date ON journal_entries(teacher_id, child_id, observed_date);
+        CREATE UNIQUE INDEX journal_standalone_day
+            ON journal_entries(teacher_id, child_id, observed_date) WHERE notice_id IS NULL;
+        """,
+    ),
 )
 
 

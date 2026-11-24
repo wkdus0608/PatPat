@@ -10,6 +10,7 @@ import { DatePicker, todayDate } from '../ui/DatePicker';
 import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import { WORD_DEFAULT_HINT, outputButtonLabel, outputStatusMessage, wordUnavailableMessage } from './journalOutputView';
 import { monthRange, weekRange } from './journalRange';
+import { StandaloneJournalForm } from './StandaloneJournalForm';
 import { saveWordFile } from './wordFiles';
 
 type Draft = JournalDayEdit & { original: string };
@@ -181,6 +182,8 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
   const [attempt, setAttempt] = useState(0);
   const [range, setRange] = useState<DateRange>({ from: null, to: null });
   const [editingIds, setEditingIds] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const localSaves = useRef(0);
   const legacy = account.api;
   const token = account.session.token;
@@ -227,6 +230,7 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
     setJournals(values => values?.map(journal => journal.child.child_id === childId
       ? { ...journal, days: journal.days.map(day => saved.get(day.observed_date) ?? day), output_stale: !!journal.output_revision }
       : journal) ?? null);
+    if (days.some(day => !day.edit_version)) setAttempt(value => value + 1);
   }
   function updateOutput(childId: string, output: JournalOutput) {
     localSaves.current += 1;
@@ -238,6 +242,16 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
     setJournals(null);
     setRange(next);
   }
+  function onCreated(childName: string, observedDate: string) {
+    localSaves.current += 1;
+    setCreating(false);
+    setSavedMessage(childName + ' · ' + observedDate + ' 관찰일지를 저장했어요.');
+    if ((range.from && observedDate < range.from) || (range.to && observedDate > range.to)) {
+      changeRange({ from: observedDate, to: observedDate });
+    } else {
+      setAttempt(value => value + 1);
+    }
+  }
   const quickRanges: { label: string; range: DateRange }[] = [
     { label: '이번 주', range: weekRange(todayDate()) },
     { label: '이번 달', range: monthRange(todayDate()) },
@@ -246,21 +260,28 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
 
   return (
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={workStyles.content}>
+      {savedMessage && <WorkMessage>{savedMessage}</WorkMessage>}
+      {creating && journals ? <StandaloneJournalForm api={api} children={journals.map(journal => journal.child)}
+        onSaved={onCreated} onClose={() => setCreating(false)} />
+        : !!journals?.length && <WorkButton label="새 관찰일지 작성" disabled={editingIds.length > 0} onPress={() => {
+          setSavedMessage(null);
+          setCreating(true);
+        }} />}
       <View style={workStyles.row}>
         {quickRanges.map(item => <WorkButton key={item.label} label={item.label} secondary
-          disabled={editingIds.length > 0}
+          disabled={creating || editingIds.length > 0}
           onPress={() => changeRange(item.range)} />)}
       </View>
       <View style={styles.metadataRow}>
         <View style={styles.dateField}><DatePicker label="시작 날짜" value={range.from} max={range.to ?? undefined}
-          disabled={editingIds.length > 0} onChange={from => changeRange({ ...range, from })} /></View>
+          disabled={creating || editingIds.length > 0} onChange={from => changeRange({ ...range, from })} /></View>
         <View style={styles.dateField}><DatePicker label="종료 날짜" value={range.to} min={range.from ?? undefined}
-          disabled={editingIds.length > 0} onChange={to => changeRange({ ...range, to })} /></View>
+          disabled={creating || editingIds.length > 0} onChange={to => changeRange({ ...range, to })} /></View>
       </View>
       {error && <WorkMessage error>{error}</WorkMessage>}
       {!journals && !error && <ActivityIndicator color={colors.ink} accessibilityLabel="관찰일지 불러오는 중" />}
       {journals?.length === 0 && <WorkMessage>설정에서 아동을 등록해 주세요.</WorkMessage>}
-      {journals?.map(journal => <JournalCard key={journal.child.child_id} journal={journal} api={api}
+      {!creating && journals?.map(journal => <JournalCard key={journal.child.child_id} journal={journal} api={api}
         range={range} onEditing={onEditing} onSaved={updateDays} onOutput={updateOutput} onReload={() => setAttempt(value => value + 1)} />)}
       {error && <WorkButton label="다시 불러오기" secondary onPress={() => setAttempt(value => value + 1)} />}
     </ScrollView>

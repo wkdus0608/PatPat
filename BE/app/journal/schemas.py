@@ -11,8 +11,8 @@ class JournalEntryResponse(BaseModel):
 
     entry_id: str
     child_id: str
-    session_id: str
-    notice_id: str
+    session_id: str | None
+    notice_id: str | None
     block_kind: Literal["common", "individual"] = Field(description="common은 반 전체에 같은 행, individual은 그 아이만의 행")
     observed_date: str = Field(description="관찰일")
     place: str | None = Field(description="관찰장소")
@@ -76,6 +76,19 @@ class JournalOutput(BaseModel):
 
 class JournalTemplate(BaseModel):
     filename: str | None
+
+
+class JournalObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=10000)
+    place: str | None = Field(default=None, max_length=100)
+    time_text: str | None = Field(default=None, max_length=100)
+    areas: list[AreaName] = Field(default_factory=list, max_length=5)
+
+
+class StandaloneJournalCreate(JournalObservation):
+    observed_date: date
 
 
 class DayEdit(BaseModel):
