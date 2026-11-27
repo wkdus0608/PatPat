@@ -12,6 +12,7 @@ import { WorkButton, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFi
 import { colors } from '../ui/theme';
 import { listLocalAudio, openNoticeAudio, removeNoticeAudio } from './noticeAudio';
 import { PlaybackTrack } from './PlaybackTrack';
+import type { NoticePalette } from './NoticeLayout';
 
 type Row = SavedRecording & { duration?: number; draftId?: string };
 type ListState = { day: string; rows: Row[]; loading: boolean; error: string | null };
@@ -67,9 +68,9 @@ export function useNoticeRecordings(account: Account, day: string, active: boole
   };
 }
 
-export function NoticeRecordingList({ list, account, active, selected, used, busy, deleteBlocked, onSelect, preview = false, children }: {
+export function NoticeRecordingList({ list, account, active, selected, used, busy, deleteBlocked, onSelect, preview = false, children, palette }: {
   list: ReturnType<typeof useNoticeRecordings>; account: Account; active: boolean; selected: ReadonlySet<string>; used: Set<string>;
-  busy: boolean; deleteBlocked: boolean; onSelect(uris: string[], checked: boolean): void; preview?: boolean; children?: ReactNode;
+  busy: boolean; deleteBlocked: boolean; onSelect(uris: string[], checked: boolean): void; preview?: boolean; children?: ReactNode; palette: NoticePalette;
 }) {
   const playback = useRef<{ abort: AbortController; player?: LibraryPlayer } | null>(null);
   const [expanded, setExpanded] = useState(true);
@@ -172,6 +173,9 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
     });
   }
 
+  const panel = [workStyles.panel, {
+    backgroundColor: palette.sheet, borderColor: palette.line, borderRadius: palette.radius,
+  }];
   const header = preview ? <Text style={workStyles.title}>선택한 녹음 목록</Text> : <View style={workStyles.between}>
     <Pressable accessibilityRole="button" accessibilityLabel="녹음 목록"
       accessibilityState={{ expanded, disabled: deletion.busy }} aria-expanded={expanded}
@@ -179,15 +183,16 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
         if (expanded) void stop().catch(() => {});
         setExpanded(!expanded);
       }}>
-      <Text style={workStyles.title}>녹음 목록</Text>
+      <Ionicons name="mic-outline" color={palette.accent} size={18} accessible={false} />
+      <Text style={[workStyles.title, { color: palette.ink }]}>녹음{list.loading || list.error ? '' : ' ' + list.rows.length + '개'}</Text>
       {!expanded && chosen.length > 0 && <WorkMessage>{chosen.length}개 선택</WorkMessage>}
       <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} accessible={false} />
     </Pressable>
     {expanded && <WorkButton label="녹음 새로고침" icon="refresh-outline" secondary disabled={locked} onPress={list.reload} />}
   </View>;
-  if (!expanded && !preview) return <View style={workStyles.panel}>{header}</View>;
+  if (!expanded && !preview) return <View style={panel}>{header}</View>;
 
-  return <View style={workStyles.panel}>
+  return <View style={panel}>
     {header}
     {!preview && rows.length > 0 && <View style={workStyles.between}>
       <View style={workStyles.row}>

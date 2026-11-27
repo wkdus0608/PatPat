@@ -9,6 +9,7 @@ import { colors } from './theme';
 import { LibraryScreen, type LibraryHandle } from '../library/LibraryScreen';
 import { WritingScreen, type WritingHandle } from '../writing/WritingScreen';
 import { DailyWritingScreen } from '../writing/DailyWritingScreen';
+import { noticeWidth } from '../writing/NoticeLayout';
 import type { WritingServices } from '../writing/types';
 import type { Account } from '../auth/controller';
 import type { V2Api } from '../api/v2';
@@ -245,7 +246,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
 
   return (
     <View style={styles.appBackground}>
-      <View style={[styles.appFrame, { paddingTop: insets.top }]}>
+      <View style={[styles.appFrame, tab === 'write' && props.account && apiV2 && styles.writingFrame, { paddingTop: insets.top }]}>
         <View style={styles.appHeader}>
           <View accessibilityLabel="PatPat 쓰담쓰담" style={styles.brand}>
             <View style={styles.brandLogoFrame}>
@@ -321,6 +322,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
 const styles = StyleSheet.create({
   appBackground: { flex: 1, backgroundColor: colors.background },
   appFrame: { flex: 1, width: '100%', maxWidth: 540, alignSelf: 'center' },
+  writingFrame: { maxWidth: noticeWidth },
   appHeader: { minHeight: 74, paddingHorizontal: 24, paddingVertical: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 9, flexShrink: 1 },
   brandLogoFrame: { width: 60, height: 52, flexShrink: 0, overflow: 'hidden', borderRadius: 12, backgroundColor: colors.white },

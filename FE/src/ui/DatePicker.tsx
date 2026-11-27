@@ -30,9 +30,10 @@ export function DateArrow({ name, label, disabled, onPress }: {
   </Pressable>;
 }
 
-export function DatePicker({ label, value, onChange, min, max, disabled, compact, years, availableDates }: {
+export function DatePicker({ label, value, onChange, min, max, disabled, compact, years, availableDates, directInput, iconOnly }: {
   label: string; value: string | null; onChange(date: string | null): void; min?: string; max?: string;
-  disabled?: boolean; compact?: boolean; years?: boolean;
+  disabled?: boolean; compact?: boolean; years?: boolean; directInput?: boolean;
+  iconOnly?: boolean;
   availableDates?: ReadonlySet<string>;
 }) {
   const [month, setMonth] = useState<string | null>(null);
@@ -72,9 +73,9 @@ export function DatePicker({ label, value, onChange, min, max, disabled, compact
     {!compact && <Text style={workStyles.label}>{label}</Text>}
     <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityValue={{ text: value ?? '미선택' }}
       aria-expanded={month !== null} disabled={disabled} onPress={open}
-      style={[styles.trigger, disabled && workStyles.disabled]}>
+      style={[styles.trigger, iconOnly && styles.iconTrigger, disabled && workStyles.disabled]}>
       <Ionicons accessible={false} name="calendar-outline" size={17} color={colors.muted} />
-      <Text style={value ? workStyles.body : workStyles.hint}>{value ?? '날짜 선택'}</Text>
+      {!iconOnly && <Text style={value ? workStyles.body : workStyles.hint}>{value ?? '날짜 선택'}</Text>}
     </Pressable>
     {month !== null && <Modal transparent animationType="fade" onRequestClose={() => setMonth(null)}>
       <View style={styles.overlay}>
@@ -107,7 +108,7 @@ export function DatePicker({ label, value, onChange, min, max, disabled, compact
               </Pressable>;
             })}
           </View>
-          {years && <>
+          {(years || directInput) && <>
             <WorkField label="날짜 직접 입력" value={typed} onChangeText={text => { setTyped(text); setTypedError(null); }}
               placeholder="2022-06-03" maxLength={12} onSubmitEditing={applyTyped} />
             {typedError && <Text accessibilityRole="alert" style={workStyles.hint}>{typedError}</Text>}
@@ -128,6 +129,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   trigger: { minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 11,
     backgroundColor: colors.white, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 11, gap: 8 },
+  iconTrigger: { width: 44, paddingHorizontal: 0, justifyContent: 'center' },
   overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#49372C66', padding: 16 },
   calendar: { width: '100%', maxWidth: 346, borderRadius: 18, backgroundColor: colors.white, padding: 12, gap: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
