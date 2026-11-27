@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { errorMessage } from '../api/client';
 import { colors } from './theme';
 
@@ -25,18 +25,19 @@ export function useWorkAction() {
   return { busy, error, setError, run };
 }
 
-export function WorkButton({ label, onPress, disabled, secondary, busy, icon }: {
+export function WorkButton({ label, onPress, disabled, secondary, busy, icon, style, textStyle, indicatorColor }: {
   label: string; onPress(): void; disabled?: boolean; secondary?: boolean; busy?: boolean;
   icon?: ComponentProps<typeof Ionicons>['name'];
+  style?: StyleProp<ViewStyle>; textStyle?: StyleProp<TextStyle>; indicatorColor?: string;
 }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label}
       accessibilityState={{ disabled: disabled || busy, busy }} onPress={onPress} disabled={disabled || busy}
-      style={({ pressed }) => [workStyles.button, icon && workStyles.iconButton, secondary && workStyles.secondary,
+      style={({ pressed }) => [workStyles.button, icon && workStyles.iconButton, secondary && workStyles.secondary, style,
         (disabled || busy) && workStyles.disabled, pressed && workStyles.pressed]}>
-      {busy ? <ActivityIndicator color={colors.ink} />
+      {busy ? <ActivityIndicator color={indicatorColor ?? colors.ink} />
         : icon ? <Ionicons name={icon} size={20} color={colors.ink} accessible={false} />
-        : <Text style={workStyles.buttonText}>{label}</Text>}
+        : <Text style={[workStyles.buttonText, textStyle]}>{label}</Text>}
     </Pressable>
   );
 }

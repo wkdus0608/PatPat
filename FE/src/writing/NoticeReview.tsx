@@ -5,6 +5,7 @@ import type { Job, Notice, NoticeRevision, NoticeSummary, V2Api } from '../api/v
 import { colors } from '../ui/theme';
 import { copyRecord } from '../ui/clipboard';
 import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
+import { NoticeReviewButton, noticeDesigns, type NoticeReviewDesign } from './NoticeReviewDesign';
 
 export function jobMessage(code: string | null) {
   if (code === 'AI_NOT_CONFIGURED' || code === 'AI_AUTH') return '글 작성에 필요한 AI 연결을 확인해 주세요.';
@@ -26,9 +27,9 @@ export async function waitForJob(api: V2Api, job: Job) {
   return job;
 }
 
-export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatusChange }: {
+export function NoticeReview({ api, summary, design, onDirty, onJournalUpdated, onStatusChange }: {
   api: V2Api; summary: NoticeSummary; onDirty(id: string, dirty: boolean): void; onJournalUpdated(): void;
-  onStatusChange(notice: NoticeSummary): void;
+  onStatusChange(notice: NoticeSummary): void; design: NoticeReviewDesign;
 }) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [draft, setDraft] = useState<{ text: string; version: number } | null>(null);
@@ -112,25 +113,32 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
   }
 
   const blocked = action.busy || !!notice?.busy;
-  const confirmed = (notice?.status ?? summary.status) === '완료';
+  const status = notice?.status ?? summary.status;
+  const confirmed = status === '완료';
+  const theme = noticeDesigns[design];
   return (
-    <View style={[workStyles.panel, confirmed && styles.confirmed]}>
+    <View style={[theme.record, confirmed && theme.confirmedRecord]}>
       <View style={workStyles.between}>
-        <Text style={workStyles.title}>{summary.child_name}</Text>
-        <WorkMessage>{notice?.status ?? summary.status}</WorkMessage>
+        <Text accessibilityRole="header" style={[styles.recordName, theme.name]}>{summary.child_name}</Text>
+        <View style={[styles.status, confirmed && styles.statusConfirmed]}>
+          <View style={[styles.statusDot, confirmed && styles.statusDotConfirmed]} />
+          <Text style={[styles.statusText, confirmed && styles.statusTextConfirmed]}>{status}</Text>
+        </View>
       </View>
-      {(notice?.needs_check ?? summary.needs_check) && <WorkMessage>개별 관찰 내용이 비어 있어요.</WorkMessage>}
+      {(notice?.needs_check ?? summary.needs_check) && <View style={styles.needsCheck}>
+        <Text accessibilityLiveRegion="polite" style={styles.needsCheckText}>개별 관찰 내용이 비어 있어요.</Text>
+      </View>}
       {loadError && <WorkMessage error>{loadError}</WorkMessage>}
       {action.error && <WorkMessage error>{action.error}</WorkMessage>}
       {journalMessage && <WorkMessage>{journalMessage}</WorkMessage>}
-      {journalRetry && <WorkButton label="관찰일지 업데이트 다시 확인" secondary busy={action.busy} disabled={blocked}
+      {journalRetry && <NoticeReviewButton design={design} label="관찰일지 업데이트 다시 확인" secondary busy={action.busy} disabled={blocked}
         onPress={() => { void action.run(async () => { await followJournalJob(await api.job(journalRetry.job_id)); }); }} />}
-      {(loadError || notice?.busy || action.error) && <WorkButton label="최신 글 불러오기" secondary disabled={action.busy}
+      {(loadError || notice?.busy || action.error) && <NoticeReviewButton design={design} label="최신 글 불러오기" secondary disabled={action.busy}
         onPress={() => { action.setError(null); setAttempt(value => value + 1); }} />}
       {!notice && !loadError && <ActivityIndicator color={colors.ink} accessibilityLabel="알림장 불러오는 중" />}
       {notice && <>
         {draft === null
-          ? <Text selectable style={workStyles.body}>{notice.text}</Text>
+          ? <Text selectable style={theme.body}>{notice.text}</Text>
           : <WorkField label={summary.child_name + ' 알림장 수정'} value={draft.text}
             onChangeText={text => setDraft({ ...draft, text })}
             editable={!blocked} multiline maxLength={6000} />}
@@ -138,50 +146,50 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
           editable={!blocked} multiline maxLength={500} placeholder="예: 문장을 조금 더 짧게 써 주세요." />}
         {candidate && <>
           <Text style={workStyles.label}>AI 수정 결과</Text>
-          <Text selectable style={workStyles.body}>{candidate.candidate_text}</Text>
+          <Text selectable style={theme.body}>{candidate.candidate_text}</Text>
           <View style={workStyles.row}>
-            <WorkButton label="수정안 반영" busy={action.busy} disabled={blocked}
+            <NoticeReviewButton design={design} label="수정안 반영" busy={action.busy} disabled={blocked}
               onPress={() => { void action.run(async () => {
                 setNotice(await api.adoptRevision(noticeId, candidate.revision_id, notice.version));
                 setCandidate(null);
               }); }} />
-            <WorkButton label="수정안 닫기" secondary disabled={blocked} onPress={() => setCandidate(null)} />
+            <NoticeReviewButton design={design} label="수정안 닫기" secondary disabled={blocked} onPress={() => setCandidate(null)} />
           </View>
         </>}
         {notice.busy && <WorkMessage>이 아이의 알림장을 다시 쓰고 있어요.</WorkMessage>}
         {confirmed && copiedVersion === notice.version && <WorkMessage>알림장을 복사했어요.</WorkMessage>}
-        <View style={styles.actions}>
-          <View style={[workStyles.row, styles.editActions]}>
+        {(confirmed || !candidate) && <View style={[workStyles.row, theme.actions]}>
+          {(draft !== null || instruction !== null || (!candidate && !confirmed)) && <View style={[workStyles.row, styles.editActions]}>
             {draft !== null ? <>
-              <WorkButton label="수정 저장" secondary disabled={blocked}
+              <NoticeReviewButton design={design} label="수정 저장" secondary disabled={blocked}
                 onPress={() => { void action.run(() => save(notice, false)); }} />
-              <WorkButton label="취소" secondary disabled={blocked} onPress={() => setDraft(null)} />
+              <NoticeReviewButton design={design} label="취소" secondary disabled={blocked} onPress={() => setDraft(null)} />
             </> : instruction !== null ? <>
-              <WorkButton label="수정안 만들기" busy={action.busy} disabled={blocked || !instruction.trim()}
+              <NoticeReviewButton design={design} label="수정안 만들기" busy={action.busy} disabled={blocked || !instruction.trim()}
                 onPress={() => { void action.run(() => revise(notice)); }} />
-              <WorkButton label="취소" secondary disabled={blocked} onPress={() => setInstruction(null)} />
-            </> : !candidate && !confirmed && <>
-              <WorkButton label="직접 수정" secondary disabled={blocked}
+              <NoticeReviewButton design={design} label="취소" secondary disabled={blocked} onPress={() => setInstruction(null)} />
+            </> : <>
+              <NoticeReviewButton design={design} label="직접 수정" secondary disabled={blocked}
                 onPress={() => setDraft({ text: notice.text, version: notice.version })} />
-              <WorkButton label="AI 수정" secondary disabled={blocked} onPress={() => setInstruction('')} />
+              <NoticeReviewButton design={design} label="AI 수정" secondary disabled={blocked} onPress={() => setInstruction('')} />
             </>}
-          </View>
-          {confirmed ? <View style={workStyles.row}>
-            <WorkButton label="확정 취소" secondary disabled={blocked}
+          </View>}
+          {confirmed ? <>
+            <NoticeReviewButton design={design} label="확정 취소" secondary disabled={blocked}
               onPress={() => { void action.run(async () => {
                 const updated = await api.unconfirmNotice(noticeId, notice.version);
                 setNotice(updated);
                 onStatusChange(updated);
                 setJournalMessage(null);
               }); }} />
-            <WorkButton label="복사" busy={action.busy} disabled={blocked} onPress={() => { void action.run(async () => {
+            <NoticeReviewButton design={design} label="복사" busy={action.busy} disabled={blocked} onPress={() => { void action.run(async () => {
               await copyRecord(notice.text);
               setCopiedVersion(notice.version);
             }); }} />
-          </View>
-            : instruction === null && !candidate && <WorkButton label={draft === null ? '확정' : '저장하고 확정'}
+          </>
+            : instruction === null && !candidate && <NoticeReviewButton design={design} label={draft === null ? '확정' : '저장하고 확정'}
               busy={action.busy} disabled={blocked} onPress={() => { void action.run(() => save(notice, true)); }} />}
-        </View>
+        </View>}
       </>}
       {journalChoiceVersion !== null && <Modal transparent animationType="fade" onRequestClose={() => setJournalChoiceVersion(null)}>
         <View style={styles.dialogBackdrop}>
@@ -200,8 +208,16 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
 }
 
 const styles = StyleSheet.create({
-  confirmed: { backgroundColor: '#F0F0F0', borderColor: '#DEDEDE' },
-  actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  recordName: { flexShrink: 1 },
+  status: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 12, paddingHorizontal: 8,
+    paddingVertical: 3, backgroundColor: '#F1E6D2' },
+  statusConfirmed: { backgroundColor: '#DDEBDD' },
+  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#926437' },
+  statusDotConfirmed: { backgroundColor: '#3D7150' },
+  statusText: { color: '#674D2F', fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  statusTextConfirmed: { color: '#31543B' },
+  needsCheck: { alignSelf: 'flex-start', borderRadius: 6, backgroundColor: '#F9E8D3', paddingHorizontal: 8, paddingVertical: 4 },
+  needsCheckText: { color: '#634021', fontSize: 13, lineHeight: 19 },
   editActions: { flexShrink: 1 },
   dialogBackdrop: { flex: 1, backgroundColor: '#49372C66', justifyContent: 'center', alignItems: 'center', padding: 22 },
   dialog: { width: '100%', maxWidth: 410, padding: 20 },

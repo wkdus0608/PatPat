@@ -10,7 +10,9 @@ import { bulkMessage, confirmReviewing } from './bulkConfirm';
 import { elapsedText } from './elapsed';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import { colors } from '../ui/theme';
-import { NoticeReview, jobMessage, waitForJob } from './NoticeReview';
+import { jobMessage, waitForJob } from './NoticeReview';
+import { NoticeReviewSection } from './NoticeReviewSection';
+import type { NoticeReviewDesign } from './NoticeReviewDesign';
 import { NoticeRecordingList, useNoticeRecordings } from './NoticeRecordings';
 import { RecordingRunPanel, recordingRunWorking } from './RecordingRunPanel';
 import { PresetField, usePresetMenu, type PresetMenu } from './WritingPreferences';
@@ -112,8 +114,9 @@ function ReviewQuestions({ flags, busy, onAnswer, onReopen, onDirty }: {
   );
 }
 
-export function NoticeWorkspace({ account, api, active, rosterVersion, onJournalUpdated }: {
+export function NoticeWorkspace({ account, api, active, rosterVersion, onJournalUpdated, reviewDesign = 'cards' }: {
   account: Account; api: V2Api; active: boolean; rosterVersion: number; onJournalUpdated(): void;
+  reviewDesign?: NoticeReviewDesign;
 }) {
   const [session, setSession] = useState<WritingSession | null>(null);
   const [edits, setEdits] = useState<Record<string, Partial<BlockEdit>>>({});
@@ -373,7 +376,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
       {!session && (loadFailed ? <WorkMessage error>알림장을 불러오지 못했어요.</WorkMessage>
         : <ActivityIndicator color={colors.ink} accessibilityLabel="작성 내용 불러오는 중" />)}
       {session && <>
-        <WorkMessage>{session.classroom.name}</WorkMessage>
+        {(!reviewing || run?.initial) && <WorkMessage>{session.classroom.name}</WorkMessage>}
         {action.error && <WorkMessage error>{action.error}</WorkMessage>}
         {run?.initial ? null : generating ? <View style={workStyles.panel}>
           <ActivityIndicator color={colors.ink} />
@@ -386,15 +389,9 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
             setSession(await api.session(session.session_id));
           }); }} onReopen={() => { void action.run(async () => setSession(await api.reopen(session.session_id))); }} />
           : session.status === 'reviewing' ? <>
-            <Text style={workStyles.title}>아이별 알림장</Text>
-            {session.notices.filter(notice => notice.status === '검토중').length > 1 && <View style={workStyles.row}>
-              <WorkButton label={'전체 확정 (' + session.notices.filter(notice => notice.status === '검토중').length + '명)'}
-                busy={action.busy} disabled={action.busy}
-                onPress={() => { void action.run(() => confirmAll(session)); }} />
-            </View>}
-            {bulkText && <WorkMessage>{bulkText}</WorkMessage>}
-            {session.notices.map(notice => <NoticeReview key={notice.notice_id} api={api} summary={notice}
-              onDirty={onDirty} onJournalUpdated={onJournalUpdated} onStatusChange={noticeStatusChanged} />)}
+            <NoticeReviewSection api={api} design={reviewDesign} classroom={session.classroom.name} notices={session.notices}
+              busy={action.busy} bulkText={bulkText} onConfirmAll={() => { void action.run(() => confirmAll(session)); }}
+              onDirty={onDirty} onJournalUpdated={onJournalUpdated} onStatusChange={noticeStatusChanged} />
             {session.job?.result?.failed?.map(failed => {
               const block = blocks.find(item => item.child_id === failed.child_id);
               return <View key={failed.child_id} style={workStyles.panel}>
