@@ -1,10 +1,14 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
 import { ApiError, errorMessage } from '../api/client';
 import type { Job, Notice, NoticeRevision, NoticeSummary, V2Api } from '../api/v2';
 import { colors } from '../ui/theme';
 import { copyRecord } from '../ui/clipboard';
-import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
+import { WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
+import { ReviewButton, annotationInk, reviewStyles } from './NoticeReviewPresentation';
+
+const statusLabels = { 작성중: '작성 중', 검토중: '검토 중', 완료: '완료' } as const;
 
 export function jobMessage(code: string | null) {
   if (code === 'AI_NOT_CONFIGURED' || code === 'AI_AUTH') return '글 작성에 필요한 AI 연결을 확인해 주세요.';
@@ -112,85 +116,92 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
   }
 
   const blocked = action.busy || !!notice?.busy;
-  const confirmed = (notice?.status ?? summary.status) === '완료';
+  const status = notice?.status ?? summary.status;
+  const confirmed = status === '완료';
   return (
-    <View style={[workStyles.panel, confirmed && styles.confirmed]}>
-      <View style={workStyles.between}>
-        <Text style={workStyles.title}>{summary.child_name}</Text>
-        <WorkMessage>{notice?.status ?? summary.status}</WorkMessage>
+    <View style={reviewStyles.entry}>
+      <View style={reviewStyles.toolbar}>
+        <Text accessibilityRole="header" style={reviewStyles.name}>{summary.child_name}</Text>
+        <View style={reviewStyles.status}>
+          <View style={[reviewStyles.statusMarker, confirmed && reviewStyles.completeMarker]} />
+          <Text accessibilityLiveRegion="polite" style={reviewStyles.meta}>{statusLabels[status]}</Text>
+        </View>
       </View>
-      {(notice?.needs_check ?? summary.needs_check) && <WorkMessage>개별 관찰 내용이 비어 있어요.</WorkMessage>}
+      {(notice?.needs_check ?? summary.needs_check) && <View style={reviewStyles.annotation}>
+        <Ionicons name="alert-circle-outline" size={16} color={annotationInk} accessible={false} />
+        <Text accessibilityLiveRegion="polite" style={reviewStyles.annotationText}>개별 관찰 내용이 비어 있어요</Text>
+      </View>}
       {loadError && <WorkMessage error>{loadError}</WorkMessage>}
       {action.error && <WorkMessage error>{action.error}</WorkMessage>}
       {journalMessage && <WorkMessage>{journalMessage}</WorkMessage>}
-      {journalRetry && <WorkButton label="관찰일지 업데이트 다시 확인" secondary busy={action.busy} disabled={blocked}
+      {journalRetry && <ReviewButton label="관찰일지 업데이트 다시 확인" secondary busy={action.busy} disabled={blocked}
         onPress={() => { void action.run(async () => { await followJournalJob(await api.job(journalRetry.job_id)); }); }} />}
-      {(loadError || notice?.busy || action.error) && <WorkButton label="최신 글 불러오기" secondary disabled={action.busy}
+      {(loadError || notice?.busy || action.error) && <ReviewButton label="최신 글 불러오기" secondary disabled={action.busy}
         onPress={() => { action.setError(null); setAttempt(value => value + 1); }} />}
       {!notice && !loadError && <ActivityIndicator color={colors.ink} accessibilityLabel="알림장 불러오는 중" />}
       {notice && <>
         {draft === null
-          ? <Text selectable style={workStyles.body}>{notice.text}</Text>
+          ? <Text selectable style={reviewStyles.body}>{notice.text}</Text>
           : <WorkField label={summary.child_name + ' 알림장 수정'} value={draft.text}
             onChangeText={text => setDraft({ ...draft, text })}
             editable={!blocked} multiline maxLength={6000} />}
         {instruction !== null && <WorkField label="AI 수정 요청" value={instruction} onChangeText={setInstruction}
           editable={!blocked} multiline maxLength={500} placeholder="예: 문장을 조금 더 짧게 써 주세요." />}
         {candidate && <>
-          <Text style={workStyles.label}>AI 수정 결과</Text>
-          <Text selectable style={workStyles.body}>{candidate.candidate_text}</Text>
-          <View style={workStyles.row}>
-            <WorkButton label="수정안 반영" busy={action.busy} disabled={blocked}
+          <Text style={reviewStyles.name}>AI 수정 결과</Text>
+          <Text selectable style={reviewStyles.body}>{candidate.candidate_text}</Text>
+          <View style={reviewStyles.secondaryActions}>
+            <ReviewButton label="수정안 반영" busy={action.busy} disabled={blocked}
               onPress={() => { void action.run(async () => {
                 setNotice(await api.adoptRevision(noticeId, candidate.revision_id, notice.version));
                 setCandidate(null);
               }); }} />
-            <WorkButton label="수정안 닫기" secondary disabled={blocked} onPress={() => setCandidate(null)} />
+            <ReviewButton label="수정안 닫기" secondary disabled={blocked} onPress={() => setCandidate(null)} />
           </View>
         </>}
         {notice.busy && <WorkMessage>이 아이의 알림장을 다시 쓰고 있어요.</WorkMessage>}
         {confirmed && copiedVersion === notice.version && <WorkMessage>알림장을 복사했어요.</WorkMessage>}
-        <View style={styles.actions}>
-          <View style={[workStyles.row, styles.editActions]}>
+        {(confirmed || !candidate) && <View style={reviewStyles.actions}>
+          {(draft !== null || instruction !== null || !confirmed) && <View style={reviewStyles.secondaryActions}>
             {draft !== null ? <>
-              <WorkButton label="수정 저장" secondary disabled={blocked}
+              <ReviewButton label="수정 저장" secondary disabled={blocked}
                 onPress={() => { void action.run(() => save(notice, false)); }} />
-              <WorkButton label="취소" secondary disabled={blocked} onPress={() => setDraft(null)} />
+              <ReviewButton label="취소" secondary disabled={blocked} onPress={() => setDraft(null)} />
             </> : instruction !== null ? <>
-              <WorkButton label="수정안 만들기" busy={action.busy} disabled={blocked || !instruction.trim()}
+              <ReviewButton label="수정안 만들기" busy={action.busy} disabled={blocked || !instruction.trim()}
                 onPress={() => { void action.run(() => revise(notice)); }} />
-              <WorkButton label="취소" secondary disabled={blocked} onPress={() => setInstruction(null)} />
+              <ReviewButton label="취소" secondary disabled={blocked} onPress={() => setInstruction(null)} />
             </> : !candidate && !confirmed && <>
-              <WorkButton label="직접 수정" secondary disabled={blocked}
+              <ReviewButton label="직접 수정" secondary disabled={blocked}
                 onPress={() => setDraft({ text: notice.text, version: notice.version })} />
-              <WorkButton label="AI 수정" secondary disabled={blocked} onPress={() => setInstruction('')} />
+              <ReviewButton label="AI 수정" secondary disabled={blocked} onPress={() => setInstruction('')} />
             </>}
-          </View>
-          {confirmed ? <View style={workStyles.row}>
-            <WorkButton label="확정 취소" secondary disabled={blocked}
+          </View>}
+          {confirmed ? <>
+            <ReviewButton label="확정 취소" secondary disabled={blocked}
               onPress={() => { void action.run(async () => {
                 const updated = await api.unconfirmNotice(noticeId, notice.version);
                 setNotice(updated);
                 onStatusChange(updated);
                 setJournalMessage(null);
               }); }} />
-            <WorkButton label="복사" busy={action.busy} disabled={blocked} onPress={() => { void action.run(async () => {
+            <ReviewButton label="복사" secondary busy={action.busy} disabled={blocked} onPress={() => { void action.run(async () => {
               await copyRecord(notice.text);
               setCopiedVersion(notice.version);
             }); }} />
-          </View>
-            : instruction === null && !candidate && <WorkButton label={draft === null ? '확정' : '저장하고 확정'}
+          </>
+            : instruction === null && !candidate && <ReviewButton label={draft === null ? '확정' : '저장하고 확정'}
               busy={action.busy} disabled={blocked} onPress={() => { void action.run(() => save(notice, true)); }} />}
-        </View>
+        </View>}
       </>}
       {journalChoiceVersion !== null && <Modal transparent animationType="fade" onRequestClose={() => setJournalChoiceVersion(null)}>
         <View style={styles.dialogBackdrop}>
           <View accessibilityViewIsModal style={[workStyles.panel, styles.dialog]}>
-            <Text accessibilityRole="header" style={workStyles.title}>관찰일지도 새롭게 업데이트할까요?</Text>
+            <Text accessibilityRole="header" style={reviewStyles.name}>관찰일지도 새롭게 업데이트할까요?</Text>
             <WorkMessage>업데이트하면 이 아이의 해당 날짜 관찰일지를 다시 작성해요. 직접 수정한 관찰일지 본문도 바뀝니다.</WorkMessage>
             <View style={styles.dialogActions}>
-              <WorkButton label="기존 일지 유지" secondary onPress={() => chooseJournalUpdate(false)} />
-              <WorkButton label="업데이트" onPress={() => chooseJournalUpdate(true)} />
+              <ReviewButton label="기존 일지 유지" secondary onPress={() => chooseJournalUpdate(false)} />
+              <ReviewButton label="업데이트" onPress={() => chooseJournalUpdate(true)} />
             </View>
           </View>
         </View>
@@ -200,10 +211,7 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
 }
 
 const styles = StyleSheet.create({
-  confirmed: { backgroundColor: '#F0F0F0', borderColor: '#DEDEDE' },
-  actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  editActions: { flexShrink: 1 },
-  dialogBackdrop: { flex: 1, backgroundColor: '#49372C66', justifyContent: 'center', alignItems: 'center', padding: 22 },
-  dialog: { width: '100%', maxWidth: 410, padding: 20 },
+  dialogBackdrop: { flex: 1, backgroundColor: '#26221D66', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  dialog: { width: '100%', maxWidth: 412, padding: 20, borderRadius: 16, gap: 12 },
   dialogActions: { flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 },
 });

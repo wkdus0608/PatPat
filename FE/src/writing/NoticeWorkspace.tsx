@@ -11,6 +11,7 @@ import { elapsedText } from './elapsed';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import { colors } from '../ui/theme';
 import { NoticeReview, jobMessage, waitForJob } from './NoticeReview';
+import { ReviewButton, reviewStyles } from './NoticeReviewPresentation';
 import { NoticeRecordingList, useNoticeRecordings } from './NoticeRecordings';
 import { RecordingRunPanel, recordingRunWorking } from './RecordingRunPanel';
 import { PresetField, usePresetMenu, type PresetMenu } from './WritingPreferences';
@@ -223,6 +224,8 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
   const presentChildren = blocks.filter(block => !block.is_common && !block.absent);
   const observedChildren = presentChildren.filter(block => block.text.trim());
   const reviewing = session?.status === 'reviewing';
+  const reviewCount = session?.notices.filter(notice => notice.status === '검토중').length ?? 0;
+  const confirmedCount = session?.notices.filter(notice => notice.status === '완료').length ?? 0;
   const editing = !!session && !run?.initial && !generating && session.status !== 'asking' && !reviewing;
   const showAreaCheck = editing && checkingAreas;
   const eligible = presentChildren.filter(block => !session?.notices.some(notice => notice.child_id === block.child_id && notice.status === '완료'));
@@ -373,7 +376,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
       {!session && (loadFailed ? <WorkMessage error>알림장을 불러오지 못했어요.</WorkMessage>
         : <ActivityIndicator color={colors.ink} accessibilityLabel="작성 내용 불러오는 중" />)}
       {session && <>
-        <WorkMessage>{session.classroom.name}</WorkMessage>
+        {(!reviewing || run?.initial) && <WorkMessage>{session.classroom.name}</WorkMessage>}
         {action.error && <WorkMessage error>{action.error}</WorkMessage>}
         {run?.initial ? null : generating ? <View style={workStyles.panel}>
           <ActivityIndicator color={colors.ink} />
@@ -386,15 +389,26 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
             setSession(await api.session(session.session_id));
           }); }} onReopen={() => { void action.run(async () => setSession(await api.reopen(session.session_id))); }} />
           : session.status === 'reviewing' ? <>
-            <Text style={workStyles.title}>아이별 알림장</Text>
-            {session.notices.filter(notice => notice.status === '검토중').length > 1 && <View style={workStyles.row}>
-              <WorkButton label={'전체 확정 (' + session.notices.filter(notice => notice.status === '검토중').length + '명)'}
-                busy={action.busy} disabled={action.busy}
-                onPress={() => { void action.run(() => confirmAll(session)); }} />
-            </View>}
-            {bulkText && <WorkMessage>{bulkText}</WorkMessage>}
-            {session.notices.map(notice => <NoticeReview key={notice.notice_id} api={api} summary={notice}
-              onDirty={onDirty} onJournalUpdated={onJournalUpdated} onStatusChange={noticeStatusChanged} />)}
+            <View style={reviewStyles.section}>
+              <View style={reviewStyles.heading}>
+                <Text accessibilityRole="header" style={reviewStyles.title}>아이별 알림장</Text>
+                <View style={reviewStyles.toolbar}>
+                  <Text accessibilityLiveRegion="polite" style={reviewStyles.meta}>
+                    {session.classroom.name}{session.notices.length > 0 && ` · 검토 ${reviewCount}명 · 확정 ${confirmedCount}명`}
+                  </Text>
+                  {reviewCount > 1 && <ReviewButton label={`전체 확정 (${reviewCount}명)`} secondary
+                    busy={action.busy} disabled={action.busy}
+                    onPress={() => { void action.run(() => confirmAll(session)); }} />}
+                </View>
+              </View>
+              {bulkText && <WorkMessage>{bulkText}</WorkMessage>}
+              {session.notices.length > 0 && <View style={reviewStyles.entries}>
+                {session.notices.map((notice, index) => <View key={notice.notice_id} style={index > 0 && reviewStyles.entryDivider}>
+                  <NoticeReview api={api} summary={notice}
+                    onDirty={onDirty} onJournalUpdated={onJournalUpdated} onStatusChange={noticeStatusChanged} />
+                </View>)}
+              </View>}
+            </View>
             {session.job?.result?.failed?.map(failed => {
               const block = blocks.find(item => item.child_id === failed.child_id);
               return <View key={failed.child_id} style={workStyles.panel}>
