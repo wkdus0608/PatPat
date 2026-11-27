@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { errorMessage } from '../api/client';
 import type { V2Api, WritingPreferences } from '../api/v2';
-import { colors } from '../ui/theme';
+import { colors, layout, radius } from '../ui/theme';
 import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 
 export type PresetLines = { places: string; times: string };
@@ -107,7 +107,7 @@ export function WritingPreferencesEditor({ api, onSaved, onBusy }: {
 const styles = StyleSheet.create({
   presetField: { flex: 1, minWidth: 115, position: 'relative' },
   presetList: { position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, borderWidth: 1,
-    borderColor: colors.line, borderRadius: 10, backgroundColor: colors.white },
-  presetScroll: { maxHeight: 152, borderRadius: 9 },
-  presetOption: { minHeight: 44, paddingHorizontal: 10, justifyContent: 'center' },
+    borderColor: colors.controlLine, borderRadius: radius.control, backgroundColor: colors.paper },
+  presetScroll: { maxHeight: 152, borderRadius: radius.control },
+  presetOption: { minHeight: layout.touch, paddingHorizontal: 12, justifyContent: 'center' },
 });

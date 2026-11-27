@@ -9,7 +9,7 @@ import type { LibraryPlayer, PlaybackStatus } from '../library/types';
 import { compareRecordings } from '../recording/files';
 import type { SavedRecording } from '../recording/storage';
 import { WorkButton, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
-import { colors } from '../ui/theme';
+import { colors, layout, typeScale } from '../ui/theme';
 import { listLocalAudio, openNoticeAudio, removeNoticeAudio } from './noticeAudio';
 import { PlaybackTrack } from './PlaybackTrack';
 
@@ -218,8 +218,8 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
         {preview ? info : <Pressable style={styles.recordingHeading} accessibilityRole="checkbox" accessibilityLabel={row.fileName + ' 선택'}
           aria-checked={checked} accessibilityState={{ checked, disabled: locked }} disabled={locked}
           onPress={() => onSelect([row.uri], !checked)}>
-          <Ionicons accessible={false} name={checked ? 'checkbox' : 'square-outline'} size={23}
-            color={checked ? colors.greenInk : colors.muted} />
+          <Ionicons accessible={false} name={checked ? 'checkbox-outline' : 'square-outline'} size={20}
+            color={checked ? colors.amberInk : colors.muted} />
           {info}
         </Pressable>}
         <View style={workStyles.row}>
@@ -246,7 +246,7 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
           {deletion.error && <WorkMessage error>{deletion.error}</WorkMessage>}
           <View style={styles.dialogActions}>
             <WorkButton label="취소" secondary disabled={deletion.busy} onPress={() => setDeletePrompt(null)} />
-            <WorkButton label="녹음 삭제" busy={deletion.busy} disabled={busy || deleteBlocked} onPress={confirmDelete} />
+            <WorkButton label="녹음 삭제" destructive busy={deletion.busy} disabled={busy || deleteBlocked} onPress={confirmDelete} />
           </View>
         </View>
       </View>
@@ -255,14 +255,14 @@ export function NoticeRecordingList({ list, account, active, selected, used, bus
 }
 
 const styles = StyleSheet.create({
-  listToggle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44 },
-  recordingRow: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8, gap: 6 },
+  listToggle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: layout.touch },
+  recordingRow: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 12, gap: 8 },
   recordingHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, minHeight: 40 },
-  recordingInfo: { flex: 1, gap: 3 },
+  recordingInfo: { flex: 1, gap: 4 },
   playbackProgress: { flex: 1, minWidth: 90 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  time: { color: colors.muted, fontSize: 11, fontVariant: ['tabular-nums'] },
-  backdrop: { flex: 1, backgroundColor: '#49372C66', justifyContent: 'center', alignItems: 'center', padding: 22 },
-  dialog: { width: '100%', maxWidth: 410, padding: 20 },
-  dialogActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
+  time: { ...typeScale.caption, color: colors.muted, fontVariant: ['tabular-nums'] },
+  backdrop: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  dialog: { width: '100%', maxWidth: 412, padding: 20 },
+  dialogActions: { ...workStyles.row, justifyContent: 'flex-end' },
 });

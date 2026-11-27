@@ -15,7 +15,8 @@ import {
 
 import { recordingLabel } from '../recording/files';
 import type { SavedRecording } from '../recording/storage';
-import { colors } from '../ui/theme';
+import { colors, layout, radius, typeScale } from '../ui/theme';
+import { workStyles } from '../ui/WorkFields';
 import { JournalArchive } from './JournalArchive';
 import { playbackTime } from './playbackTime';
 import type { JournalListItem, LibraryViewProps } from './types';
@@ -143,12 +144,11 @@ function StatePanel({
 }
 
 function HomeCard({
-  title, description, icon, tint, onPress, disabled, testID,
+  title, description, icon, onPress, disabled, testID,
 }: {
   title: string;
   description: string;
   icon: IconName;
-  tint: string;
   onPress(): void;
   disabled: boolean;
   testID: string;
@@ -158,7 +158,7 @@ function HomeCard({
       accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} testID={testID}
       style={({ pressed }) => [styles.homeCard, disabled && styles.disabledOpacity, pressed && styles.pressed]}
     >
-      <View style={[styles.homeIcon, { backgroundColor: tint }]}><Ionicons name={icon} size={29} color={colors.ink} /></View>
+      <View style={styles.listIcon}><Ionicons accessible={false} name={icon} size={20} color={colors.muted} /></View>
       <View style={styles.cardContent}>
         <Text style={styles.homeCardTitle}>{title}</Text>
         <Text style={styles.cardDescription}>{description}</Text>
@@ -179,8 +179,8 @@ function JournalRow({ item, onPress, disabled }: {
       style={({ pressed }) => [styles.listCard, disabled && styles.disabledOpacity, pressed && styles.pressed]}
       testID={'library-journal-' + item.recordId}
     >
-      <View style={[styles.listIcon, { backgroundColor: colors.green }]}>
-        <Ionicons name="document-text-outline" size={23} color={colors.greenInk} />
+      <View style={styles.listIcon}>
+        <Ionicons accessible={false} name="document-text-outline" size={20} color={colors.muted} />
       </View>
       <View style={styles.cardContent}>
         <View style={styles.journalLabelRow}>
@@ -270,13 +270,13 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
   if (state.route === 'home') {
     return (
       <ScrollView style={styles.fill} contentContainerStyle={styles.content}>
-        <Header title="보관함" subtitle="남겨 둔 순간과 기록을 다시 살펴보세요." />
+        <Header title="보관함" />
         {notice}
-        <HomeCard title="녹음 파일" description="날짜별로 모아 둔 목소리를 다시 들어요."
-          icon="mic-outline" tint={colors.yellowLight} onPress={actions.showRecordings}
+        <HomeCard title="녹음 파일" description="날짜별로 녹음을 찾아 재생할 수 있어요"
+          icon="mic-outline" onPress={actions.showRecordings}
           disabled={locked} testID="library-home-recordings" />
-        <HomeCard title="작성한 관찰일지" description="선생님이 검토하고 확정한 기록을 읽어요."
-          icon="document-text-outline" tint={colors.green} onPress={actions.showJournals}
+        <HomeCard title="작성한 관찰일지" description="확정한 관찰일지를 다시 확인해요"
+          icon="document-text-outline" onPress={actions.showJournals}
           disabled={locked} testID="library-home-journals" />
       </ScrollView>
     );
@@ -313,8 +313,8 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
             style={({ pressed }) => [styles.listCard, locked && styles.disabledOpacity, pressed && styles.pressed]}
             testID={'library-recording-' + item.fileName}
           >
-            <View style={[styles.listIcon, { backgroundColor: colors.yellowLight }]}>
-              <Ionicons name="mic-outline" size={23} color={colors.ink} />
+            <View style={styles.listIcon}>
+              <Ionicons accessible={false} name="mic-outline" size={20} color={colors.muted} />
             </View>
             <View style={styles.cardContent}>
               <Text style={styles.itemTitle}>{recordingLabel(item)}</Text>
@@ -419,7 +419,7 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
         {notice}
         {recording ? <>
           <View style={styles.playerCard}>
-            <View style={styles.playerIllustration}><Ionicons name="musical-notes-outline" size={45} color={colors.ink} /></View>
+            <View style={styles.playerIllustration}><Ionicons accessible={false} name="mic-outline" size={20} color={colors.muted} /></View>
             <Text style={styles.recordingDate}>{dateText(recording.dateKey)}</Text>
             <Text accessibilityRole="header" style={styles.detailTitle}>{recordingLabel(recording)}</Text>
             <Text selectable style={styles.detailFileName}>{recording.fileName}</Text>
@@ -484,69 +484,71 @@ export function LibraryView({ state, actions, onGoToRecording }: LibraryViewProp
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  content: { paddingHorizontal: 24, paddingTop: 5, paddingBottom: 30, flexGrow: 1 },
-  archiveHeader: { paddingHorizontal: 24, paddingTop: 5 },
-  header: { marginBottom: 24 },
+  content: { paddingHorizontal: layout.gutter, paddingTop: 16, paddingBottom: 24, flexGrow: 1 },
+  archiveHeader: { paddingHorizontal: layout.gutter, paddingTop: 12 },
+  header: { marginBottom: 16 },
   navigationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   backButton: { flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 44, paddingRight: 12 },
   backLabel: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
-  title: { color: colors.ink, fontSize: 27, fontWeight: '800', letterSpacing: -1, lineHeight: 37 },
-  subtitle: { color: colors.muted, fontSize: 13, lineHeight: 22, marginTop: 8 },
-  homeCard: { flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderColor: colors.line, borderRadius: 25, backgroundColor: colors.white, padding: 20, marginBottom: 15 },
-  homeIcon: { width: 58, height: 62, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  cardContent: { flex: 1, gap: 5 },
-  homeCardTitle: { color: colors.ink, fontSize: 17, fontWeight: '700', lineHeight: 25, letterSpacing: -0.45 },
-  cardDescription: { color: colors.muted, fontSize: 12, lineHeight: 20 },
-  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 14, borderRadius: 16, backgroundColor: colors.yellowLight, marginBottom: 16 },
-  noticeText: { flex: 1, color: colors.ink, fontSize: 12, lineHeight: 20 },
-  stateCard: { backgroundColor: colors.white, paddingHorizontal: 24, paddingVertical: 34, borderRadius: 26, borderWidth: 1, borderColor: colors.line, alignItems: 'center', marginBottom: 14 },
-  stateIcon: { width: 84, height: 84, borderRadius: 30, backgroundColor: colors.yellowLight, alignItems: 'center', justifyContent: 'center', marginBottom: 22 },
-  stateTitle: { fontSize: 18, color: colors.ink, fontWeight: '700', textAlign: 'center', lineHeight: 28, letterSpacing: -0.5 },
-  stateMessage: { color: colors.muted, fontSize: 13, textAlign: 'center', lineHeight: 22, marginTop: 10 },
-  stateAction: { alignSelf: 'stretch', marginTop: 23 },
-  button: { backgroundColor: colors.yellow, borderRadius: 16, minHeight: 50, paddingHorizontal: 17, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, flexShrink: 1 },
-  secondaryButton: { backgroundColor: '#F6F3ED' },
+  title: workStyles.heading,
+  subtitle: { ...workStyles.hint, marginTop: 8 },
+  homeCard: { ...workStyles.panel, flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  cardContent: { flex: 1, minWidth: 0, gap: 4 },
+  homeCardTitle: workStyles.title,
+  cardDescription: workStyles.hint,
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12,
+    borderRadius: radius.control, backgroundColor: colors.yellowLight, marginBottom: 16 },
+  noticeText: { ...typeScale.meta, flex: 1, color: colors.amberInk },
+  stateCard: { ...workStyles.panel, gap: 8, marginBottom: 12 },
+  stateIcon: { width: 48, height: 48, borderRadius: radius.control, backgroundColor: colors.raised,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  stateTitle: workStyles.title,
+  stateMessage: workStyles.hint,
+  stateAction: { alignSelf: 'flex-start', marginTop: 8 },
+  button: { ...workStyles.button, flexDirection: 'row', gap: 8, flexShrink: 1 },
+  secondaryButton: workStyles.secondary,
   dangerButton: { backgroundColor: colors.rose },
   disabledButton: { backgroundColor: colors.disabled },
-  buttonText: { fontWeight: '700', fontSize: 13, lineHeight: 20, flexShrink: 1 },
+  buttonText: { ...typeScale.label, flexShrink: 1 },
   pressed: { opacity: 0.68 },
   disabledOpacity: { opacity: 0.5 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, backgroundColor: colors.background },
-  sectionTitle: { fontSize: 13, fontWeight: '700', lineHeight: 22, color: colors.ink },
-  sectionCount: { fontSize: 11, color: colors.muted },
-  listCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderRadius: 20, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 10 },
-  listIcon: { width: 43, height: 47, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  itemTitle: { color: colors.ink, fontSize: 14, fontWeight: '700', lineHeight: 22, flexShrink: 1 },
-  itemFileName: { color: colors.muted, fontSize: 11, lineHeight: 18 },
-  itemSubtitle: { color: colors.muted, fontSize: 12, lineHeight: 19 },
+  sectionTitle: workStyles.label,
+  sectionCount: { ...workStyles.hint, fontVariant: ['tabular-nums'] },
+  listCard: { ...workStyles.panel, flexDirection: 'row', alignItems: 'center', padding: 12, marginBottom: 8 },
+  listIcon: { width: 40, height: 40, borderRadius: radius.control, backgroundColor: colors.raised,
+    alignItems: 'center', justifyContent: 'center' },
+  itemTitle: { ...workStyles.label, flexShrink: 1 },
+  itemFileName: { ...typeScale.caption, color: colors.muted },
+  itemSubtitle: workStyles.hint,
   journalLabelRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 },
-  completeBadge: { backgroundColor: colors.green, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  completeBadgeText: { color: colors.greenInk, fontSize: 10, fontWeight: '700' },
-  journalCard: { backgroundColor: colors.white, borderRadius: 25, borderWidth: 1, borderColor: colors.line, padding: 23 },
+  completeBadge: { paddingHorizontal: 4 },
+  completeBadgeText: { ...typeScale.caption, color: colors.greenInk },
+  journalCard: { ...workStyles.panel, padding: 20, gap: 8 },
   overline: { color: colors.greenInk, fontSize: 12, fontWeight: '600' },
-  detailTitle: { color: colors.ink, fontSize: 22, fontWeight: '700', lineHeight: 33, marginTop: 9, letterSpacing: -0.5 },
+  detailTitle: workStyles.heading,
   metadata: { gap: 4, marginTop: 12 },
   metadataText: { color: colors.muted, fontSize: 12, lineHeight: 19 },
   divider: { height: 1, backgroundColor: colors.line, marginVertical: 21 },
-  finalText: { color: colors.ink, fontSize: 15, lineHeight: 28 },
-  playerCard: { alignItems: 'center', backgroundColor: colors.white, borderRadius: 27, padding: 23, borderWidth: 1, borderColor: colors.line },
-  playerIllustration: { width: 100, height: 100, borderRadius: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.yellowLight, marginTop: 3, marginBottom: 23 },
+  finalText: workStyles.body,
+  playerCard: { ...workStyles.panel, alignItems: 'center', padding: 20, gap: 8 },
+  playerIllustration: { width: 48, height: 48, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
   recordingDate: { color: colors.muted, fontSize: 12, lineHeight: 19 },
   detailFileName: { color: colors.muted, fontSize: 12, lineHeight: 21, textAlign: 'center', marginTop: 7, marginBottom: 27 },
-  progressTrack: { alignSelf: 'stretch', height: 7, borderRadius: 4, backgroundColor: '#F0EAE0', overflow: 'hidden' },
-  progressFill: { height: 7, borderRadius: 4, backgroundColor: '#DDB855' },
+  progressTrack: { alignSelf: 'stretch', height: 8, borderRadius: 4, backgroundColor: colors.line, overflow: 'hidden' },
+  progressFill: { height: 8, borderRadius: 4, backgroundColor: colors.amberInk },
   timeRow: { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 9, marginBottom: 22 },
   timeText: { color: colors.muted, fontSize: 11, fontVariant: ['tabular-nums'] },
   playbackActions: { alignSelf: 'stretch', flexDirection: 'row', gap: 10, justifyContent: 'center', marginBottom: 10 },
   playerMessage: { color: colors.rose, fontSize: 12, lineHeight: 21, textAlign: 'center', marginBottom: 15 },
   playerHelp: { color: colors.muted, fontSize: 12, lineHeight: 20, marginBottom: 15 },
   deleteSection: { alignItems: 'center', marginTop: 21 },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(49, 37, 28, 0.42)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  modalCard: { width: '100%', maxWidth: 420, backgroundColor: colors.background, borderRadius: 28, padding: 25 },
-  deleteIcon: { alignSelf: 'center', width: 65, height: 65, borderRadius: 23, backgroundColor: colors.pink, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  modalTitle: { color: colors.ink, fontSize: 21, fontWeight: '700', lineHeight: 31, textAlign: 'center' },
+  modalBackdrop: { flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  modalCard: { ...workStyles.panel, width: '100%', maxWidth: 420, padding: 20, gap: 8 },
+  deleteIcon: { alignSelf: 'center', width: 48, height: 48, borderRadius: radius.control, backgroundColor: colors.pink, alignItems: 'center', justifyContent: 'center' },
+  modalTitle: { ...workStyles.title, textAlign: 'center' },
   modalFileName: { color: colors.ink, fontSize: 12, lineHeight: 20, textAlign: 'center', marginTop: 12 },
   modalDescription: { color: colors.muted, fontSize: 13, lineHeight: 23, textAlign: 'center', marginTop: 11, marginBottom: 23 },
-  modalActions: { flexDirection: 'row', gap: 10, justifyContent: 'center' },
+  modalActions: { ...workStyles.row, justifyContent: 'center' },
 });

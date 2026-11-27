@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
-  ActivityIndicator, BackHandler, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, BackHandler, Image, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors } from './theme';
+import { colors, layout, radius, typeScale } from './theme';
+import { workStyles } from './WorkFields';
 import { LibraryScreen, type LibraryHandle } from '../library/LibraryScreen';
 import { WritingScreen, type WritingHandle } from '../writing/WritingScreen';
 import { DailyWritingScreen } from '../writing/DailyWritingScreen';
@@ -57,9 +58,9 @@ function statusText(phase: RecorderViewProps['phase'], canRetry: boolean) {
   if (phase === 'preparing') return '녹음을 준비하고 있어요';
   if (phase === 'recording') return '지금 녹음하고 있어요';
   if (phase === 'saving') return '녹음을 저장하고 있어요';
-  if (phase === 'saved') return '소중한 순간을 담았어요';
-  if (phase === 'error') return canRetry ? '녹음을 보관하고 있어요' : '다시 시작할 수 있어요';
-  return '녹음할 준비가 되었어요';
+  if (phase === 'saved') return '녹음을 저장했어요';
+  if (phase === 'error') return canRetry ? '녹음 저장을 마치지 못했어요' : '녹음을 다시 시작할 수 있어요';
+  return '녹음 대기 중';
 }
 
 function RecordingScreen(props: RecorderViewProps) {
@@ -81,18 +82,10 @@ function RecordingScreen(props: RecorderViewProps) {
     <>
       <View style={styles.recorderCard}>
         <View style={styles.cardTopRow}>
-          <Text style={styles.cardTitle}>관찰 녹음</Text>
+          <Text accessibilityRole="header" style={workStyles.heading}>관찰 녹음</Text>
           <View style={styles.localBadge}>
-            <Ionicons name="phone-portrait-outline" size={12} color={colors.muted} />
+            <Ionicons accessible={false} name="phone-portrait-outline" size={16} color={colors.muted} />
             <Text style={styles.localBadgeText}>기기에 저장</Text>
-          </View>
-        </View>
-        <View accessible={false} importantForAccessibility="no-hide-descendants" style={[styles.microphoneBackdrop, recording && styles.microphoneBackdropRecording]}>
-          <View style={[styles.microphoneCircle, recording && styles.microphoneCircleRecording]}>
-            <Ionicons name={recording ? 'mic' : 'mic-outline'} size={43} color={recording ? colors.rose : colors.ink} />
-          </View>
-          <View style={[styles.microphoneAccent, recording && styles.microphoneAccentRecording]}>
-            <Ionicons name={recording ? 'ellipse' : 'sparkles'} size={13} color={recording ? colors.white : colors.ink} />
           </View>
         </View>
         <Text
@@ -102,7 +95,7 @@ function RecordingScreen(props: RecorderViewProps) {
         >
           {duration}
         </Text>
-        <View style={styles.statusLine}>
+        <View accessibilityLiveRegion="polite" style={styles.statusLine}>
           {recording && <View style={styles.recordingDot} />}
           <Text style={[styles.recorderStatus, recording && styles.recorderStatusRecording]}>
             {statusText(props.phase, props.canRetry)}
@@ -138,11 +131,6 @@ function RecordingScreen(props: RecorderViewProps) {
             <Text style={styles.importButtonText}>{props.importBusy ? '올리는 중…' : '녹음 파일 올리기'}</Text>
           </Pressable>
         )}
-        <Text style={styles.recorderHint}>
-          {props.canRetry ? '아직 저장하지 못한 녹음이 있어요. 먼저 저장을 마쳐 주세요.'
-            : recording ? '말을 마치면 중지하고 저장해 주세요.'
-              : '필요한 순간마다, 짧게 남겨도 괜찮아요.'}
-        </Text>
       </View>
 
       {props.message && (
@@ -260,11 +248,11 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
           </View>
           <View style={styles.dateBadge}>
             <Ionicons name="calendar-outline" size={13} color={colors.muted} />
-            <Text style={styles.dateText}>{props.dateLabel}</Text>
+            <Text style={styles.dateText}>오늘 {props.dateLabel}</Text>
           </View>
           {props.account && <Pressable accessibilityRole="button" accessibilityLabel="설정 열기"
-            style={{ padding: 10 }} onPress={() => { void openSettings(); }}>
-            <Ionicons name="settings-outline" size={23} color={colors.ink} />
+            style={({ pressed }) => [styles.settingsButton, pressed && workStyles.pressed]} onPress={() => { void openSettings(); }}>
+            <Ionicons name="settings-outline" size={20} color={colors.ink} />
           </Pressable>}
         </View>
         {props.account && roster && settingsOpen && <Modal animationType="slide" onRequestClose={() => { if (!props.account?.busy && !settingsSaving.current) settingsRef.current?.back(); }}>
@@ -285,7 +273,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
           <LibraryScreen account={props.account} ref={libraryRef} apiV2={apiV2} journalSource={props.writingServices?.journals}
             onGoToRecording={() => { void selectTab('record'); }} />
         ) : tab === 'record' ? (
-          <ScrollView key={tab} contentContainerStyle={[styles.scrollContent, tab === 'record' && styles.recordingScrollContent]} showsVerticalScrollIndicator={false} style={styles.scrollView}>
+          <ScrollView key={tab} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} style={styles.scrollView}>
             <RecordingScreen {...props} />
           </ScrollView>
         ) : null}
@@ -295,7 +283,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
             <Text style={styles.tabNoticeText}>{tabNotice}</Text>
           </View>
         )}
-        <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <View accessibilityRole="tablist" style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
           {tabs.map((item) => {
             const selected = tab === item.key;
             return (
@@ -306,7 +294,7 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
                 testID={'tab-' + item.key}
               >
                 <View style={[styles.tabIcon, selected && styles.selectedTabIcon]}>
-                  <Ionicons name={selected ? item.activeIcon : item.icon} size={22} color={selected ? colors.ink : colors.muted} />
+                  <Ionicons accessible={false} name={selected ? item.activeIcon : item.icon} size={20} color={selected ? colors.ink : colors.muted} />
                 </View>
                 <Text style={[styles.tabLabel, selected && styles.selectedTabLabel]}>{item.label}</Text>
               </Pressable>
@@ -320,53 +308,49 @@ export function PatPatAppView(props: RecorderViewProps & { writingServices?: Wri
 
 const styles = StyleSheet.create({
   appBackground: { flex: 1, backgroundColor: colors.background },
-  appFrame: { flex: 1, width: '100%', maxWidth: 540, alignSelf: 'center' },
-  appHeader: { minHeight: 74, paddingHorizontal: 24, paddingVertical: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 9, flexShrink: 1 },
-  brandLogoFrame: { width: 60, height: 52, flexShrink: 0, overflow: 'hidden', borderRadius: 12, backgroundColor: colors.white },
+  appFrame: { flex: 1, width: '100%', maxWidth: layout.screenWidth, alignSelf: 'center' },
+  appHeader: { minHeight: 60, paddingHorizontal: layout.gutter, paddingVertical: 8, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', gap: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  brandLogoFrame: { width: 44, height: 40, flexShrink: 0, overflow: 'hidden', borderRadius: radius.control, backgroundColor: colors.white },
   // Frame the supplied illustration by hiding its outer whitespace; keep the asset unchanged.
-  brandLogo: { width: 114, height: 76, position: 'absolute', left: -27, top: -12 },
-  brandName: { fontSize: 27, fontWeight: '900', color: colors.ink, letterSpacing: -1.2, flexShrink: 1 },
-  dateBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 },
-  dateText: { fontSize: 11, color: colors.muted, fontWeight: '500', flexShrink: 1 },
+  brandLogo: { width: 88, height: 60, position: 'absolute', left: -22, top: -10 },
+  brandName: { ...typeScale.section, color: colors.ink, flexShrink: 1 },
+  dateBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, marginLeft: 'auto' },
+  dateText: { ...typeScale.caption, color: colors.muted, fontVariant: ['tabular-nums'], flexShrink: 1 },
+  settingsButton: { ...workStyles.iconButton, minHeight: layout.touch, alignItems: 'center', justifyContent: 'center' },
   writingContainer: { flex: 1 }, hiddenScreen: { display: 'none' },
-  scrollView: { flex: 1 }, scrollContent: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20 },
-  recordingScrollContent: { flexGrow: 1, justifyContent: 'center', paddingTop: 24, paddingBottom: 32 },
-  recorderCard: { backgroundColor: colors.white, borderRadius: 28, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 18, borderWidth: 1, borderColor: '#F3EDE2', shadowColor: '#6C4F20', shadowOpacity: 0.035, shadowOffset: { width: 0, height: 6 }, shadowRadius: 15, elevation: 1 },
-  cardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
-  cardTitle: { color: colors.ink, fontWeight: '700', fontSize: 14 },
-  localBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F8F7F3', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 5 },
-  localBadgeText: { fontSize: 10, color: colors.muted },
-  microphoneBackdrop: { width: 112, height: 112, borderRadius: 56, backgroundColor: '#FFF9E8', alignSelf: 'center', alignItems: 'center', justifyContent: 'center', marginTop: 23, marginBottom: 12 },
-  microphoneBackdropRecording: { backgroundColor: '#FFF2F0' },
-  microphoneCircle: { width: 86, height: 86, borderRadius: 43, backgroundColor: colors.yellowLight, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#F8E4AF' },
-  microphoneCircleRecording: { backgroundColor: colors.pink, borderColor: '#F6D2D3' },
-  microphoneAccent: { position: 'absolute', width: 29, height: 29, borderRadius: 15, right: 0, top: 9, backgroundColor: colors.yellow, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.white },
-  microphoneAccentRecording: { backgroundColor: colors.rose },
-  timer: { color: colors.ink, fontSize: 48, lineHeight: 61, fontWeight: '600', letterSpacing: 1.5, textAlign: 'center', fontVariant: ['tabular-nums'], fontFamily: Platform.OS === 'ios' ? 'Menlo' : Platform.OS === 'android' ? 'monospace' : undefined },
-  statusLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginBottom: 24, minHeight: 21 },
-  recorderStatus: { color: colors.muted, fontSize: 12, textAlign: 'center', lineHeight: 20 },
+  scrollView: { flex: 1 }, scrollContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: layout.gutter, paddingVertical: 24 },
+  recorderCard: { ...workStyles.panel, width: '100%', maxWidth: 480, alignSelf: 'center', padding: 20, gap: 8 },
+  cardTopRow: workStyles.between,
+  localBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  localBadgeText: workStyles.hint,
+  timer: { color: colors.ink, fontSize: 56, lineHeight: 64, fontWeight: '500', textAlign: 'center', marginTop: 24,
+    fontVariant: ['tabular-nums'] },
+  statusLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16 },
+  recorderStatus: { ...workStyles.hint, textAlign: 'center' },
   recorderStatusRecording: { color: colors.rose },
   recordingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.rose },
-  recordButton: { minHeight: 54, backgroundColor: colors.yellow, borderRadius: 17, paddingHorizontal: 15, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  recordButton: { ...workStyles.button, minHeight: 48, flexDirection: 'row', gap: 8 },
   stopButton: { backgroundColor: colors.rose }, disabledButton: { backgroundColor: colors.disabled },
-  pressedButton: { opacity: 0.8, transform: [{ scale: 0.985 }] },
-  recordButtonText: { fontSize: 15, fontWeight: '800', color: colors.ink, flexShrink: 1 },
+  pressedButton: workStyles.pressed,
+  recordButtonText: { ...workStyles.buttonText, flexShrink: 1 },
   stopButtonText: { color: colors.white }, disabledButtonText: { color: colors.muted },
-  importButton: { minHeight: 46, marginTop: 10, borderRadius: 17, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  importButtonText: { fontSize: 14, fontWeight: '600', color: colors.ink, flexShrink: 1 },
-  recorderHint: { color: colors.muted, fontSize: 10, lineHeight: 18, textAlign: 'center', marginTop: 11 },
-  notice: { borderRadius: 17, paddingHorizontal: 15, paddingVertical: 13, flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 14 },
-  successNotice: { backgroundColor: colors.green }, errorNotice: { backgroundColor: '#FFF0EC' },
-  noticeText: { color: colors.greenInk, fontSize: 12, lineHeight: 20, flex: 1 },
-  errorNoticeText: { color: '#984542' },
+  importButton: { ...workStyles.button, ...workStyles.secondary, flexDirection: 'row', gap: 8 },
+  importButtonText: { ...workStyles.buttonText, flexShrink: 1 },
+  notice: { borderRadius: radius.control, padding: 12, flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 16 },
+  successNotice: { backgroundColor: colors.green }, errorNotice: { backgroundColor: colors.pink },
+  noticeText: { ...typeScale.meta, color: colors.greenInk, flex: 1 },
+  errorNoticeText: { color: colors.rose },
   subtlePressed: { opacity: 0.6 },
-  tabNotice: { marginHorizontal: 16, marginBottom: 8, paddingVertical: 11, paddingHorizontal: 13, borderRadius: 14, backgroundColor: colors.yellowLight, flexDirection: 'row', gap: 7, alignItems: 'flex-start' },
-  tabNoticeText: { color: colors.ink, fontSize: 11, lineHeight: 18, flex: 1 },
-  tabBar: { flexDirection: 'row', backgroundColor: colors.white, paddingTop: 11, borderTopWidth: 1, borderTopColor: colors.line, paddingHorizontal: 14 },
-  tab: { flex: 1, alignItems: 'center', gap: 4, minHeight: 53, paddingHorizontal: 2 },
-  tabIcon: { width: 51, minHeight: 31, paddingVertical: 4, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  tabNotice: { marginHorizontal: layout.gutter, marginBottom: 8, padding: 12, borderRadius: radius.control,
+    backgroundColor: colors.yellowLight, flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  tabNoticeText: { ...typeScale.meta, color: colors.amberInk, flex: 1 },
+  tabBar: { flexDirection: 'row', backgroundColor: colors.paper, paddingTop: 8, borderTopWidth: 1,
+    borderTopColor: colors.line, paddingHorizontal: layout.gutter },
+  tab: { flex: 1, alignItems: 'center', gap: 4, minHeight: 48, paddingHorizontal: 4 },
+  tabIcon: { width: 48, minHeight: 28, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
   selectedTabIcon: { backgroundColor: colors.yellowLight },
-  tabLabel: { color: colors.muted, fontSize: 10, lineHeight: 16, textAlign: 'center' },
-  selectedTabLabel: { color: colors.ink, fontWeight: '800' },
+  tabLabel: { ...typeScale.caption, color: colors.muted, textAlign: 'center' },
+  selectedTabLabel: { color: colors.ink, fontWeight: '600' },
 });

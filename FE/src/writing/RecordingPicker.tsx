@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 
 import type { SavedRecording } from '../recording/storage';
-import { colors } from '../ui/theme';
+import { colors, layout, radius, typeScale } from '../ui/theme';
+import { workStyles } from '../ui/WorkFields';
 import type { WritingViewProps } from './types';
 
 const emptyRecordings: readonly SavedRecording[] = [];
@@ -160,7 +161,7 @@ export function RecordingPicker({ state, actions, capabilities }: WritingViewPro
                 <Text style={styles.recordingTitle}>{item.startTime} 녹음</Text>
                 <Text style={styles.fileName}>{item.fileName}</Text>
               </View>
-              <Ionicons name={selected ? 'checkbox' : 'square-outline'} size={25} color={selected ? colors.ink : '#A99B8D'} />
+              <Ionicons name={selected ? 'checkbox-outline' : 'square-outline'} size={20} color={selected ? colors.amberInk : colors.muted} />
             </Pressable>
           );
         }}
@@ -204,53 +205,56 @@ export function RecordingPicker({ state, actions, capabilities }: WritingViewPro
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  content: { paddingHorizontal: 24, paddingTop: 2, paddingBottom: 20, flexGrow: 1 },
-  navigation: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, minHeight: 44 },
+  content: { ...workStyles.content, gap: 0, flexGrow: 1 },
+  navigation: { ...workStyles.between, paddingHorizontal: layout.gutter, minHeight: layout.touch },
   backButton: { flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 44, paddingRight: 12 },
-  backLabel: { color: colors.ink, fontSize: 13, fontWeight: '600' },
-  progress: { color: colors.muted, fontSize: 11, fontWeight: '600' },
+  backLabel: workStyles.label,
+  progress: workStyles.hint,
   headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  title: { color: colors.ink, fontSize: 25, fontWeight: '800', letterSpacing: -0.8, lineHeight: 36, flexShrink: 1 },
-  typeSection: { marginBottom: 24, gap: 14 },
-  typeOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  typeOption: { flex: 1, minWidth: 100, minHeight: 48, borderRadius: 15, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', padding: 12 },
-  selectedType: { backgroundColor: colors.yellowLight, borderColor: '#D9B960' },
-  typeLabel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+  title: { ...workStyles.heading, flexShrink: 1 },
+  typeSection: { marginBottom: 24, gap: 12 },
+  typeOptions: workStyles.row,
+  typeOption: { ...workStyles.choice, flex: 1, minWidth: 100 },
+  selectedType: workStyles.choiceSelected,
+  typeLabel: workStyles.label,
   fieldHeading: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
-  fieldTitle: { color: colors.ink, fontSize: 19, fontWeight: '700', lineHeight: 28, flexShrink: 1 },
-  requirement: { color: colors.muted, fontSize: 11 },
-  refreshButton: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  subtitle: { color: colors.muted, fontSize: 13, lineHeight: 22, marginTop: 5, marginBottom: 19 },
-  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 14, backgroundColor: colors.yellowLight, borderRadius: 16, marginBottom: 15 },
-  noticeText: { flex: 1, color: colors.ink, fontSize: 12, lineHeight: 20 },
-  emptyCard: { backgroundColor: colors.white, borderRadius: 25, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 24, paddingVertical: 31, alignItems: 'center' },
-  emptyIcon: { width: 79, height: 79, borderRadius: 27, backgroundColor: colors.yellowLight, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  emptyTitle: { color: colors.ink, fontSize: 18, fontWeight: '700', lineHeight: 28, textAlign: 'center' },
-  emptyMessage: { color: colors.muted, fontSize: 13, lineHeight: 22, textAlign: 'center', marginTop: 9 },
-  keywordsCard: { marginTop: 24, backgroundColor: colors.white, borderRadius: 20, borderWidth: 1, borderColor: colors.line, padding: 18 },
-  keywordsInput: { minHeight: 150, borderWidth: 1, borderColor: colors.line, borderRadius: 13, padding: 13, color: colors.ink, fontSize: 14, lineHeight: 24, backgroundColor: colors.background },
-  retryButton: { alignSelf: 'stretch', marginTop: 22, borderRadius: 15, backgroundColor: colors.yellow, minHeight: 48, padding: 13, alignItems: 'center', justifyContent: 'center' },
+  fieldTitle: { ...workStyles.title, flexShrink: 1 },
+  requirement: workStyles.hint,
+  refreshButton: { width: layout.touch, height: layout.touch, borderRadius: radius.control, justifyContent: 'center', alignItems: 'center' },
+  subtitle: { ...workStyles.hint, marginTop: 4, marginBottom: 16 },
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12,
+    backgroundColor: colors.yellowLight, borderRadius: radius.control, marginBottom: 16 },
+  noticeText: { ...typeScale.meta, flex: 1, color: colors.amberInk },
+  emptyCard: { ...workStyles.panel, alignItems: 'flex-start', gap: 8 },
+  emptyIcon: { width: 48, height: 48, borderRadius: radius.control, backgroundColor: colors.raised,
+    justifyContent: 'center', alignItems: 'center' },
+  emptyTitle: workStyles.title,
+  emptyMessage: workStyles.hint,
+  keywordsCard: { ...workStyles.panel, marginTop: 24 },
+  keywordsInput: { ...workStyles.input, minHeight: 152 },
+  retryButton: { ...workStyles.button, alignSelf: 'flex-start', marginTop: 8 },
   sectionHeading: { flexDirection: 'row', gap: 8, alignItems: 'center', paddingTop: 16, paddingBottom: 12 },
-  sectionTitle: { color: colors.ink, fontSize: 13, fontWeight: '700', lineHeight: 22 },
-  sectionCount: { color: colors.muted, fontSize: 11 },
-  recordingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, borderRadius: 19, paddingHorizontal: 14, paddingVertical: 17, marginBottom: 10 },
-  selectedRow: { backgroundColor: '#FFF9E8', borderColor: '#D9B960' },
-  microphoneIcon: { width: 36, height: 41, borderRadius: 13, backgroundColor: colors.yellowLight, alignItems: 'center', justifyContent: 'center' },
-  recordingText: { flex: 1, gap: 5 },
-  recordingTitle: { color: colors.ink, fontSize: 14, fontWeight: '700', lineHeight: 22 },
-  fileName: { color: colors.muted, fontSize: 11, lineHeight: 18 },
-  footer: { paddingHorizontal: 24, paddingTop: 14, paddingBottom: 16, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.line },
-  countRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 10 },
-  countLabel: { color: colors.muted, fontSize: 12 },
+  sectionTitle: workStyles.label,
+  sectionCount: workStyles.hint,
+  recordingRow: { ...workStyles.panel, flexDirection: 'row', alignItems: 'center', padding: 12, marginBottom: 8 },
+  selectedRow: workStyles.choiceSelected,
+  microphoneIcon: { width: 36, height: 36, borderRadius: radius.control, backgroundColor: colors.raised,
+    alignItems: 'center', justifyContent: 'center' },
+  recordingText: { flex: 1, minWidth: 0, gap: 4 },
+  recordingTitle: workStyles.label,
+  fileName: { ...typeScale.caption, color: colors.muted },
+  footer: { paddingHorizontal: layout.gutter, paddingVertical: 12, backgroundColor: colors.paper, borderTopWidth: 1, borderTopColor: colors.line },
+  countRow: { ...workStyles.between, marginBottom: 12 },
+  countLabel: workStyles.hint,
   countActions: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  clearButton: { minHeight: 36, justifyContent: 'center', paddingHorizontal: 3 },
-  clearLabel: { color: colors.muted, fontSize: 11, textDecorationLine: 'underline' },
-  count: { color: colors.ink, fontSize: 17, fontWeight: '800' },
-  importButton: { backgroundColor: colors.yellow, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 15, minHeight: 52, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-  buttonText: { color: colors.ink, fontSize: 14, lineHeight: 21, fontWeight: '700', flexShrink: 1 },
+  clearButton: { minHeight: layout.touch, justifyContent: 'center', paddingHorizontal: 4 },
+  clearLabel: { ...workStyles.hint, textDecorationLine: 'underline' },
+  count: { ...workStyles.title, fontVariant: ['tabular-nums'] },
+  importButton: { ...workStyles.button, flexDirection: 'row', gap: 8 },
+  buttonText: { ...workStyles.buttonText, flexShrink: 1 },
   disabledButton: { backgroundColor: colors.disabled },
   disabledText: { color: colors.muted },
-  footerHint: { color: colors.muted, fontSize: 11, textAlign: 'center', lineHeight: 18, marginTop: 8 },
+  footerHint: { ...workStyles.hint, textAlign: 'center', marginTop: 8 },
   disabledOpacity: { opacity: 0.45 },
   pressed: { opacity: 0.65 },
 });

@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Child } from '../api/client';
 import type { Account } from '../auth/controller';
 import type { V2Api } from '../api/v2';
-import { colors } from '../ui/theme';
+import { colors, layout, radius, typeScale } from '../ui/theme';
+import { workStyles } from '../ui/WorkFields';
 import { WritingPreferencesEditor } from '../writing/WritingPreferences';
 import {
   getCharacteristicsEntry, getTeacherDocumentEntry, hasUnsavedTeacherDocuments,
@@ -37,7 +38,7 @@ function ChildRow({ child, selecting, selected, disabled, onToggle, onOpenCharac
   onToggle(): void; onOpenCharacteristics(): void;
 }) {
   const content = <>
-    <View style={styles.avatar}><Ionicons name="person-outline" size={22} color={colors.ink} /></View>
+    <View style={styles.avatar}><Ionicons accessible={false} name="person-outline" size={18} color={colors.muted} /></View>
     <Text style={styles.childName} testID={'settings-child-name-' + child.child_id}>{child.name}</Text>
     {selecting ? <Ionicons name={selected ? 'checkbox' : 'square-outline'} size={24} color={selected ? colors.ink : colors.muted} />
       : <Pressable accessibilityRole="button" accessibilityLabel={child.name + ' 특성 작성'}
@@ -209,7 +210,7 @@ function SettingsContent(props: SettingsViewProps) {
   const canAdd = !busy && state.loaded && !state.selecting && !!props.name.trim();
   return <>
     <View style={styles.header}>
-      <Text style={styles.title}>설정</Text>
+      <Text accessibilityRole="header" style={styles.title}>설정</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="설정 닫기" disabled={navigationBlocked}
         accessibilityState={{ disabled: navigationBlocked }} style={styles.smallButton} onPress={props.onBack}
         testID="settings-close"><Text style={styles.label}>닫기</Text></Pressable>
@@ -239,9 +240,9 @@ function SettingsContent(props: SettingsViewProps) {
         {account.notice && <Text accessibilityRole="alert" style={styles.danger}>{account.notice}</Text>}
       </View>
       <View style={styles.card}>
-        <Text style={styles.subtitle}>아동 명단</Text>
+        <Text accessibilityRole="header" style={styles.subtitle}>아동 명단</Text>
         <Text style={styles.hint}>등록한 아동의 명단으로 관찰일지를 작성해요.</Text>
-        <TextInput accessibilityLabel="새 아동 이름" placeholder="아동 이름" value={props.name}
+        <TextInput accessibilityLabel="새 아동 이름" placeholder="아동 이름" placeholderTextColor={colors.muted} value={props.name}
           onChangeText={props.onNameChange} editable={!busy && !state.selecting} style={styles.input}
           onSubmitEditing={() => { if (canAdd) props.onAdd(); }} testID="settings-child-input" />
         <Pressable accessibilityRole="button" accessibilityLabel="아동 추가" disabled={!canAdd}
@@ -280,13 +281,13 @@ function SettingsContent(props: SettingsViewProps) {
         <Pressable accessibilityRole="button" accessibilityLabel="삭제 확인" disabled={busy}
           accessibilityState={{ disabled: busy, busy: state.saving }} style={[styles.button, styles.deleteButton, busy && styles.disabled]}
           onPress={props.onDelete} testID="settings-delete-confirm">
-          {state.saving ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.danger}>삭제</Text>}
+          {state.saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.deleteButtonText}>삭제</Text>}
         </Pressable>
       </View> : <>
         <Text style={styles.hint}>{state.selectedIds.length}명 선택</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="선택한 아동 삭제" disabled={busy || state.selectedIds.length === 0}
           accessibilityState={{ disabled: busy || state.selectedIds.length === 0 }}
-          style={[styles.button, (busy || state.selectedIds.length === 0) && styles.disabled]}
+          style={[styles.button, styles.secondary, (busy || state.selectedIds.length === 0) && styles.disabled]}
           onPress={props.onRequestDelete} testID="settings-delete-selected"><Text style={styles.danger}>선택한 아동 삭제</Text></Pressable>
       </>}
     </View>}
@@ -350,38 +351,47 @@ export const SettingsScreen = forwardRef<SettingsHandle, {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   page: { flex: 1, backgroundColor: colors.background },
-  header: { width: '100%', maxWidth: 540, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24 },
-  scroll: { flex: 1, width: '100%', maxWidth: 540, alignSelf: 'center' },
-  title: { color: colors.ink, fontSize: 24, fontWeight: '800' },
-  subtitle: { color: colors.ink, fontSize: 19, fontWeight: '700' },
-  content: { padding: 24, gap: 18, paddingBottom: 24 },
-  card: { backgroundColor: colors.white, padding: 20, borderRadius: 20, gap: 14 },
-  label: { color: colors.ink, fontWeight: '600', fontSize: 15 },
-  hint: { color: colors.muted, lineHeight: 21 }, danger: { color: colors.rose, lineHeight: 21 },
-  input: { minHeight: 48, padding: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 12, color: colors.ink },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
-  tools: { flexDirection: 'row', alignItems: 'center' }, count: { color: colors.muted, fontSize: 13 },
-  button: { backgroundColor: colors.yellow, padding: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 12, minHeight: 48 },
-  smallButton: { padding: 12, minHeight: 44, justifyContent: 'center' }, disabled: { opacity: 0.45 },
-  child: { borderTopWidth: 1, borderColor: colors.line, paddingVertical: 14, flexDirection: 'row', gap: 12, alignItems: 'center', minHeight: 64 },
-  childName: { flex: 1, minWidth: 0, color: colors.ink, fontWeight: '600', fontSize: 15, lineHeight: 23 },
-  avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.yellowLight, alignItems: 'center', justifyContent: 'center' },
-  selectedChild: { backgroundColor: '#FFF9E8' }, pressed: { opacity: 0.6 },
-  confirm: { backgroundColor: colors.yellowLight, padding: 16, borderRadius: 12, gap: 12 },
-  footer: { width: '100%', maxWidth: 540, alignSelf: 'center', padding: 20, gap: 10, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.white },
-  deleteButton: { flex: 1 },
-  characteristicsAction: { minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: colors.yellowLight, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, flexShrink: 0 },
-  characteristicsActionText: { color: colors.ink, fontWeight: '600', fontSize: 13 },
-  teacherAction: { minHeight: 48, padding: 14, borderRadius: 12, backgroundColor: colors.yellowLight, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  header: { ...workStyles.between, width: '100%', maxWidth: layout.screenWidth, alignSelf: 'center',
+    paddingHorizontal: layout.gutter, borderBottomWidth: 1, borderBottomColor: colors.line },
+  scroll: { flex: 1, width: '100%', maxWidth: layout.screenWidth, alignSelf: 'center' },
+  title: workStyles.heading,
+  subtitle: workStyles.title,
+  content: workStyles.content,
+  card: workStyles.panel,
+  label: workStyles.label,
+  hint: workStyles.hint,
+  danger: workStyles.error,
+  input: workStyles.input,
+  row: workStyles.between,
+  tools: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  count: { ...workStyles.hint, fontVariant: ['tabular-nums'] },
+  button: workStyles.button,
+  secondary: workStyles.secondary,
+  smallButton: { ...workStyles.button, ...workStyles.secondary },
+  disabled: workStyles.disabled,
+  child: { borderTopWidth: 1, borderColor: colors.line, paddingVertical: 8, flexDirection: 'row', gap: 8, alignItems: 'center', minHeight: 60 },
+  childName: { ...workStyles.label, flex: 1, minWidth: 0 },
+  avatar: { width: 36, height: 36, borderRadius: radius.control, backgroundColor: colors.raised,
+    alignItems: 'center', justifyContent: 'center' },
+  selectedChild: { backgroundColor: colors.yellowLight },
+  pressed: workStyles.pressed,
+  confirm: { backgroundColor: colors.pink, padding: 12, borderRadius: radius.control, gap: 8 },
+  footer: { width: '100%', maxWidth: layout.screenWidth, alignSelf: 'center', padding: layout.gutter, gap: 8,
+    borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.paper },
+  deleteButton: { ...workStyles.destructive, flex: 1 },
+  deleteButtonText: { ...typeScale.label, color: colors.white },
+  characteristicsAction: { ...workStyles.button, ...workStyles.secondary, flexDirection: 'row', gap: 4 },
+  characteristicsActionText: { ...typeScale.meta, color: colors.ink },
+  teacherAction: { ...workStyles.button, ...workStyles.secondary, flexDirection: 'row', gap: 8 },
   teacherActionLabel: { flex: 1, flexShrink: 1 },
   editorHeader: { justifyContent: 'flex-start', gap: 16 },
   editorHeaderTitle: { flexShrink: 1 },
-  backButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 2 },
-  characteristicsInput: { minHeight: 240, fontSize: 15, lineHeight: 24 },
-  dialogOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: '#49372C66', padding: 24, justifyContent: 'center', alignItems: 'center' },
-  dialogScroll: { width: '100%', maxWidth: 440, maxHeight: '90%', flexGrow: 0, borderRadius: 20, backgroundColor: colors.white },
-  dialogCard: { padding: 24, gap: 18 },
-  dialogMessage: { color: colors.ink, fontSize: 15, lineHeight: 24 },
-  dialogActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 10 },
+  backButton: { minHeight: layout.touch, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  characteristicsInput: { minHeight: 240 },
+  dialogOverlay: { ...StyleSheet.absoluteFill, backgroundColor: colors.scrim, padding: 24, justifyContent: 'center', alignItems: 'center' },
+  dialogScroll: { width: '100%', maxWidth: 440, maxHeight: '90%', flexGrow: 0, borderRadius: radius.panel, backgroundColor: colors.paper },
+  dialogCard: { padding: 20, gap: 16 },
+  dialogMessage: workStyles.body,
+  dialogActions: { ...workStyles.row, justifyContent: 'flex-end' },
   dialogButton: { minWidth: 88 },
 });

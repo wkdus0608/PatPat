@@ -6,5 +6,5 @@ export function PlaybackTrack({ label, position, duration, disabled, onSeek }: P
   return <input type="range" aria-label={label} aria-valuetext={playbackTime(position)}
     min={0} max={duration || 1} step={0.1} value={position} disabled={disabled}
     onChange={event => onSeek(event.currentTarget.valueAsNumber)}
-    style={{ accentColor: colors.ink, width: '100%', height: 25, margin: 0 }} />;
+    style={{ accentColor: colors.amberInk, width: '100%', height: 32, margin: 0 }} />;
 }

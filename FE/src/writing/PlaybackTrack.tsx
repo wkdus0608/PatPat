@@ -34,5 +34,5 @@ export function PlaybackTrack({ label, position, duration, disabled, onSeek }: P
 const styles = StyleSheet.create({
   touch: { minHeight: 32, justifyContent: 'center' },
   track: { height: 6, backgroundColor: colors.line, borderRadius: 4, overflow: 'hidden' },
-  fill: { height: '100%', backgroundColor: colors.ink, borderRadius: 4 },
+  fill: { height: '100%', backgroundColor: colors.amberInk, borderRadius: 4 },
 });

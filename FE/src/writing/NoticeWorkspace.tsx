@@ -9,9 +9,9 @@ import { DateArrow, DatePicker, shiftDate, todayDate } from '../ui/DatePicker';
 import { bulkMessage, confirmReviewing } from './bulkConfirm';
 import { elapsedText } from './elapsed';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
-import { colors } from '../ui/theme';
+import { colors, radius, typeScale } from '../ui/theme';
 import { NoticeReview, jobMessage, waitForJob } from './NoticeReview';
-import { ReviewButton, reviewStyles } from './NoticeReviewPresentation';
+import { reviewStyles } from './NoticeReviewPresentation';
 import { NoticeRecordingList, useNoticeRecordings } from './NoticeRecordings';
 import { RecordingRunPanel, recordingRunWorking } from './RecordingRunPanel';
 import { PresetField, usePresetMenu, type PresetMenu } from './WritingPreferences';
@@ -38,7 +38,7 @@ function InputBlock({ block, common, preferences, menu, onChange, busy }: {
   return (
     <View style={[workStyles.panel, menu.selection?.groupId === block.block_id && workStyles.raised]}>
       {!block.is_common && <View style={workStyles.between}>
-        <Text style={workStyles.title}>{name}</Text>
+        <Text accessibilityRole="header" style={workStyles.title}>{name}</Text>
         <WorkChoice label="결석" checkbox selected={block.absent} disabled={busy}
           onPress={() => onChange({ absent: !block.absent })} />
       </View>}
@@ -392,11 +392,11 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
             <View style={reviewStyles.section}>
               <View style={reviewStyles.heading}>
                 <Text accessibilityRole="header" style={reviewStyles.title}>아이별 알림장</Text>
-                <View style={reviewStyles.toolbar}>
+                <View style={workStyles.between}>
                   <Text accessibilityLiveRegion="polite" style={reviewStyles.meta}>
                     {session.classroom.name}{session.notices.length > 0 && ` · 검토 ${reviewCount}명 · 확정 ${confirmedCount}명`}
                   </Text>
-                  {reviewCount > 1 && <ReviewButton label={`전체 확정 (${reviewCount}명)`} secondary
+                  {reviewCount > 1 && <WorkButton label={`전체 확정 (${reviewCount}명)`} secondary
                     busy={action.busy} disabled={action.busy}
                     onPress={() => { void action.run(() => confirmAll(session)); }} />}
                 </View>
@@ -492,7 +492,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
               await saveInputs(session);
               setSaved(true);
             }); }} />
-            <WorkButton label="다음" disabled={action.busy} onPress={checkAreas} />
+            <WorkButton label="관찰영역 확인" disabled={action.busy} onPress={checkAreas} />
           </View>
         </>}
       </>}
@@ -501,9 +501,9 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
 }
 
 const styles = StyleSheet.create({
-  dateRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 9 },
-  presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  absentShade: { borderRadius: 17, backgroundColor: '#211D1926' },
-  areaLabel: { color: colors.blueInk, fontSize: 13, fontWeight: '700' },
+  dateRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  absentShade: { borderRadius: radius.panel, backgroundColor: '#26221D1A' },
+  areaLabel: { ...typeScale.label, color: colors.muted },
   regenerateAction: { alignSelf: 'flex-end' },
 });

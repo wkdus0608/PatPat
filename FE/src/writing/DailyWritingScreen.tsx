@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } fro
 import { StyleSheet, Text, View } from 'react-native';
 import type { V2Api } from '../api/v2';
 import type { Account } from '../auth/controller';
+import { colors, layout } from '../ui/theme';
 import { WorkChoice, workStyles } from '../ui/WorkFields';
 import { JournalWorkspace } from './JournalWorkspace';
 import { NoticeWorkspace } from './NoticeWorkspace';
@@ -25,7 +26,7 @@ export const DailyWritingScreen = forwardRef<WritingHandle, {
   return (
     <View style={styles.workspace}>
       <View style={styles.modes}>
-        <Text style={workStyles.heading}>일지 작성</Text>
+        <Text accessibilityRole="header" style={workStyles.heading}>일지 작성</Text>
         <View accessibilityRole="radiogroup" accessibilityLabel="기록 유형" style={workStyles.row}>
           <WorkChoice label="알림장" selected={mode === '알림장'} onPress={() => setMode('알림장')} />
           <WorkChoice label="관찰일지" selected={mode === '관찰일지'} onPress={() => setMode('관찰일지')} />
@@ -46,5 +47,6 @@ export const DailyWritingScreen = forwardRef<WritingHandle, {
 const styles = StyleSheet.create({
   workspace: { flex: 1 },
   hidden: { display: 'none' },
-  modes: { paddingHorizontal: 22, paddingBottom: 6, gap: 9 },
+  modes: { ...workStyles.between, paddingHorizontal: layout.gutter, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: colors.line },
 });

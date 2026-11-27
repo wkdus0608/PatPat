@@ -4,10 +4,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, errorMessage } from '../api/client';
 import type { DateRange, Journal, JournalDay, JournalDayEdit, JournalEntry, JournalOutput, V2Api } from '../api/v2';
 import type { Account } from '../auth/controller';
-import { colors } from '../ui/theme';
+import { colors, layout } from '../ui/theme';
 import { copyRecord } from '../ui/clipboard';
 import { DatePicker, todayDate } from '../ui/DatePicker';
-import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
+import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import { WORD_DEFAULT_HINT, outputButtonLabel, outputStatusMessage, wordUnavailableMessage } from './journalOutputView';
 import { monthRange, weekRange } from './journalRange';
 import { StandaloneJournalForm } from './StandaloneJournalForm';
@@ -37,7 +37,7 @@ function JournalText({ name, output, download, onClose }: {
           </ScrollView>
           <View style={styles.outputActions}>
             <View style={styles.outputAction}>
-              <WorkButton label="텍스트 복사" busy={action.busy} onPress={() => { void action.run(async () => {
+              <WorkButton label="텍스트 복사" secondary busy={action.busy} onPress={() => { void action.run(async () => {
                 await copyRecord(output.text);
                 setCopied(true);
               }); }} />
@@ -115,7 +115,7 @@ function JournalCard({ journal, api, range, onEditing, onSaved, onOutput, onRelo
 
   return (
     <View style={workStyles.panel}>
-      <Text style={workStyles.title}>{child.name}</Text>
+      <Text accessibilityRole="header" style={workStyles.title}>{child.name}</Text>
       {items.length === 0 && <WorkMessage>이 기간에 표시할 관찰일지가 없어요.</WorkMessage>}
       {drafts ? drafts.map(draft => (
         <View key={draft.observed_date} style={styles.entry}>
@@ -151,12 +151,13 @@ function JournalCard({ journal, api, range, onEditing, onSaved, onOutput, onRelo
       {!drafts && !!outputStatusMessage(journal) && <WorkMessage>{outputStatusMessage(journal)}</WorkMessage>}
       <View style={[workStyles.row, styles.cardActions]}>
         {drafts ? <>
-          <WorkButton label="수정 저장" busy={action.busy} onPress={() => { void action.run(() => save(drafts)); }} />
           <WorkButton label="취소" secondary disabled={action.busy} onPress={() => {
             setDrafts(null);
             action.setError(null);
           }} />
+          <WorkButton label="수정 저장" busy={action.busy} onPress={() => { void action.run(() => save(drafts)); }} />
         </> : <>
+          <WorkButton label="수정하기" secondary disabled={action.busy || !days.some(day => day.editable)} onPress={startEditing} />
           <WorkButton label={outputButtonLabel(journal)} busy={action.busy}
             disabled={!days.some(day => day.content.trim())} onPress={() => {
             void action.run(async () => {
@@ -165,7 +166,6 @@ function JournalCard({ journal, api, range, onEditing, onSaved, onOutput, onRelo
               setOutput(result);
             });
           }} />
-          <WorkButton label="수정하기" secondary disabled={action.busy || !days.some(day => day.editable)} onPress={startEditing} />
         </>}
       </View>
       {output && <JournalText name={child.name} output={output}
@@ -267,16 +267,19 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
           setSavedMessage(null);
           setCreating(true);
         }} />}
-      <View style={workStyles.row}>
-        {quickRanges.map(item => <WorkButton key={item.label} label={item.label} secondary
-          disabled={creating || editingIds.length > 0}
-          onPress={() => changeRange(item.range)} />)}
-      </View>
-      <View style={styles.metadataRow}>
-        <View style={styles.dateField}><DatePicker label="시작 날짜" value={range.from} max={range.to ?? undefined}
-          disabled={creating || editingIds.length > 0} onChange={from => changeRange({ ...range, from })} /></View>
-        <View style={styles.dateField}><DatePicker label="종료 날짜" value={range.to} min={range.from ?? undefined}
-          disabled={creating || editingIds.length > 0} onChange={to => changeRange({ ...range, to })} /></View>
+      <View style={workStyles.panel}>
+        <Text accessibilityRole="header" style={workStyles.title}>조회 기간</Text>
+        <View accessibilityRole="radiogroup" accessibilityLabel="조회 기간 빠른 선택" style={workStyles.row}>
+          {quickRanges.map(item => <WorkChoice key={item.label} label={item.label}
+            selected={range.from === item.range.from && range.to === item.range.to}
+            disabled={creating || editingIds.length > 0} onPress={() => changeRange(item.range)} />)}
+        </View>
+        <View style={styles.metadataRow}>
+          <View style={styles.dateField}><DatePicker label="시작 날짜" value={range.from} max={range.to ?? undefined}
+            disabled={creating || editingIds.length > 0} onChange={from => changeRange({ ...range, from })} /></View>
+          <View style={styles.dateField}><DatePicker label="종료 날짜" value={range.to} min={range.from ?? undefined}
+            disabled={creating || editingIds.length > 0} onChange={to => changeRange({ ...range, to })} /></View>
+        </View>
       </View>
       {error && <WorkMessage error>{error}</WorkMessage>}
       {!journals && !error && <ActivityIndicator color={colors.ink} accessibilityLabel="관찰일지 불러오는 중" />}
@@ -289,13 +292,13 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
 }
 
 const styles = StyleSheet.create({
-  entry: { paddingVertical: 11, borderTopWidth: 1, borderTopColor: colors.line, gap: 10 },
+  entry: { paddingVertical: 12, borderTopWidth: 1, borderTopColor: colors.line, gap: 8 },
   observation: { gap: 4 },
   dayInput: { minHeight: 126 },
-  metadataRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  dateField: { flex: 1, minWidth: 115 },
+  metadataRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  dateField: { flex: 1, minWidth: 136 },
   outputPage: { flex: 1, backgroundColor: colors.background },
-  outputFrame: { flex: 1, width: '100%', maxWidth: 540, alignSelf: 'center', paddingHorizontal: 22, gap: 12 },
+  outputFrame: { flex: 1, width: '100%', maxWidth: layout.screenWidth, alignSelf: 'center', paddingHorizontal: layout.gutter, gap: 12 },
   outputScroll: { flex: 1 },
   cardActions: { justifyContent: 'flex-end' },
   outputActions: { flexDirection: 'row', gap: 8 },

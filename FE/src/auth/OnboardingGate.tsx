@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { errorMessage, type Child } from '../api/client';
 import type { ChildDetails, Classroom, OnboardingStep, V2Api, WritingPreferences } from '../api/v2';
 import { DatePicker, todayDate } from '../ui/DatePicker';
-import { colors } from '../ui/theme';
+import { colors, layout, radius } from '../ui/theme';
 import { WorkButton, WorkChoice, WorkField, WorkMessage, useWorkAction, workStyles } from '../ui/WorkFields';
 import type { Account } from './controller';
 import { moveStep } from './onboardingSteps';
@@ -49,7 +49,7 @@ export function OnboardingGate({ account, api, children }: { account: Account; a
   if (step !== null) return <SetupStep key={step} step={step} account={account} api={api} onAdvance={setStep} />;
   return (
     <SetupFrame>
-      <Text style={workStyles.heading}>첫 설정</Text>
+      <Text accessibilityRole="header" style={workStyles.heading}>첫 설정</Text>
       {error ? <>
         <WorkMessage error>{error}</WorkMessage>
         <WorkButton label="다시 시도" onPress={() => setAttempt(value => value + 1)} />
@@ -189,8 +189,10 @@ function SetupStep({ step, account, api, onAdvance }: {
         <WorkButton label="로그아웃" secondary disabled={action.busy || account.busy}
           onPress={() => { void account.logout(); }} />
       </View>
-      <Text style={workStyles.hint}>첫 설정 {step}/4</Text>
-      <Text style={workStyles.heading}>{titles[step - 1]}</Text>
+      <View style={workStyles.between}>
+        <Text accessibilityRole="header" style={workStyles.heading}>{titles[step - 1]}</Text>
+        <Text style={styles.step}>첫 설정 {step}/4</Text>
+      </View>
       {loadError ? <>
         <WorkMessage error>{loadError}</WorkMessage>
         <WorkButton label="다시 시도" onPress={() => setAttempt(value => value + 1)} />
@@ -256,9 +258,10 @@ function SetupStep({ step, account, api, onAdvance }: {
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.background },
   scroll: { alignItems: 'center', flexGrow: 1 },
-  frame: { maxWidth: 540, width: '100%', paddingHorizontal: 22, gap: 14 },
-  brand: { color: colors.ink, fontSize: 24, fontWeight: '800' },
-  exampleInput: { paddingRight: 55 },
-  exampleControl: { position: 'absolute', top: 3, right: 3, width: 44, height: 44, borderRadius: 10,
+  frame: { maxWidth: layout.screenWidth, width: '100%', paddingHorizontal: layout.gutter, gap: 16 },
+  brand: workStyles.title,
+  step: { ...workStyles.hint, fontVariant: ['tabular-nums'] },
+  exampleInput: { paddingRight: 56 },
+  exampleControl: { position: 'absolute', top: 4, right: 4, width: layout.touch, height: layout.touch, borderRadius: radius.control,
     alignItems: 'center', justifyContent: 'center' },
 });

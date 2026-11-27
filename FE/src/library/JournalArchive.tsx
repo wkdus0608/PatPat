@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { JournalArchiveEntry } from '../api/v2';
 import { DateArrow, DatePicker } from '../ui/DatePicker';
+import { layout } from '../ui/theme';
 import { WorkMessage, workStyles } from '../ui/WorkFields';
 import { hasRoom, pageSize, type Box } from './archiveLayout';
 
@@ -72,7 +73,7 @@ export function JournalArchive({ records }: { records: JournalArchiveEntry[] }) 
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, gap: 10 },
-  dateLabel: { alignItems: 'center' },
-  page: { paddingHorizontal: 24, paddingTop: 14, paddingBottom: 28, gap: 12 },
+  dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: layout.gutter, gap: 8 },
+  dateLabel: { alignItems: 'center', gap: 4, flexShrink: 1 },
+  page: workStyles.content,
 });

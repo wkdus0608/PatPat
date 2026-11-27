@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createApi, errorMessage } from '../api/client';
 import { createV2Api } from '../api/v2';
-import { colors } from '../ui/theme';
+import { colors, layout } from '../ui/theme';
+import { WorkButton, WorkField, WorkMessage, workStyles } from '../ui/WorkFields';
 import { createAuthController, type Account } from './controller';
 import { createTokenStore } from './tokenStore';
 
@@ -33,6 +34,7 @@ export function AuthGate({ children }: { children(account: Account): ReactNode }
   }
   const signingUp = mode === 'signup';
   const busy = state.busy || creating;
+  const submitLabel = signingUp ? '계정 만들기' : '로그인';
   function changeMode() {
     setMode(signingUp ? 'login' : 'signup');
     setPassword('');
@@ -67,65 +69,42 @@ export function AuthGate({ children }: { children(account: Account): ReactNode }
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={[styles.page, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
-      <ScrollView style={{ width: '100%' }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }} keyboardShouldPersistTaps="handled">
-      <View style={styles.card}>
-        <Text style={styles.brand}>PatPat</Text>
-        <Text style={styles.title}>{signingUp ? '교사 계정 만들기' : '선생님, 안녕하세요'}</Text>
-        <Text style={styles.hint}>{signingUp ? '계정을 만들고 우리 반을 설정해 보세요.' : '교사 계정으로 로그인해 주세요.'}</Text>
-        {state.phase === 'restoring' ? <ActivityIndicator color={colors.ink} accessibilityLabel="로그인 확인 중" /> :
-          state.phase === 'unavailable' ? <>
-            <Text accessibilityRole="alert" style={styles.notice}>{state.notice}</Text>
-            <Pressable style={styles.button} disabled={state.busy} onPress={() => { void controller.restore(); }}><Text>다시 시도</Text></Pressable>
-            <Pressable style={styles.link} disabled={state.busy} onPress={() => { void controller.logout(); }}><Text>다른 계정으로 로그인</Text></Pressable>
-          </> : <>
-            {signingUp && <>
-              <Text style={styles.label}>선생님 이름</Text>
-              <TextInput accessibilityLabel="선생님 이름" value={displayName} onChangeText={setDisplayName}
-                maxLength={60} editable={!busy} style={styles.input} />
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.centered} keyboardShouldPersistTaps="handled">
+        <View style={[workStyles.panel, styles.card]}>
+          <Text style={workStyles.title}>PatPat</Text>
+          <Text accessibilityRole="header" style={workStyles.heading}>{signingUp ? '교사 계정 만들기' : '교사 로그인'}</Text>
+          {state.phase === 'restoring' ? <ActivityIndicator color={colors.ink} accessibilityLabel="로그인 확인 중" /> :
+            state.phase === 'unavailable' ? <>
+              <WorkMessage error>{state.notice}</WorkMessage>
+              <WorkButton label="다시 시도" disabled={state.busy} onPress={() => { void controller.restore(); }} />
+              <WorkButton label="다른 계정으로 로그인" secondary disabled={state.busy} onPress={() => { void controller.logout(); }} />
+            </> : <>
+              {signingUp && <WorkField label="선생님 이름" value={displayName} onChangeText={setDisplayName}
+                maxLength={60} editable={!busy} />}
+              <WorkField label="계정 ID" autoCapitalize="none" autoCorrect={false} autoComplete="username"
+                value={loginId} onChangeText={setLoginId} editable={!busy} />
+              <WorkField label="비밀번호" secureTextEntry autoCapitalize="none" autoCorrect={false}
+                autoComplete={signingUp ? 'new-password' : 'current-password'} value={password} onChangeText={setPassword}
+                editable={!busy} onSubmitEditing={signingUp ? undefined : () => { void submit(); }} />
+              {signingUp && <WorkField label="비밀번호 확인" secureTextEntry autoCapitalize="none" autoCorrect={false}
+                value={confirmation} onChangeText={setConfirmation} editable={!busy} onSubmitEditing={() => { void submit(); }} />}
+              {(signingUp ? signupError : state.notice) && <WorkMessage error>{signingUp ? signupError : state.notice}</WorkMessage>}
+              <View style={styles.actions}>
+                <WorkButton label={submitLabel} busy={busy} disabled={!signingUp && (!loginId.trim() || !password)}
+                  onPress={() => { void submit(); }} />
+                <WorkButton label={signingUp ? '로그인으로 돌아가기' : '회원가입'} secondary disabled={busy} onPress={changeMode} />
+              </View>
             </>}
-            <Text style={styles.label}>계정 ID</Text>
-            <TextInput accessibilityLabel="계정 ID" autoCapitalize="none" autoCorrect={false} autoComplete="username"
-              value={loginId} onChangeText={setLoginId} editable={!busy} style={styles.input} />
-            <Text style={styles.label}>비밀번호</Text>
-            <TextInput accessibilityLabel="비밀번호" secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="current-password"
-              value={password} onChangeText={setPassword} editable={!busy} style={styles.input}
-              onSubmitEditing={signingUp ? undefined : () => { void submit(); }} />
-            {signingUp && <>
-              <Text style={styles.label}>비밀번호 확인</Text>
-              <TextInput accessibilityLabel="비밀번호 확인" secureTextEntry autoCapitalize="none" autoCorrect={false}
-                value={confirmation} onChangeText={setConfirmation} editable={!busy} style={styles.input}
-                onSubmitEditing={() => { void submit(); }} />
-            </>}
-            {(signingUp ? signupError : state.notice) && <Text accessibilityRole="alert" style={styles.notice}>
-              {signingUp ? signupError : state.notice}
-            </Text>}
-            <Pressable accessibilityRole="button" accessibilityLabel={signingUp ? '계정 만들기' : '로그인'}
-              disabled={busy || (!signingUp && (!loginId.trim() || !password))}
-              style={[styles.button, (busy || (!signingUp && (!loginId.trim() || !password))) && styles.disabled]}
-              onPress={() => { void submit(); }}>
-              {busy ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.buttonText}>{signingUp ? '계정 만들기' : '로그인'}</Text>}
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel={signingUp ? '로그인으로 돌아가기' : '회원가입'}
-              disabled={busy} style={styles.link} onPress={changeMode}>
-              <Text style={styles.buttonText}>{signingUp ? '로그인으로 돌아가기' : '회원가입'}</Text>
-            </Pressable>
-          </>}
-      </View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, backgroundColor: colors.background },
-  card: { width: '100%', maxWidth: 440, backgroundColor: colors.white, borderRadius: 24, padding: 24, gap: 12 },
-  brand: { color: colors.ink, fontSize: 30, fontWeight: '800' },
-  title: { color: colors.ink, fontSize: 22, fontWeight: '700' },
-  hint: { color: colors.muted, lineHeight: 22, marginBottom: 12 },
-  label: { color: colors.ink, fontWeight: '600' },
-  input: { minHeight: 48, borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12, color: colors.ink, backgroundColor: colors.background },
-  notice: { color: colors.rose, lineHeight: 22 },
-  button: { minHeight: 50, backgroundColor: colors.yellow, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
-  disabled: { opacity: 0.5 }, buttonText: { color: colors.ink, fontWeight: '700', fontSize: 16 },
-  link: { padding: 12, alignItems: 'center' },
+  page: { flex: 1, paddingHorizontal: layout.gutter, backgroundColor: colors.background },
+  scroll: { width: '100%' },
+  centered: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
+  card: { width: '100%', maxWidth: 440, padding: 24, gap: 16 },
+  actions: { gap: 8, marginTop: 4 },
 });

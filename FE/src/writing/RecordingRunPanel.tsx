@@ -77,6 +77,6 @@ export function RecordingRunPanel({ run, busy, recordings, onRetry, onApply, onD
 
 const styles = StyleSheet.create({
   actions: { flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 },
-  backdrop: { flex: 1, backgroundColor: '#49372C66', justifyContent: 'center', alignItems: 'center', padding: 22 },
-  dialog: { width: '100%', maxWidth: 410, padding: 20 },
+  backdrop: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  dialog: { width: '100%', maxWidth: 412, padding: 20 },
 });
