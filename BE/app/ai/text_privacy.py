@@ -13,6 +13,14 @@ RESULT_NAME = re.compile(
     re.IGNORECASE,
 )
 PEER_PARTICLES = {"을": "를", "은": "는", "과": "와"}
+_RESTORED_NAME = re.compile(TRANSPORT + r"(이(?=[를은는가와랑의도만에께라\s.,!?]|$))?([을은과])?")
+
+
+def mask_transport_peers(text: str, subject: str, replacement: str) -> str:
+    return _RESTORED_NAME.sub(
+        lambda match: match[0] if subject and match[0].startswith(subject)
+        else replacement + PEER_PARTICLES.get(match[3], ""), text,
+    )
 
 
 def is_protected(session: dict) -> bool:

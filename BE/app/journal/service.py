@@ -114,7 +114,8 @@ class JournalService:
 
         def write() -> dict:
             result = self.ai.call(request, teacher_id=teacher_id, protect_text=protect_text, visible_child=child_id)
-            content = schemas.render_journal(result.data, block.text, block.areas)
+            subject = f"⟦C:{child_id}⟧" if protect_text else child["name"]
+            content = schemas.render_journal(result.data, block.text, block.areas, subject=subject)
             content = drop_unconfirmed_time_prefix(content, source=block.text, confirmed_time=block.time_text)
             return {"content": mask_names(content, other_names, replacement="또래")}
 
@@ -282,7 +283,8 @@ class JournalService:
             )
         result = self.ai.call(request, teacher_id=teacher_id, session_id=notice["session_id"],
                               protect_text=protect_text, visible_child="" if common else child.child_id)
-        written = schemas.render_journal(result.data, body, block.areas)
+        subject = "" if common else f"⟦C:{child.child_id}⟧" if protect_text else child.name
+        written = schemas.render_journal(result.data, body, block.areas, subject=subject)
         if not common:
             written = drop_unconfirmed_time_prefix(written, source=body, confirmed_time=block.time_text)
         return mask_names(written, other_names), False

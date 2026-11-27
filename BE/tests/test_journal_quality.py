@@ -84,6 +84,13 @@ def test_different_facts_that_share_a_few_words_are_kept():
     assert drop_repeated_sentences(parts) == parts
 
 
+def test_common_journal_keeps_the_activity_without_inventing_its_motive_or_support():
+    data = {"content": "계기: 블록에 흥미를 보이는 영유아들을 고려하여 유희실에서 동네를 만들도록 지원함.",
+            "incident": "", "learning": []}
+    assert render_journal(data, "유희실에서 블록으로 동네를 만들었다.", ()) == "유희실에서 동네를 만듦."
+    assert render_journal(data, "블록에 흥미를 보여 교사가 만들도록 지원했다.", ()) == data["content"]
+
+
 def test_a_longer_later_sentence_with_a_new_fact_is_not_dropped():
     parts = ["블록으로 다리를 만듦.", "블록으로 다리를 만들다 무너지자 받침을 하나 더 놓아 다시 시험해 봄."]
     assert drop_repeated_sentences(parts) == parts

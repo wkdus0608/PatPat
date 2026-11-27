@@ -6,7 +6,7 @@ import pytest
 
 from app.ai import observations
 from app.ai.fake import _review as fake_review
-from app.ai.schemas import INCIDENT_NOTICE_SCHEMA, render_notice
+from app.ai.schemas import INCIDENT_NOTICE_SCHEMA, render_journal, render_notice
 from app.ai.types import AITask, AIUnavailable
 from app.pipeline.service import mode_and_answers
 from app.core.timeutil import new_id, now_iso
@@ -99,6 +99,37 @@ def test_notice_keeps_pickup_guidance_only_in_the_incident_section(tmp_path):
         assert notice_of(env, session_id, second)["edited_text"] == (
             f"{shared}\n\n{bridge}\n\n특이사항\n{injury} {pickup}"
         )
+
+
+def test_mixed_draft_preserves_the_observed_play_and_the_puller_without_exposing_peer_names():
+    own = "⟦C:11111111-0000-4000-8000-000000000001⟧"
+    peer = "⟦C:22222222-0000-4000-8000-000000000002⟧"
+    source = (f"{own}이가 {peer}이와 종이빵을 접시에 진열했다. "
+              f"이후 {peer}이가 {own}이가 잡은 초록 삽을 당겼다. {own}이가 손을 놓고 주저앉아 손바닥이 쓸렸다.")
+    wrong = f"{own}이는 또래가 잡고 있던 초록 삽을 당기는 일이 있었어요. 손바닥이 쓸렸어요."
+    notice = render_notice({"text": "", "special_notes": wrong, "missing_injury_details": []},
+                           incident=True, source=source, subject=own)
+    assert notice == (
+        f"{own}이가 친구와 종이빵을 접시에 진열했어요.\n\n특이사항\n"
+        "아이가 잡고 있던 초록 삽을 친구가 당겼어요. 손바닥이 쓸렸어요."
+    )
+    response = {"content": "", "incident": f"또래가 잡고 있던 초록 삽을 {own}이가 당김. {own}이가 손을 놓음.", "learning": []}
+    journal = render_journal(response, source, (), subject=own)
+    assert journal == (
+        "아동이 또래와 종이빵을 접시에 진열했음. 아동이 잡고 있던 초록 삽을 또래가 당김. 아동이 손을 놓음."
+    )
+    peer_response = {"content": "", "incident": "또래가 손을 놓고 주저앉음. 초록 삽을 당김.", "learning": []}
+    assert "또래가 손을 놓고 주저앉아 손바닥이 쓸렸음." in render_journal(peer_response, source, (), subject=peer)
+
+
+def test_mixed_draft_preserves_routine_and_does_not_infer_a_fall_from_a_stumble():
+    source = "빨간 집 모양 블록을 쌓았다. 이후 놀이터에서 발을 헛디뎌 왼쪽 무릎이 살짝 쓸렸다."
+    notice = render_notice({"text": "", "special_notes": "놀이터에서 발을 헛디뎌 넘어졌고, 왼쪽 무릎이 살짝 쓸렸어요.",
+                            "missing_injury_details": []}, incident=True, source=source)
+    assert notice.startswith("빨간 집 모양 블록을 쌓았어요.\n\n특이사항\n") and "넘어" not in notice
+    journal = render_journal({"content": "", "incident": "놀이터에서 발을 헛디뎌 넘어짐. 왼쪽 무릎이 살짝 쓸림. "
+                                                        "빨간 집 모양 블록을 쌓은 뒤 발생함."}, source, ())
+    assert journal.startswith("빨간 집 모양 블록을 쌓았음.") and "넘어" not in journal and journal.count("빨간 집") == 1
 
 
 def ask_about_the_pair(request):

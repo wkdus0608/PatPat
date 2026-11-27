@@ -494,7 +494,7 @@ class PipelineService:
         text = schemas.render_notice(
             self._call(request, ctx, visible_child=child.child_id).data,
             incident=inputs["incident"], unresolved_side=inputs["unresolved_side"],
-            source=source,
+            source=source, subject=f"⟦C:{child.child_id}⟧" if ctx.protect_text else child.name,
         )
         text = drop_unconfirmed_time_prefix(
             text, source=source, confirmed_time=inputs["block"].time_text, child_name=child.name,

@@ -2,6 +2,7 @@
 import re
 
 from app.ai.observations import confirmed_color, confirmed_injury_details
+from app.ai.text_privacy import TRANSPORT, mask_transport_peers
 from app.ai.types import AIBadOutput
 from app.rules.loader import AREAS
 
@@ -250,7 +251,60 @@ def _separate_incident_intro(body: str, notes: str, source: str) -> tuple[str, s
     return body, " ".join(written[written_start:])
 
 
-def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, source: str = "") -> str:
+def _recover_routine(source: str, *, journal: bool) -> str:
+    sentences = _SENTENCE_BREAK.split(source.strip())
+    boundary = next((index for index, line in enumerate(sentences) if _INCIDENT_START.match(line)), 0)
+    routine = sentences[:boundary]
+    if not routine or _INCIDENT_DETAIL.search(" ".join(routine)) or not _INCIDENT_DETAIL.search(" ".join(sentences[boundary:])):
+        return ""
+    # Change only a confirmed past-tense ending, leaving the entire observation intact.
+    if any(len(line) < 3 or not line.endswith("다.") or not "가" <= line[-3] <= "힣"
+           or (ord(line[-3]) - 0xAC00) % 28 != 20 for line in routine):
+        return ""
+    ending = "음." if journal else "어요."
+    return " ".join(line[:-2] + ending for line in routine)
+
+
+_PEER_REFERENCE = rf"(?:{TRANSPORT}|친구|또래)"
+_SUBJECT_PARTICLE = r"(?:이가|이는|가|는|은|이)"
+
+
+def _preserve_incident_facts(text: str, source: str, subject: str, *, journal: bool) -> str:
+    """Preserve the stated outcome and the actor of an explicitly described dispute."""
+    if "헛디뎌" in source and "넘어" not in source:
+        text = text.replace("헛디뎌 넘어졌", "헛디뎠").replace("헛디뎌 넘어짐", "헛디딤")
+    if not subject:
+        return text
+    actor = rf"(?:{re.escape(subject)}|{_PEER_REFERENCE}){_SUBJECT_PARTICLE}"
+    pattern = re.compile(
+        rf"(?:(?P<first>{actor})\s+)?(?P<holder>{actor})\s+잡(?:고\s+있던|은)\s+"
+        rf"(?P<object>[가-힣 ]{{1,28}}?[을를])\s+(?:(?P<last>{actor})\s+)?당겼다\."
+    )
+    observations = [pattern.fullmatch(_INCIDENT_START.sub("", line)) for line in _SENTENCE_BREAK.split(source.strip())]
+    matched = [item for item in observations if item and bool(item["first"]) != bool(item["last"])]
+    if len(matched) != 1:
+        return text
+    event = matched[0]
+    holder_is_subject = event["holder"].startswith(subject)
+    puller_is_subject = (event["first"] or event["last"]).startswith(subject)
+    if holder_is_subject == puller_is_subject:
+        return text
+    own, other, action = ("아동이", "또래가", "당김.") if journal else ("아이가", "친구가", "당겼어요.")
+    holder, puller = (own, other) if holder_is_subject else (other, own)
+    wording = f"{holder} 잡고 있던 {event['object']} {puller} {action}"
+    sentence = re.compile(rf"(?=\S)[^.?!]*{re.escape(event['object'])}[^.?!]*당(?:겼어요|기는 일이 있었어요|김|겼음)\.")
+    text = sentence.sub(wording, text, count=1)
+    if journal and not holder_is_subject:
+        # Preserve an explicitly observed peer injury in the internal record when the draft only records the impact.
+        impact = re.search(rf"{re.escape(event['holder'])}\s+(?P<action>[^.?!]*?주저앉)아 (?P<injury>[^.?!]*쓸렸)다\.", source)
+        if impact:
+            abridged = f"또래가 {impact['action']}음."
+            full = f"또래가 {impact['action']}아 {impact['injury']}음."
+            text = text.replace(abridged, full, 1)
+    return text
+
+
+def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, source: str = "", subject: str = "") -> str:
     if not incident:
         text = clean_routine_notice(require_text(data, "text"), source)
         return _preserve_confirmed_color(text, source)
@@ -269,6 +323,7 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, 
         missing_details.add("laterality")
     markers = [label for key, label in INJURY_CONFIRMATION_LABELS.items() if key in missing_details]
     body, special_notes = _separate_incident_intro(body.strip(), special_notes, source)
+    special_notes = _preserve_incident_facts(special_notes, source, subject, journal=False)
     special_notes = "".join(
         _PEER_INJURY_DETAILS.sub(
             lambda match: (" " if match["continuation"] else "") + "친구가 다쳤어요." + (" " if match["linked"] else ""),
@@ -277,7 +332,8 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, 
         for part in re.split(r"(?<=[.!?])(\s+)", special_notes)
     )
     section = "\n".join((NOTICE_INCIDENT_HEADING, special_notes, *markers))
-    body = _preserve_confirmed_color(clean_routine_notice(body, source), source)
+    body = clean_routine_notice(body, source) or _recover_routine(source, journal=False)
+    body = mask_transport_peers(_preserve_confirmed_color(body, source), subject, "친구")
     return "\n\n".join(part for part in (body, section) if part)
 
 
@@ -315,15 +371,45 @@ _OBSERVED_UTTERANCE = re.compile(
     r"""["'“‘]([^"'”’\n]{1,80})["'”’]\s*이?라고\s*(?:말했|이야기했|대답했|물었|외쳤)"""
     r"(?:다|어요|습니다|음)(?=\s*(?:[.!?]|$))"
 )
+_JOURNAL_MOTIVE = re.compile(
+    r"^(?:계기:\s*)?[^.!?\n]*(?:흥미|관심)를\s*보이는\s*(?:영유아|유아|영아|아이)들?을\s*고려하여\s*"
+)
 
 
-def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
+def _journal_subject(text: str, subject: str) -> str:
+    text = mask_transport_peers(text, subject, "또래")
+    if not subject:
+        return text
+    name = rf"(?<![가-힣]){re.escape(subject)}(?:이(?=[가는]))?(가|는|이|은)(?=\s)"
+    text = re.sub(name, lambda match: "아동" + {"가": "이", "는": "은"}.get(match[1], match[1]), text)
+    return text.replace(subject, "아동") if subject.startswith("⟦C:") else text
+
+
+def render_journal(data: dict, source: str, areas: tuple[str, ...], *, subject: str = "") -> str:
     content = data.get("content")
     if not isinstance(content, str):
         raise AIBadOutput("AI 응답에 관찰내용이 없습니다.")
+    if not subject and not re.search(r"흥미|관심", source):
+        content, removed = _JOURNAL_MOTIVE.subn("", content, count=1)
+        if removed and not re.search(r"교사|선생님|지원|제공", source):
+            content = content.replace("만들도록 지원함.", "만듦.", 1)
     content = _preserve_confirmed_color(content, source, journal=True)
-    parts = [content.strip()] if content.strip() else []
     incident = data.get("incident")
+    if isinstance(incident, str) and incident.strip():
+        recovered = _recover_routine(source, journal=True) if not content.strip() else ""
+        content = _journal_subject(content.strip() or recovered, subject)
+        incident = _preserve_incident_facts(incident, source, subject, journal=True)
+        incident = _journal_subject(incident, subject)
+        if recovered:
+            # A generated chronology may repeat the recovered observation without adding a fact.
+            words = _bigrams(content)
+            tail = " 뒤 발생함."
+            incident = " ".join(
+                line for line in _SENTENCE_BREAK.split(incident)
+                if not line.endswith(tail) or not (terms := _bigrams(line.removesuffix(tail)))
+                or len(terms & words) / len(terms) < 0.65
+            )
+    parts = [content.strip()] if content.strip() else []
     if isinstance(incident, str) and incident.strip() and incident.strip() not in content:
         parts.append(incident.strip())  # 일어난 일(내용 → 사건사고)을 먼저 쓰고 해석(learning)은 마지막에 붙인다(2026-11-22 사용자 결정)
     selected = set(areas or AREAS)
@@ -353,7 +439,8 @@ def render_journal(data: dict, source: str, areas: tuple[str, ...]) -> str:
     parts = drop_repeated_sentences(parts + interpretations)
     if not parts:
         raise AIBadOutput("AI 응답에 작성된 관찰내용이 없습니다.")
-    return " ".join(parts)
+    text = " ".join(parts)
+    return _journal_subject(text, subject) if isinstance(incident, str) and incident.strip() else text
 
 
 def cap_detail_questions(flags: list[dict], rank: dict[str, int] | None = None) -> list[dict]:
