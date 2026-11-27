@@ -86,17 +86,16 @@ classes:
     evidence: [로그 4, 로그 7, 로그 8]
     attributes:
       record_id: {type: string, key: true, note: 기록 식별 설계}
-      target_period: {type: string, note: 교사가 관찰을 모아 기록하는 대상 기간, evidence: [로그 8]}
+      target_period: {type: string, note: 교사가 관찰을 모아 기록하는 대상 기간. 주간 자동 생성은 월요일~일요일을 사용함, evidence: [로그 8]}
       observed_date: {type: string, note: 관찰이 발생한 날. 현재 v2의 아동별 일지 조회·편집 기준은 SPEC 5-2절 참조}
     relations:
       - about: Child
         evidence: [로그 4, 로그 8]
       - includes: Observation
         evidence: [로그 7, 로그 8]
+        note: 주간 생성에서는 저장된 관찰과 교사 확인을 바탕으로 다섯 영역에 해당하는 장면을 선택한다.
       - reviewed_by: Teacher
         note: 교사가 일지 내용을 조회하고 편집하는 팀 설계. SPEC 5-2절 참조
-      - draws_from: DailyNote
-        note: 현재 v2의 팀 설계. 연결된 알림장 작성 과정에서 일지 초안을 준비할 수 있다. 이 관계는 모든 관찰일지의 필수 조건으로 정의하지 않는다. SPEC 4절·5-2절 참조
 
 rules:
   - common은 공통 문장에 사용하며 개별 근거로 대신하지 않는다.

@@ -16,6 +16,7 @@ from app.journal.days import editable_day, group_days
 from app.journal.schemas import (
     DaysPatch, EntryPatch, JournalArchiveEntry, JournalChild, JournalDayResponse, JournalEntryResponse, JournalObservation,
     JournalOutput, JournalResponse, JournalTemplate, StandaloneJournalCreate,
+    WeeklyAnswers, WeeklyConfirmation, WeeklyDraft, WeeklySaved,
 )
 from app.rules.loader import AREAS
 from app.schemas.common import ErrorResponse
@@ -115,6 +116,27 @@ def draft_standalone(
     child_id: str, body: JournalObservation, teacher: CurrentTeacher, services: ServicesDependency, protect_text: bool = False,
 ) -> JobResponse:
     return job_response(services.journal.draft_standalone(teacher.teacher_id, child_id, body, protect_text=protect_text))
+
+
+@journal_router.post("/children/{child_id}/journal/weekly/draft", status_code=202, response_model=JobResponse)
+def draft_week(
+    child_id: str, body: WeeklyDraft, teacher: CurrentTeacher, services: ServicesDependency,
+) -> JobResponse:
+    return job_response(services.journal.weekly.draft(teacher.teacher_id, child_id, body.week_of))
+
+
+@journal_router.post("/children/{child_id}/journal/weekly/{job_id}/answers", status_code=202, response_model=JobResponse)
+def answer_week(
+    child_id: str, job_id: str, body: WeeklyAnswers, teacher: CurrentTeacher, services: ServicesDependency,
+) -> JobResponse:
+    return job_response(services.journal.weekly.answer(teacher.teacher_id, child_id, job_id, body.answers))
+
+
+@journal_router.post("/children/{child_id}/journal/weekly/{job_id}/confirm", response_model=WeeklySaved)
+def confirm_week(
+    child_id: str, job_id: str, body: WeeklyConfirmation, teacher: CurrentTeacher, services: ServicesDependency,
+) -> WeeklySaved:
+    return WeeklySaved(saved_dates=services.journal.weekly.confirm(teacher.teacher_id, child_id, job_id, body.entries))
 
 
 @journal_router.get(

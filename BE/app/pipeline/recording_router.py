@@ -20,6 +20,7 @@ class StartRecordingDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
     recording_ids: list[str]
     child_ids: list[str] | None = None
+    prepare_journals: bool = True
 
 
 class DraftAnswers(BaseModel):
@@ -89,7 +90,8 @@ def start_recording_draft(
         raise ApiError(status_code=422, code="DUPLICATE_SELECTION", message="같은 녹음이나 아이를 한 번만 선택해 주세요.")
     if body.child_ids is None and not body.recording_ids:
         raise ApiError(status_code=422, code="NO_RECORDINGS", message="사용할 녹음을 선택해 주세요.")
-    services.recording_drafts.start(teacher, session_id, body.recording_ids, body.child_ids)
+    services.recording_drafts.start(teacher, session_id, body.recording_ids, body.child_ids,
+                                    prepare_journals=body.prepare_journals)
     return _response(services, teacher, session_id)
 
 

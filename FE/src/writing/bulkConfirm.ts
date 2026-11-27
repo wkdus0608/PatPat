@@ -10,10 +10,7 @@ export type BulkResult = {
   failed: { name: string; reason: string }[];
 };
 
-/**
- * 검토중인 알림장을 한 번에 확정한다. 아이마다 순서대로 처리하고, 관찰일지 업데이트 여부를 골라야 하는 알림장과
- * 다시 쓰는 중인 알림장은 건너뛴다(그 아이에서 따로 확정한다). 한 건이 실패해도 나머지는 계속한다.
- */
+// 한 건이 실패해도 나머지 검토 중인 알림장은 계속 확정한다.
 export async function confirmReviewing(api: BulkConfirmApi, notices: NoticeSummary[]): Promise<BulkResult> {
   const result: BulkResult = { confirmed: [], skipped: [], failed: [] };
   for (const summary of notices) {
@@ -24,10 +21,6 @@ export async function confirmReviewing(api: BulkConfirmApi, notices: NoticeSumma
     }
     try {
       const notice = await api.notice(summary.notice_id);
-      if (notice.needs_journal_update_choice) {
-        result.skipped.push({ name: summary.child_name, reason: '관찰일지 업데이트 여부를 골라야 해요.' });
-        continue;
-      }
       await api.confirmNotice(notice.notice_id, notice.version);
       result.confirmed.push(summary.child_name);
     } catch {

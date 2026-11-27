@@ -56,11 +56,13 @@ class NoticeService:
 
     def confirm(
         self, teacher_id: str, notice_id: str, expected_version: int, *, update_journal: bool | None = None,
-        protect_text: bool = False,
+        protect_text: bool = False, sync_journal: bool = True,
     ) -> tuple[dict, dict | None]:
         """Confirm the saved text, then start the journal work selected for this version."""
         self._idle(teacher_id, notice_id)
-        notice, journal_action = self.store.confirm(teacher_id, notice_id, expected_version, update_journal=update_journal)
+        notice, journal_action = self.store.confirm(
+            teacher_id, notice_id, expected_version, update_journal=update_journal, sync_journal=sync_journal,
+        )
         if self.journal is not None:
             if journal_action == "refresh":
                 return notice, self.journal.refresh_from_notice(teacher_id, notice, protect_text=protect_text)

@@ -236,7 +236,7 @@ class PipelineService:
 
     def review_context(
         self, ctx: DraftContext, *, prepare_journals: bool, previous_answers: list[dict] | None = None,
-        include_profiles: bool = False, ask_thin: bool = False,
+        include_profiles: bool = False, ask_thin: bool = False, collect_metadata: bool = False,
     ) -> dict:
         """ask_thin이 참이면 입력이 얇은 아이와 하지 않은 일이 적힌 아이에게 사실을 더 묻게 한다(알림장 생성 경로)."""
         names = {child.child_id: child.name for child in ctx.present}
@@ -268,7 +268,7 @@ class PipelineService:
                     "options": list(observations.SIDE_OPTIONS),
                 })
         sources = {}
-        if prepare_journals:
+        if prepare_journals or collect_metadata:
             for block in reviewed_blocks.values():
                 missing = [key for key in METADATA_LABELS if not (getattr(block, key) or "").strip()]
                 if block.text.strip() and missing:
@@ -311,7 +311,9 @@ class PipelineService:
         self, teacher_id: str, session_id: str, *, ask_missing_areas: bool, prepare_journals: bool, manual_areas: bool,
     ) -> dict:
         ctx = self._load(teacher_id, session_id)
-        review = self.review_context(ctx, prepare_journals=prepare_journals, ask_thin=True)
+        review = self.review_context(
+            ctx, prepare_journals=prepare_journals, ask_thin=True, collect_metadata=manual_areas,
+        )
         if manual_areas:
             review["manual_areas"] = True
         elif ask_missing_areas and ctx.areas_missing:

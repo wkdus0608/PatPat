@@ -4,13 +4,16 @@ A row is a copy of one paragraph's worth of the day: the shared (common) paragra
 paragraph are separate rows, as in the 관찰일지 forms the teachers paste into. Rows the teacher edited are
 never overwritten by a later re-confirm; they are only marked outdated.
 """
+import hashlib
 import json
 
+from app.ai import observations
 from app.core.database import Database
 from app.core.errors import ApiError
 from app.core.timeutil import new_id, now_iso
 from app.journal.days import day_text, editable_day, group_days
 from app.journal.interpretation import split_interpretation
+from app.rules.loader import AREAS, age_band_from_label
 
 NO_INDIVIDUAL_NOTE = "개별 관찰 없음(반 공통 활동만 기록함)."
 _DAY_ORDER = "(e.notice_id IS NULL), (e.block_kind='individual'), e.created_at, e.rowid"
@@ -30,6 +33,15 @@ _SELECT = (
 
 def entry_not_found() -> ApiError:
     return ApiError(status_code=404, code="NOT_FOUND", message="관찰일지 행을 찾을 수 없습니다.")
+
+
+def weekly_evidence_hash(text: str) -> str:
+    return hashlib.sha256(" ".join(text.split()).encode("utf-8")).hexdigest()
+
+
+def _shared_value(entries: list[dict], key: str) -> str | None:
+    values = {entry[key] for entry in entries}
+    return next(iter(values)) if len(values) == 1 else None
 
 
 class JournalStore:
@@ -161,6 +173,145 @@ class JournalStore:
         return row["content"] if row else None
 
     # --- writing -------------------------------------------------------------------------------------------------------
+    def weekly_sources(self, teacher_id: str, child_id: str, start: str, end: str) -> list[dict]:
+        sources = []
+        seen = set()
+
+        def add(block: dict, flags: list[dict], observed_date: str, age_label: str | None) -> None:
+            owner = block["child_id"]
+            text, _ = observations.confirmed_observation(block["text"], flags, owner)
+            parts = [text.strip()]
+            for flag in flags:
+                if (flag["status"] == "answered" and (flag["child_ids"] == [owner] if owner else not flag["child_ids"])
+                        and flag["kind"] not in ("area", "recording_scope", "place", "time_text",
+                                                 *observations.SOURCE_CONFIRMATION_KINDS)):
+                    answer, _ = observations.strip_writing_requests(flag["answer"] or "")
+                    if answer and not (flag["kind"] == "incident" and answer in ("부드럽게", "그대로")):
+                        parts.append(f"교사 확인 ({flag['question']}): {answer}")
+            lines = []
+            for part in parts:
+                for line in part.splitlines():
+                    key = observed_date, owner, line.strip()
+                    if key[2] and key not in seen:
+                        seen.add(key)
+                        lines.append(line.strip())
+            if lines:
+                sources.append({
+                    "date": observed_date, "text": "\n".join(lines), "scope": "individual" if owner else "common",
+                    "age_band": age_band_from_label(age_label), "place": block.get("place"), "time_text": block.get("time_text"),
+                })
+
+        with self.database.connect() as connection:
+            connection.execute("BEGIN")
+            sessions = connection.execute(
+                "SELECT s.session_id, s.target_date, r.age_label, a.payload FROM writing_sessions s "
+                "JOIN input_blocks b ON b.session_id=s.session_id AND b.child_id=? AND b.absent=0 "
+                "JOIN classrooms r USING(classroom_id) "
+                "LEFT JOIN notices n ON n.session_id=s.session_id AND n.child_id=b.child_id "
+                "LEFT JOIN notice_recording_sources a USING(notice_id) "
+                "WHERE s.teacher_id=? AND s.target_date BETWEEN ? AND ? ORDER BY s.target_date, s.rowid",
+                (child_id, teacher_id, start, end),
+            ).fetchall()
+            for session in sessions:
+                observed_date, age = session["target_date"], session["age_label"]
+                blocks = connection.execute(
+                    "SELECT child_id, text, place, time_text FROM input_blocks WHERE session_id=? "
+                    "AND (child_id=? OR child_id IS NULL) ORDER BY child_id IS NOT NULL",
+                    (session["session_id"], child_id),
+                ).fetchall()
+                flags = [dict(flag, child_ids=json.loads(flag["child_ids"])) for flag in connection.execute(
+                    "SELECT * FROM review_flags WHERE session_id=? AND status='answered' ORDER BY seq", (session["session_id"],),
+                )]
+                for block in blocks:
+                    add(dict(block), flags, observed_date, age)
+                if session["payload"]:
+                    audio = json.loads(session["payload"])
+                    for block in audio["blocks"]:
+                        if block["child_id"] in (None, child_id):
+                            add(block, audio["flags"], observed_date, age)
+            for note in connection.execute(
+                "SELECT q.child_id, q.note_date, q.text, r.age_label FROM quick_notes q "
+                "LEFT JOIN child_profiles p USING(child_id) LEFT JOIN classrooms r USING(classroom_id) "
+                "WHERE q.teacher_id=? AND q.child_id=? AND q.note_date BETWEEN ? AND ? AND q.imported_session_id IS NULL "
+                "ORDER BY q.note_date, q.rowid", (teacher_id, child_id, start, end),
+            ):
+                add(dict(note), [], note["note_date"], note["age_label"])
+        return sorted(sources, key=lambda source: source["date"])
+
+    def weekly_saved_evidence(self, teacher_id: str, child_id: str, start: str, end: str) -> set[tuple[str, str]]:
+        with self.database.connect() as connection:
+            return {(row["observed_date"], row["evidence_hash"]) for row in connection.execute(
+                "SELECT observed_date, evidence_hash FROM weekly_journal_saves WHERE teacher_id=? AND child_id=? "
+                "AND observed_date BETWEEN ? AND ?", (teacher_id, child_id, start, end),
+            )}
+
+    def save_weekly(self, teacher_id: str, child_id: str, job_id: str, days: dict[str, list[dict]]) -> list[str]:
+        """Save an approved batch atomically and make exact retries idempotent."""
+        stamp = now_iso()
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            child = connection.execute(
+                "SELECT p.classroom_id FROM children c LEFT JOIN child_profiles p ON p.child_id=c.child_id "
+                "WHERE c.teacher_id=? AND c.child_id=? AND c.is_active=1", (teacher_id, child_id),
+            ).fetchone()
+            if child is None:
+                raise ApiError(status_code=404, code="NOT_FOUND", message="명단에서 아동을 찾을 수 없어요.")
+            for observed_date, items in days.items():
+                key = (teacher_id, child_id, observed_date)
+                pending = []
+                for entry in items:
+                    evidence_hash = weekly_evidence_hash(entry["evidence"])
+                    content_hash = hashlib.sha256(entry["content"].encode("utf-8")).hexdigest()
+                    saved = connection.execute(
+                        "SELECT job_id, selected_index, content_hash FROM weekly_journal_saves "
+                        "WHERE teacher_id=? AND child_id=? AND observed_date=? AND evidence_hash=?", (*key, evidence_hash),
+                    ).fetchone()
+                    if saved is not None:
+                        if tuple(saved) == (job_id, entry["index"], content_hash):
+                            continue
+                        raise ApiError(status_code=409, code="WEEKLY_JOURNAL_ALREADY_SAVED",
+                                       message=f"{observed_date}의 이 장면을 이미 저장했어요. 목록에서 수정할 수 있어요.")
+                    pending.append(entry)
+                    connection.execute(
+                        "INSERT INTO weekly_journal_saves(teacher_id, child_id, observed_date, job_id, selected_index, "
+                        "evidence_hash, content_hash) VALUES (?,?,?,?,?,?,?)",
+                        (*key, job_id, entry["index"], evidence_hash, content_hash),
+                    )
+                if not pending:
+                    continue
+                content = "\n\n".join(entry["content"] for entry in pending)
+                areas = {entry["area"] for entry in pending}
+                existing = connection.execute(
+                    "SELECT entry_id, areas FROM journal_entries "
+                    "WHERE teacher_id=? AND child_id=? AND observed_date=? AND notice_id IS NULL", key,
+                ).fetchone()
+                if existing:
+                    areas.update(json.loads(existing["areas"]))
+                    connection.execute(
+                        "UPDATE journal_entries SET content=content || char(10) || char(10) || ?, "
+                        "areas=?, version=version+1, updated_at=? WHERE entry_id=?",
+                        (content, json.dumps([area for area in AREAS if area in areas], ensure_ascii=False),
+                         stamp, existing["entry_id"]),
+                    )
+                else:
+                    connection.execute(
+                        "INSERT INTO journal_entries(entry_id, teacher_id, child_id, observed_date, classroom_id, block_kind, "
+                        "place, time_text, areas, content, status, source_notice_version, created_at, updated_at) "
+                        "VALUES (?,?,?,?,?,'individual',?,?,?,?,'ready',0,?,?)",
+                        (new_id(), *key, child["classroom_id"], _shared_value(pending, "place"), _shared_value(pending, "time_text"),
+                         json.dumps([area for area in AREAS if area in areas], ensure_ascii=False), content, stamp, stamp),
+                    )
+                self._append_day_edit(connection, key, content)
+        return list(days)
+
+    @staticmethod
+    def _append_day_edit(connection, key: tuple[str, str, str], content: str) -> None:
+        # A combined day edit replaces its source rows when rendered. Keep the new observation visible there too.
+        connection.execute(
+            "UPDATE journal_day_edits SET content=content || char(10) || char(10) || ?, version=version+1 "
+            "WHERE teacher_id=? AND child_id=? AND observed_date=?", (content, *key),
+        )
+
     def save_standalone(
         self, teacher_id: str, child_id: str, observed_date: str, *,
         content: str, areas: list[str], place: str | None, time_text: str | None,
@@ -192,11 +343,7 @@ class JournalStore:
                 "VALUES (?,?,?,?,?,'individual',?,?,?,?,'ready',0,?,?)",
                 (entry_id, *key, child["classroom_id"], place, time_text, encoded_areas, content, stamp, stamp),
             )
-            # An existing day edit replaces its source rows when rendered. Keep the new observation visible there too.
-            connection.execute(
-                "UPDATE journal_day_edits SET content=content || char(10) || char(10) || ?, version=version+1 "
-                "WHERE teacher_id=? AND child_id=? AND observed_date=?", (content, *key),
-            )
+            self._append_day_edit(connection, key, content)
             return self._entry(connection.execute(_SELECT + " WHERE e.entry_id=?", (entry_id,)).fetchone())
 
     def has_input_rows(self, notice_id: str) -> bool:

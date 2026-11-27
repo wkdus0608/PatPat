@@ -364,6 +364,21 @@ MIGRATIONS: tuple[tuple[str, str], ...] = (
             ON journal_entries(teacher_id, child_id, observed_date) WHERE notice_id IS NULL;
         """,
     ),
+    (
+        "015_weekly_journal",
+        """
+        CREATE TABLE weekly_journal_saves (
+            teacher_id TEXT NOT NULL REFERENCES teachers(teacher_id),
+            child_id TEXT NOT NULL REFERENCES children(child_id),
+            observed_date TEXT NOT NULL,
+            job_id TEXT NOT NULL REFERENCES jobs(job_id),
+            selected_index INTEGER NOT NULL,
+            evidence_hash TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            PRIMARY KEY (teacher_id, child_id, observed_date, evidence_hash)
+        );
+        """,
+    ),
 )
 
 

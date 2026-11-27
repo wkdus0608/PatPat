@@ -11,6 +11,7 @@ import { WorkButton, WorkField, WorkMessage, useWorkAction, workStyles } from '.
 import { WORD_DEFAULT_HINT, outputButtonLabel, outputStatusMessage, wordUnavailableMessage } from './journalOutputView';
 import { monthRange, weekRange } from './journalRange';
 import { StandaloneJournalForm } from './StandaloneJournalForm';
+import { WeeklyJournalForm } from './WeeklyJournalForm';
 import { saveWordFile } from './wordFiles';
 
 type Draft = JournalDayEdit & { original: string };
@@ -182,7 +183,7 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
   const [attempt, setAttempt] = useState(0);
   const [range, setRange] = useState<DateRange>({ from: null, to: null });
   const [editingIds, setEditingIds] = useState<string[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<'weekly' | 'manual' | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const localSaves = useRef(0);
   const legacy = account.api;
@@ -244,7 +245,7 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
   }
   function onCreated(childName: string, observedDate: string) {
     localSaves.current += 1;
-    setCreating(false);
+    setCreating(null);
     setSavedMessage(childName + ' · ' + observedDate + ' 관찰일지를 저장했어요.');
     if ((range.from && observedDate < range.from) || (range.to && observedDate > range.to)) {
       changeRange({ from: observedDate, to: observedDate });
@@ -261,22 +262,38 @@ export function JournalWorkspace({ api, account, active, rosterVersion, journalV
   return (
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={workStyles.content}>
       {savedMessage && <WorkMessage>{savedMessage}</WorkMessage>}
-      {creating && journals ? <StandaloneJournalForm api={api} children={journals.map(journal => journal.child)}
-        onSaved={onCreated} onClose={() => setCreating(false)} />
-        : !!journals?.length && <WorkButton label="새 관찰일지 작성" disabled={editingIds.length > 0} onPress={() => {
-          setSavedMessage(null);
-          setCreating(true);
-        }} />}
+      {creating === 'weekly' && journals ? <WeeklyJournalForm api={api}
+        children={journals.map(journal => journal.child)}
+        initialWeek={range.from && range.to && weekRange(range.from).to === range.to ? range.from : todayDate()}
+        onSaved={(name, savedRange, count) => {
+          localSaves.current += 1;
+          setCreating(null);
+          setSavedMessage(name + ' · ' + count + '일의 관찰일지를 저장했어요.');
+          if (range.from === savedRange.from && range.to === savedRange.to) setAttempt(value => value + 1);
+          else changeRange(savedRange);
+        }} onClose={() => setCreating(null)} />
+        : creating === 'manual' && journals ? <StandaloneJournalForm api={api} children={journals.map(journal => journal.child)}
+          onSaved={onCreated} onClose={() => setCreating(null)} />
+          : !!journals?.length && <View style={workStyles.row}>
+            <WorkButton label="주간 관찰일지 생성" disabled={editingIds.length > 0} onPress={() => {
+              setSavedMessage(null);
+              setCreating('weekly');
+            }} />
+            <WorkButton label="직접 작성" secondary disabled={editingIds.length > 0} onPress={() => {
+              setSavedMessage(null);
+              setCreating('manual');
+            }} />
+          </View>}
       <View style={workStyles.row}>
         {quickRanges.map(item => <WorkButton key={item.label} label={item.label} secondary
-          disabled={creating || editingIds.length > 0}
+          disabled={!!creating || editingIds.length > 0}
           onPress={() => changeRange(item.range)} />)}
       </View>
       <View style={styles.metadataRow}>
         <View style={styles.dateField}><DatePicker label="시작 날짜" value={range.from} max={range.to ?? undefined}
-          disabled={creating || editingIds.length > 0} onChange={from => changeRange({ ...range, from })} /></View>
+          disabled={!!creating || editingIds.length > 0} onChange={from => changeRange({ ...range, from })} /></View>
         <View style={styles.dateField}><DatePicker label="종료 날짜" value={range.to} min={range.from ?? undefined}
-          disabled={creating || editingIds.length > 0} onChange={to => changeRange({ ...range, to })} /></View>
+          disabled={!!creating || editingIds.length > 0} onChange={to => changeRange({ ...range, to })} /></View>
       </View>
       {error && <WorkMessage error>{error}</WorkMessage>}
       {!journals && !error && <ActivityIndicator color={colors.ink} accessibilityLabel="관찰일지 불러오는 중" />}

@@ -14,7 +14,7 @@
 **4. 범위**
 
 - 현재 구현 범위는 반·아동 명단 설정, 기기 녹음 저장과 서버 업로드·재생, 날짜와 반별 작성 세션, 반 공통·아동별 텍스트 입력, 같은 날짜의 녹음 선택, 추가 확인 질문, 아동별 알림장 초안·수정·확정·확정 취소다. 서버에 저장된 작성 세션과 입력을 다시 불러올 수 있다.
-- 관찰일지 초안은 알림장 검토 과정에서 함께 준비할 수 있다. 확정된 알림장에 연결된 관찰일지는 아동·날짜별로 조회·편집하고 보관함에서 열 수 있다. 본문을 고쳐 알림장을 다시 확정할 때는 교사가 연결된 관찰일지의 갱신 여부를 선택한다.
+- 교사는 관찰일지 탭에서 아동과 주(월요일~일요일)를 골라 초안을 요청한다. AI는 해당 주에 저장한 아동별 메모, 반 공통 맥락, 반영한 녹음 내용, 교사가 확인한 답변에서 구체적인 행동·말과 표준보육과정 영역이 명확히 연결되는 장면만 고른다. 영역은 AI가 판단하고 근거 없는 영역은 비운다. 장면의 주체나 행동을 확인하면 기록할 수 있을 때만 역질문한다. 교사는 질문을 건너뛰거나 답변하고 초안을 검토·수정한 뒤 선택 저장한다. 관찰일은 실제 날짜를 유지하고, 이전에 저장한 연결 일지는 계속 조회·편집·출력한다.
 - 관찰일지 파일은 Word(`.docx`)로 출력한다. 교사가 등록한 양식의 서식을 유지하면서 선택한 아동·기간의 저장된 내용을 채운다.
 - 교사는 알림장 없이도 아동과 관찰일을 지정해 관찰일지를 직접 작성하거나, 메모를 AI로 다듬은 뒤 검토·수정해 저장할 수 있다. 날짜별로 독립 기록은 한 건이며, 같은 날짜의 연결 일지와 함께 조회·출력한다.
 - 앱에서 텍스트로 작성할 때 아동은 입력 칸으로 식별한다. 앱은 명단에 있는 이름을 가명으로 바꿔 보내고, 서버는 외부 생성 요청에 호출별 가명을 사용한다. 앱은 초안의 가명을 명단과 연결해 화면에서 원래 이름을 표시한다. 녹음의 처리 범위는 기존 전사 계약을 따른다.
@@ -49,8 +49,9 @@
 | --- | --- |
 | 입력 저장·이어쓰기 | `POST /sessions`에 `target_date`, `classroom_id`를 제출해 작성 세션을 연다. `PATCH /sessions/{session_id}/blocks/{block_id}`로 반 공통·아동별 입력을 저장하고 `GET /sessions/{session_id}`로 세션 상태와 저장된 입력을 불러온다. |
 | 선택 녹음으로 초안 작성 | `POST /sessions/{session_id}/recording-drafts`에 `recording_ids`를 제출한다. 선택한 녹음의 전사 상태와 검토·생성 진행 상태를 반환한다. 이미 작성된 알림장의 새 후보는 교사가 아동별로 반영할 때 본문을 교체한다. |
-| 검토·초안 생성 | `POST /sessions/{session_id}/generate?manual_areas=true&prepare_journals=true`로 작업을 시작한다. 필요한 추가 질문에 교사가 답하고 관찰영역은 직접 확인한다. 검토한 입력으로 알림장과 연결 관찰일지 초안을 준비할 수 있다. |
-| 알림장 수정·확정 | `PATCH /notices/{notice_id}`에 `edited_text`, `expected_version`을 제출한다. `POST /notices/{notice_id}/confirm`은 저장된 버전을 확정하고, 필요하면 별도 관찰일지 작업을 시작한다. `POST /notices/{notice_id}/unconfirm`으로 확정을 취소할 수 있다. 재확정 시 `update_journal`로 일지 갱신 여부를 제출할 수 있다. |
+| 검토·초안 생성 | `POST /sessions/{session_id}/generate?manual_areas=true`로 알림장 초안을 시작한다. 관찰영역 선택 단계는 없다. 녹음 경로에는 `prepare_journals: false`를 보낸다. |
+| 알림장 수정·확정 | `PATCH /notices/{notice_id}`에 `edited_text`, `expected_version`을 제출한다. `POST /notices/{notice_id}/confirm?sync_journal=false`는 저장된 알림장을 확정한다. `POST /notices/{notice_id}/unconfirm`으로 확정을 취소할 수 있다. |
+| 주간 관찰일지 | `POST /children/{child_id}/journal/weekly/draft`에 해당 주의 날짜를 보낸다. 완료된 작업에서 초안과 근거 또는 확인 질문을 받는다. `/weekly/{job_id}/answers`에는 선택 답변을, `/weekly/{job_id}/confirm`에는 선택한 초안의 수정 본문을 제출한다. |
 | 독립 관찰일지 AI 초안 | `POST /children/{child_id}/journal/draft`에 관찰 메모와 선택 항목을 보내고 `GET /jobs/{job_id}`의 `result.content`에서 초안을 받는다. 교사가 저장을 누르기 전까지 일지에는 반영되지 않는다. |
 | 독립 관찰일지 저장 | `POST /children/{child_id}/journal`에 관찰일(`observed_date`)·확인한 본문(`content`)과 선택한 관찰영역(`areas`)·장소(`place`)·시간(`time_text`)을 제출해 기록을 확정한다. |
 | 관찰일지·보관함 | `GET /children/{child_id}/journal`로 아동의 날짜별 본문을 읽고, 같은 경로에 `PATCH`로 관찰일(`observed_date`)·본문(`content`)·`expected_revision`을 제출해 저장한다. `GET /journal/archive`에서 보관함을 조회한다. |

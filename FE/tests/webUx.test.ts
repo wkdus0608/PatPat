@@ -80,7 +80,7 @@ function detail(id: string, needsChoice = false): Notice {
   return { ...summary(id, id), text: '글', warnings: [], needs_journal_update_choice: needsChoice };
 }
 
-test('confirm-all confirms every reviewing notice and skips the ones that need a choice or are busy', async () => {
+test('confirm-all confirms every reviewing notice and skips only the busy ones even when a legacy journal was linked', async () => {
   const confirmed: string[] = [];
   const api: BulkConfirmApi = {
     async notice(id) { return detail(id, id === 'n3'); },
@@ -89,10 +89,10 @@ test('confirm-all confirms every reviewing notice and skips the ones that need a
   const result = await confirmReviewing(api, [
     summary('n1', '다온'), summary('n2', '이든', '완료'), summary('n3', '서윤'), summary('n4', '하린', '검토중', true), summary('n5', '지안'),
   ]);
-  assert.deepEqual(confirmed, ['n1', 'n5']);
-  assert.deepEqual(result.confirmed, ['다온', '지안']);
-  assert.deepEqual(result.skipped.map(item => item.name), ['서윤', '하린']);
-  assert.match(bulkMessage(result), /2명의 알림장을 확정했어요\..*서윤.*하린.*건너뛰었어요/);
+  assert.deepEqual(confirmed, ['n1', 'n3', 'n5']);
+  assert.deepEqual(result.confirmed, ['다온', '서윤', '지안']);
+  assert.deepEqual(result.skipped.map(item => item.name), ['하린']);
+  assert.match(bulkMessage(result), /3명의 알림장을 확정했어요\..*하린.*건너뛰었어요/);
 });
 
 test('one failed confirm does not stop the others', async () => {

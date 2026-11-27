@@ -113,12 +113,13 @@ def edit_notice(notice_id: str, body: NoticePatch, teacher: CurrentTeacher, serv
     summary="알림장 확정",
     description="지금 글을 그대로 완료로 저장합니다(AI를 다시 부르지 않습니다). "
     "확정 취소 후 본문을 수정했으면 update_journal로 기존 관찰일지를 유지하거나 업데이트할지 선택합니다. "
-    "같은 요청을 다시 보내도 알림장이나 일지를 중복 저장하지 않습니다.",
+    "sync_journal=false로 보내면 알림장만 확정합니다. 같은 요청을 다시 보내도 중복 저장하지 않습니다.",
 )
 def confirm_notice(notice_id: str, body: ConfirmBody, teacher: CurrentTeacher, services: ServicesDependency,
-                   protect_text: bool = False) -> ConfirmResponse:
+                   protect_text: bool = False, sync_journal: bool = True) -> ConfirmResponse:
     notice, job = services.notice_service.confirm(
         teacher.teacher_id, notice_id, body.expected_version, update_journal=body.update_journal, protect_text=protect_text,
+        sync_journal=sync_journal,
     )
     return ConfirmResponse(
         notice=notice_response(services, notice),

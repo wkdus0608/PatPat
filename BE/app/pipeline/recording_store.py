@@ -70,7 +70,7 @@ class RecordingDraftStore:
 
     def begin(
         self, teacher_id: str, session_id: str, blocks: list[dict], recording_ids: list[str],
-        targets: list[str] | None, previous_flags: list[dict], prior_facts: list[dict],
+        targets: list[str] | None, previous_flags: list[dict], prior_facts: list[dict], *, prepare_journals: bool,
     ) -> dict:
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -100,7 +100,7 @@ class RecordingDraftStore:
                     "teacher_id": teacher_id, "target_date": session["target_date"], "initial": initial,
                     "recording_ids": recording_ids, "targets": selected, "blocks": blocks,
                     "versions": {child: existing[child]["version"] if child in existing else None for child in selected},
-                    "previous_flags": previous_flags, "prior_facts": prior_facts,
+                    "previous_flags": previous_flags, "prior_facts": prior_facts, "prepare_journals": prepare_journals,
                 },
             }
             self._save(connection, draft)

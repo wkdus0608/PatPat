@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { ApiError, errorMessage } from '../api/client';
 import type { Job, Notice, NoticeRevision, NoticeSummary, V2Api } from '../api/v2';
 import { colors } from '../ui/theme';
@@ -37,13 +37,10 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [copiedVersion, setCopiedVersion] = useState<number | null>(null);
-  const [journalChoiceVersion, setJournalChoiceVersion] = useState<number | null>(null);
-  const [journalMessage, setJournalMessage] = useState<string | null>(null);
-  const [journalRetry, setJournalRetry] = useState<Job | null>(null);
   const action = useWorkAction();
   const noticeId = summary.notice_id;
   const version = summary.version;
-  const dirty = (draft !== null && draft.text !== notice?.text) || !!instruction?.trim() || journalChoiceVersion !== null;
+  const dirty = (draft !== null && draft.text !== notice?.text) || !!instruction?.trim();
   useEffect(() => {
     onDirty(noticeId, dirty);
     return () => onDirty(noticeId, false);
@@ -56,27 +53,11 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
     return () => { current = false; };
   }, [api, noticeId, version, attempt]);
 
-  // 알림장 확정은 끝났고 관찰일지 업데이트 결과만 모를 때는 오류가 아니라 안내로 알리고 다시 확인하게 한다.
-  async function followJournalJob(job: Job) {
-    setJournalRetry(null);
-    setJournalMessage('관찰일지를 업데이트하고 있어요.');
-    try {
-      await waitForJob(api, job);
-      setJournalMessage('관찰일지를 업데이트했어요.');
-    } catch {
-      setJournalRetry(job);
-      setJournalMessage('알림장은 확정했어요. 관찰일지가 업데이트됐는지는 아직 확인하지 못했어요. 관찰일지 탭에서도 볼 수 있어요.');
-    }
-    onJournalUpdated();
-  }
-
-  async function confirm(version: number, updateJournal?: boolean) {
-    setJournalMessage(null);
-    setJournalRetry(null);
-    const result = await api.confirmNotice(noticeId, version, updateJournal);
+  async function confirm(version: number) {
+    const result = await api.confirmNotice(noticeId, version);
     setNotice(result.notice);
     onStatusChange(result.notice);
-    if (updateJournal && result.journal_job) await followJournalJob(result.journal_job);
+    onJournalUpdated();
   }
 
   async function save(current: Notice, andConfirm: boolean) {
@@ -87,15 +68,7 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
       setNotice(stored);
     }
     setDraft(null);
-    if (!andConfirm) return;
-    if (stored.needs_journal_update_choice) setJournalChoiceVersion(stored.version);
-    else await confirm(stored.version);
-  }
-
-  function chooseJournalUpdate(update: boolean) {
-    if (journalChoiceVersion === null) return;
-    setJournalChoiceVersion(null);
-    void action.run(() => confirm(journalChoiceVersion, update));
+    if (andConfirm) await confirm(stored.version);
   }
 
   async function revise(current: Notice) {
@@ -122,9 +95,6 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
       {(notice?.needs_check ?? summary.needs_check) && <WorkMessage>개별 관찰 내용이 비어 있어요.</WorkMessage>}
       {loadError && <WorkMessage error>{loadError}</WorkMessage>}
       {action.error && <WorkMessage error>{action.error}</WorkMessage>}
-      {journalMessage && <WorkMessage>{journalMessage}</WorkMessage>}
-      {journalRetry && <WorkButton label="관찰일지 업데이트 다시 확인" secondary busy={action.busy} disabled={blocked}
-        onPress={() => { void action.run(async () => { await followJournalJob(await api.job(journalRetry.job_id)); }); }} />}
       {(loadError || notice?.busy || action.error) && <WorkButton label="최신 글 불러오기" secondary disabled={action.busy}
         onPress={() => { action.setError(null); setAttempt(value => value + 1); }} />}
       {!notice && !loadError && <ActivityIndicator color={colors.ink} accessibilityLabel="알림장 불러오는 중" />}
@@ -172,7 +142,7 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
                 const updated = await api.unconfirmNotice(noticeId, notice.version);
                 setNotice(updated);
                 onStatusChange(updated);
-                setJournalMessage(null);
+                onJournalUpdated();
               }); }} />
             <WorkButton label="복사" busy={action.busy} disabled={blocked} onPress={() => { void action.run(async () => {
               await copyRecord(notice.text);
@@ -183,18 +153,6 @@ export function NoticeReview({ api, summary, onDirty, onJournalUpdated, onStatus
               busy={action.busy} disabled={blocked} onPress={() => { void action.run(() => save(notice, true)); }} />}
         </View>
       </>}
-      {journalChoiceVersion !== null && <Modal transparent animationType="fade" onRequestClose={() => setJournalChoiceVersion(null)}>
-        <View style={styles.dialogBackdrop}>
-          <View accessibilityViewIsModal style={[workStyles.panel, styles.dialog]}>
-            <Text accessibilityRole="header" style={workStyles.title}>관찰일지도 새롭게 업데이트할까요?</Text>
-            <WorkMessage>업데이트하면 이 아이의 해당 날짜 관찰일지를 다시 작성해요. 직접 수정한 관찰일지 본문도 바뀝니다.</WorkMessage>
-            <View style={styles.dialogActions}>
-              <WorkButton label="기존 일지 유지" secondary onPress={() => chooseJournalUpdate(false)} />
-              <WorkButton label="업데이트" onPress={() => chooseJournalUpdate(true)} />
-            </View>
-          </View>
-        </View>
-      </Modal>}
     </View>
   );
 }
@@ -203,7 +161,4 @@ const styles = StyleSheet.create({
   confirmed: { backgroundColor: '#F0F0F0', borderColor: '#DEDEDE' },
   actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   editActions: { flexShrink: 1 },
-  dialogBackdrop: { flex: 1, backgroundColor: '#49372C66', justifyContent: 'center', alignItems: 'center', padding: 22 },
-  dialog: { width: '100%', maxWidth: 410, padding: 20 },
-  dialogActions: { flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 },
 });

@@ -53,3 +53,23 @@ test('ambiguous given names resolve only in the owner block, and Word names are 
   assert.equal(strFromU8(files[documentPath]), '<w:t>가&amp;나</w:t>');
   assert.deepEqual(files['media.bin'], new Uint8Array([1, 2]));
 });
+
+test('weekly journal answers and approved text retain local name protection', async context => {
+  const sent: Array<{ url: string; body: string }> = [];
+  context.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+    sent.push({ url, body: String(options.body ?? '') });
+    if (url.endsWith('/text-privacy')) return Response.json({ supported: true });
+    return Response.json({ result: { entries: [{ content: token(first) + '이 말했음.' }] } });
+  });
+  const api = createV2Api('https://patpat.example', 'fake', undefined, async () => roster);
+  await api.draftWeeklyJournal(first, '2026-11-06');
+  const result = await api.answerWeeklyJournal(first, 'job', { 0: '가상하린이 말했어요.' });
+  await api.confirmWeeklyJournal(first, 'clarified', { 0: '가상하린이 말했다.' });
+  assert.match(sent[1].url, /\/journal\/weekly\/draft$/);
+  assert.deepEqual(JSON.parse(sent[1].body), { week_of: '2026-11-06' });
+  assert.match(sent[2].url, /\/journal\/weekly\/job\/answers$/);
+  assert.deepEqual(JSON.parse(sent[2].body), { answers: { 0: token(first) + '이 말했어요.' } });
+  assert.match(sent[3].url, /\/journal\/weekly\/clarified\/confirm$/);
+  assert.deepEqual(JSON.parse(sent[3].body), { entries: { 0: token(first) + '이 말했다.' } });
+  assert.equal(result.result?.entries?.[0].content, '가상하린이 말했음.');
+});

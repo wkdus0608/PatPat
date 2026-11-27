@@ -43,7 +43,10 @@ class RecordingDrafts:
             raise changed()
         return draft
 
-    def start(self, teacher: TeacherContext, session_id: str, recording_ids: list[str], child_ids: list[str] | None) -> None:
+    def start(
+        self, teacher: TeacherContext, session_id: str, recording_ids: list[str], child_ids: list[str] | None, *,
+        prepare_journals: bool,
+    ) -> None:
         self.pipeline.sessions.require(teacher.teacher_id, session_id)
         self.pipeline._ensure_ai_ready()
         self.pipeline.sessions.ensure_blocks(teacher.teacher_id, session_id)
@@ -66,7 +69,8 @@ class RecordingDrafts:
                 conflicts.add(key)
             prior[key] = flag
         draft = self.store.begin(teacher.teacher_id, session_id, blocks, recording_ids, child_ids,
-                                 [flag for key, flag in prior.items() if key not in conflicts], prior_facts)
+                                 [flag for key, flag in prior.items() if key not in conflicts], prior_facts,
+                                 prepare_journals=prepare_journals)
         self._job(draft, lambda: self._transcribe(teacher, draft))
 
     def _job(self, draft: dict, work) -> None:
@@ -204,7 +208,10 @@ class RecordingDrafts:
         old = payload["previous_flags"]
         previous = [{key: flag[key] for key in ("kind", "child_ids", "question", "answer")}
                     for flag in old if flag["kind"] not in observations.SOURCE_CONFIRMATION_KINDS]
-        review = self.pipeline.review_context(ctx, prepare_journals=True, previous_answers=previous, include_profiles=True)
+        review = self.pipeline.review_context(
+            ctx, prepare_journals=payload.get("prepare_journals", True), previous_answers=previous,
+            include_profiles=True, collect_metadata=True,
+        )
         old_keys = {question_key(flag) for flag in old}
         questions = [flag for flag in review["flags"] if for_children(flag, targets)
                      and (flag["kind"] in ("conflict", *observations.SOURCE_CONFIRMATION_KINDS)
@@ -276,7 +283,9 @@ class RecordingDrafts:
         if not candidates:
             raise nothing_to_write()
         if payload["initial"]:
-            self._prepare_journals(payload["teacher_id"], self.store.publish(draft, candidates))
+            notice_ids = self.store.publish(draft, candidates)
+            if payload.get("prepare_journals", True):
+                self._prepare_journals(payload["teacher_id"], notice_ids)
         else:
             missing = [child.name for child in ctx.present
                        if child.child_id in targets and not any(item["child_id"] == child.child_id for item in candidates)]
@@ -291,7 +300,9 @@ class RecordingDrafts:
 
     def apply(self, teacher: TeacherContext, session_id: str, run_id: str, child_id: str) -> None:
         draft = self._require(teacher, session_id, run_id, "ready")
-        self._prepare_journals(teacher.teacher_id, self.store.publish(draft, [], child_id=child_id))
+        notice_ids = self.store.publish(draft, [], child_id=child_id)
+        if draft["payload"].get("prepare_journals", True):
+            self._prepare_journals(teacher.teacher_id, notice_ids)
 
     def dismiss(self, teacher: TeacherContext, session_id: str, run_id: str) -> None:
         draft = self._require(teacher, session_id, run_id)

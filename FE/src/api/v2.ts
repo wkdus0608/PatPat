@@ -48,7 +48,7 @@ export interface Job {
   job_id: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
   error_code: string | null;
-  result: { content?: string; failed?: { child_id: string; error_code: string }[] } | null;
+  result: (Partial<WeeklyJournalDraft> & { content?: string; failed?: { child_id: string; error_code: string }[] }) | null;
 }
 
 export interface NoticeSummary {
@@ -110,6 +110,32 @@ export interface RecordingRun {
 export interface RecordingDraftState {
   used_recordings: Record<string, string[]>;
   run: RecordingRun | null;
+}
+
+export interface WeeklyJournalEvidence {
+  date: string;
+  evidence: string;
+  place: string | null;
+  time_text: string | null;
+}
+
+export interface WeeklyJournalEntry extends WeeklyJournalEvidence {
+  area: Area;
+  content: string;
+  saved: boolean;
+  teacher_answer?: string;
+}
+
+export interface WeeklyJournalQuestion extends WeeklyJournalEvidence {
+  question: string;
+}
+
+export interface WeeklyJournalDraft {
+  week_start: string;
+  week_end: string;
+  source_dates: number;
+  entries: WeeklyJournalEntry[];
+  questions: WeeklyJournalQuestion[];
 }
 
 export interface JournalEntry {
@@ -268,12 +294,12 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
       send<Block>('/sessions/' + id(sessionId) + '/blocks/' + id(blockId), 'PATCH', await protectFields(edit, owner, protectedText)),
     generate: async (sessionId: string) => {
       await verifyPrivacy();
-      return send<Job>('/sessions/' + id(sessionId) + '/generate?manual_areas=true&prepare_journals=true' +
+      return send<Job>('/sessions/' + id(sessionId) + '/generate?manual_areas=true' +
         (roster ? '&protect_text=true' : ''), 'POST');
     },
     recordingDraft: (sessionId: string) => send<RecordingDraftState>(recordingDraftPath(sessionId)),
     startRecordingDraft: (sessionId: string, recording_ids: string[], child_ids?: string[]) =>
-      send<RecordingDraftState>(recordingDraftPath(sessionId), 'POST', { recording_ids, child_ids }),
+      send<RecordingDraftState>(recordingDraftPath(sessionId), 'POST', { recording_ids, child_ids, prepare_journals: false }),
     resolveTranscriptions: (sessionId: string, runId: string, action: 'retry' | 'exclude') =>
       send<RecordingDraftState>(recordingDraftPath(sessionId, runId) + '/transcriptions/' + action, 'POST'),
     answerRecordingDraft: (sessionId: string, runId: string, answers: Record<string, string | null>) =>
@@ -298,10 +324,10 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     notice: (noticeId: string) => send<Notice>('/notices/' + id(noticeId)),
     saveNotice: async (noticeId: string, edited_text: string, expected_version: number, owner?: string, protectedText = true) =>
       send<Notice>('/notices/' + id(noticeId), 'PATCH', { edited_text: await protect(edited_text, owner, protectedText), expected_version }),
-    confirmNotice: async (noticeId: string, expected_version: number, update_journal?: boolean) => {
+    confirmNotice: async (noticeId: string, expected_version: number) => {
       await verifyPrivacy();
-      return send<{ notice: Notice; journal_job: Job | null }>('/notices/' + id(noticeId) + '/confirm' + privateQuery, 'POST',
-        { expected_version, update_journal });
+      return send<{ notice: Notice; journal_job: Job | null }>('/notices/' + id(noticeId) + '/confirm?sync_journal=false' +
+        (roster ? '&protect_text=true' : ''), 'POST', { expected_version });
     },
     unconfirmNotice: (noticeId: string, expected_version: number) =>
       send<Notice>('/notices/' + id(noticeId) + '/unconfirm', 'POST', { expected_version }),
@@ -313,6 +339,20 @@ export function createV2Api(baseUrl: string, token: string | null, unauthorized?
     adoptRevision: (noticeId: string, revisionId: string, expected_version: number) =>
       send<Notice>('/notices/' + id(noticeId) + '/revisions/' + id(revisionId) + '/adopt', 'POST', { expected_version }),
     journal: (childId: string, range?: DateRange) => send<Journal>('/children/' + id(childId) + '/journal' + journalQuery(range)),
+    draftWeeklyJournal: async (childId: string, week_of: string) => {
+      await verifyPrivacy();
+      return send<Job>('/children/' + id(childId) + '/journal/weekly/draft', 'POST', { week_of });
+    },
+    answerWeeklyJournal: async (childId: string, jobId: string, answers: Record<number, string>) =>
+      send<Job>('/children/' + id(childId) + '/journal/weekly/' + id(jobId) + '/answers', 'POST', {
+        answers: Object.fromEntries(await Promise.all(Object.entries(answers).map(async ([index, answer]) =>
+          [index, await protect(answer, childId)]))),
+      }),
+    confirmWeeklyJournal: async (childId: string, jobId: string, entries: Record<number, string>) =>
+      send<{ saved_dates: string[] }>('/children/' + id(childId) + '/journal/weekly/' + id(jobId) + '/confirm', 'POST', {
+        entries: Object.fromEntries(await Promise.all(Object.entries(entries).map(async ([index, content]) =>
+          [index, await protect(content, childId)]))),
+      }),
     draftStandaloneJournal: async (childId: string, observation: JournalObservation) =>
       send<Job>('/children/' + id(childId) + '/journal/draft' + privateQuery, 'POST', await protectFields(observation, childId)),
     createJournal: async (childId: string, entry: JournalCreate) =>

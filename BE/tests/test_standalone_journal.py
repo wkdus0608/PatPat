@@ -116,7 +116,7 @@ def test_standalone_observation_remains_visible_after_linked_notice_is_withdrawn
 
 def test_standalone_migration_preserves_existing_notice_rows(tmp_path, monkeypatch):
     with monkeypatch.context() as before_upgrade:
-        before_upgrade.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:-1])
+        before_upgrade.setattr(migrations, "MIGRATIONS", tuple(m for m in migrations.MIGRATIONS if m[0] < "014_standalone_journal"))
         with running_env(tmp_path) as env:
             children, _, notices = day(env)
             notice_id = notices["다온"]["notice_id"]

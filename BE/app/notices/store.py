@@ -227,6 +227,7 @@ class NoticeStore:
 
     def confirm(
         self, teacher_id: str, notice_id: str, expected_version: int, *, update_journal: bool | None = None,
+        sync_journal: bool = True,
     ) -> tuple[dict, Literal["keep", "sync", "refresh"]]:
         """Confirm the saved text and decide the journal action in the same transaction."""
         journal_action: Literal["keep", "sync", "refresh"] = "keep"
@@ -243,13 +244,13 @@ class NoticeStore:
             elif row["version"] != expected_version:
                 raise version_conflict(row["version"])
             else:
-                if row["needs_journal_update_choice"]:
+                if sync_journal and row["needs_journal_update_choice"]:
                     if update_journal is None:
                         raise ApiError(status_code=409, code="JOURNAL_UPDATE_CHOICE_REQUIRED",
                                        message="관찰일지를 업데이트할지 선택해 주세요.")
                     if update_journal:
                         journal_action = "refresh"
-                elif not row["withdrawn"]:
+                elif sync_journal and not row["withdrawn"]:
                     journal_action = "sync"
                 version, stamp = row["version"] + 1, now_iso()
                 connection.execute(

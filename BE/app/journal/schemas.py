@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -116,3 +116,25 @@ class EntryPatch(BaseModel):
     time_text: str | None = Field(default=None, max_length=100)
     areas: list[AreaName] | None = None
     included: bool | None = None
+
+
+class WeeklyDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    week_of: date
+
+
+class WeeklyAnswers(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answers: dict[int, Annotated[str, Field(max_length=500)]] = Field(min_length=1, max_length=3)
+
+
+class WeeklyConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entries: dict[int, Annotated[str, Field(max_length=3000)]] = Field(min_length=1, max_length=23)
+
+
+class WeeklySaved(BaseModel):
+    saved_dates: list[str]

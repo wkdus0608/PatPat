@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ApiError } from '../api/client';
-import { OBSERVATION_AREAS, type Area, type Block, type BlockEdit, type Flag, type NoticeSummary,
+import { type Block, type BlockEdit, type Flag, type NoticeSummary,
   type RecordingDraftState, type ReviewAnswer, type V2Api,
   type WritingPreferences, type WritingSession } from '../api/v2';
 import type { Account } from '../auth/controller';
@@ -17,15 +17,6 @@ import { PresetField, usePresetMenu, type PresetMenu } from './WritingPreference
 
 function isGenerating(status: WritingSession['status']) {
   return status === 'analyzing' || status === 'drafting';
-}
-
-function Areas({ areas, onChange, disabled }: { areas: Area[]; onChange(areas: Area[]): void; disabled: boolean }) {
-  return (
-    <View style={workStyles.row}>
-      {OBSERVATION_AREAS.map(area => <WorkChoice key={area} label={area} checkbox selected={areas.includes(area)}
-        disabled={disabled} onPress={() => onChange(areas.includes(area) ? areas.filter(value => value !== area) : [...areas, area])} />)}
-    </View>
-  );
 }
 
 function InputBlock({ block, common, preferences, menu, onChange, busy }: {
@@ -45,12 +36,6 @@ function InputBlock({ block, common, preferences, menu, onChange, busy }: {
         maxLength={5000} editable={!disabled}
         placeholder={block.is_common ? '반에서 함께한 일을 적어 주세요.' : '이 아이의 말이나 행동을 적어 주세요.'}
         onChangeText={text => onChange({ text })} />
-      {!block.is_common && <>
-        <Text style={styles.areaLabel}>영역 선택</Text>
-        <View accessibilityLabel={name + ' 영역 선택'}>
-          <Areas areas={block.areas} disabled={disabled} onChange={areas => onChange({ areas })} />
-        </View>
-      </>}
       <View style={styles.presetRow}>
         <PresetField label="장소" fieldId={(block.is_common ? '공통' : name) + ' 장소'} disabled={disabled}
           groupId={block.block_id} menu={menu}
@@ -83,7 +68,7 @@ function ReviewQuestions({ flags, busy, onAnswer, onReopen, onDirty }: {
     <>
       {questions.length > 0 ? <>
         <Text style={workStyles.title}>작성 전에 확인할 내용</Text>
-        <WorkMessage>교사가 확인한 답을 알림장과 관찰일지에 반영해요.</WorkMessage>
+        <WorkMessage>교사가 확인한 답을 초안에 반영해요.</WorkMessage>
       </> : <WorkMessage>확인할 질문이 없어요.</WorkMessage>}
       {questions.map((flag, index) => {
         const metadata = flag.kind === 'place' || flag.kind === 'time_text';
@@ -117,7 +102,6 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
 }) {
   const [session, setSession] = useState<WritingSession | null>(null);
   const [edits, setEdits] = useState<Record<string, Partial<BlockEdit>>>({});
-  const [checkingAreas, setCheckingAreas] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saved, setSaved] = useState(false);
   const [bulkText, setBulkText] = useState<string | null>(null);
@@ -224,7 +208,6 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
   const observedChildren = presentChildren.filter(block => block.text.trim());
   const reviewing = session?.status === 'reviewing';
   const editing = !!session && !run?.initial && !generating && session.status !== 'asking' && !reviewing;
-  const showAreaCheck = editing && checkingAreas;
   const eligible = presentChildren.filter(block => !session?.notices.some(notice => notice.child_id === block.child_id && notice.status === '완료'));
   const targets = eligible.flatMap(block => block.child_id && targetChoices.includes(block.child_id) ? [block.child_id] : []);
   const availableRecordingIds = new Set(recordings.rows.flatMap(row => row.draftId ? [row.draftId] : []));
@@ -306,7 +289,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
     return value;
   }
 
-  function checkAreas() {
+  async function generate(current: WritingSession) {
     if (!presentChildren.length) {
       action.setError('출석한 아이가 있어야 알림장을 만들 수 있어요.');
       return;
@@ -316,8 +299,10 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
       return;
     }
     if (!canUseSelectedRecordings()) return;
-    action.setError(null);
-    setCheckingAreas(true);
+    await saveInputs(current, selected.length > 0);
+    if (selected.length) setAudio(await api.startRecordingDraft(current.session_id, selected));
+    else await api.generate(current.session_id);
+    setSession(await api.session(current.session_id));
     scroll.current?.scrollTo({ y: 0, animated: false });
   }
 
@@ -331,16 +316,6 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
     setBulkText(bulkMessage(result));
     setSession(await api.session(current.session_id));
     onJournalUpdated();
-  }
-
-  async function generate(current: WritingSession) {
-    if (!canUseSelectedRecordings()) return;
-    await saveInputs(current, selected.length > 0);
-    if (selected.length) setAudio(await api.startRecordingDraft(current.session_id, selected));
-    else await api.generate(current.session_id);
-    setSession(await api.session(current.session_id));
-    setCheckingAreas(false);
-    scroll.current?.scrollTo({ y: 0, animated: false });
   }
 
   function changeDay(next: string | null) {
@@ -357,7 +332,6 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
       setAudioReady(false);
       setRecordingChoices({});
       setTargetChoices([]);
-      setCheckingAreas(false);
       setSaved(false);
       setDay(next);
     });
@@ -377,7 +351,7 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
         {action.error && <WorkMessage error>{action.error}</WorkMessage>}
         {run?.initial ? null : generating ? <View style={workStyles.panel}>
           <ActivityIndicator color={colors.ink} />
-          <WorkMessage>{session.status === 'analyzing' ? '작성에 필요한 맥락을 확인하고 있어요.' : '알림장과 관찰일지 초안을 만들고 있어요.'}</WorkMessage>
+          <WorkMessage>{session.status === 'analyzing' ? '작성에 필요한 맥락을 확인하고 있어요.' : '알림장 초안을 만들고 있어요.'}</WorkMessage>
           <WorkMessage>{elapsedText(waited)} 만드는 중이에요. 아이가 많으면 시간이 더 걸려요. 화면을 닫지 말아 주세요.</WorkMessage>
         </View> : session.status === 'asking' ? <ReviewQuestions
           key={session.flags.map(flag => flag.flag_id).join(',')} flags={session.flags.filter(flag => flag.status === 'open')}
@@ -406,18 +380,6 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
                 }); }} />
               </View>;
             })}
-          </> : checkingAreas ? <>
-            <Text style={workStyles.title}>아이별 영역 확인</Text>
-            <WorkMessage>{selected.length > 0
-              ? '녹음에서 확인할 관찰의 영역을 미리 고를 수 있어요. 비워 두어도 됩니다.'
-              : observedChildren.length > 0
-              ? '아이별 관찰 내용을 보고 필요한 영역을 선택해 주세요. 비워 두어도 됩니다.'
-              : '아이별 관찰 내용이 없어 선택할 영역이 없어요.'}</WorkMessage>
-            {(selected.length > 0 ? presentChildren : observedChildren).map(block => <View key={block.block_id} style={workStyles.panel}>
-              <Text style={workStyles.title}>{block.child_name}</Text>
-              <Text style={workStyles.body}>{block.text}</Text>
-              <Areas areas={block.areas} disabled={action.busy} onChange={areas => editBlock(block.block_id, { areas })} />
-            </View>)}
           </> : <>
             {session.status === 'failed' && <WorkMessage error>{jobMessage(session.error_code)}</WorkMessage>}
             {blocks.map(block => <InputBlock key={block.block_id} block={block} busy={action.busy} menu={menu}
@@ -442,8 +404,8 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
               recordingAction(() => api.applyRecordingDraft(session.session_id, run.run_id, childId), true);
             }}
             onDismiss={() => recordingAction(() => api.dismissRecordingDraft(session.session_id, run.run_id))} />)}
-        {(!showAreaCheck || checkedRecordings.length > 0) && <NoticeRecordingList key={day + (showAreaCheck ? ':preview' : '')}
-          preview={showAreaCheck} list={{ ...recordings, reload: () => {
+        <NoticeRecordingList key={day}
+          list={{ ...recordings, reload: () => {
           recordings.reload();
           if (!audioWorking && !action.busy) setAudioAttempt(value => value + 1);
         } }} account={account} active={active} used={used} busy={action.busy} deleteBlocked={!!run}
@@ -465,20 +427,16 @@ export function NoticeWorkspace({ account, api, active, rosterVersion, onJournal
                 })} />
             </View>
           </>}
-        </NoticeRecordingList>}
-        {showAreaCheck && <>
-          <WorkButton label="초안 만들기" busy={action.busy}
-            onPress={() => { void action.run(() => generate(session)); }} />
-          <WorkButton label="입력으로 돌아가기" secondary disabled={action.busy} onPress={() => setCheckingAreas(false)} />
-        </>}
-        {editing && !checkingAreas && <>
+        </NoticeRecordingList>
+        {editing && <>
           {saved && <WorkMessage>입력한 내용을 저장했어요.</WorkMessage>}
           <View style={workStyles.between}>
             <WorkButton label="입력 저장" secondary disabled={action.busy} onPress={() => { void action.run(async () => {
               await saveInputs(session);
               setSaved(true);
             }); }} />
-            <WorkButton label="다음" disabled={action.busy} onPress={checkAreas} />
+            <WorkButton label="알림장 초안 만들기" busy={action.busy}
+              onPress={() => { void action.run(() => generate(session)); }} />
           </View>
         </>}
       </>}
@@ -490,6 +448,5 @@ const styles = StyleSheet.create({
   dateRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 9 },
   presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   absentShade: { borderRadius: 17, backgroundColor: '#211D1926' },
-  areaLabel: { color: colors.blueInk, fontSize: 13, fontWeight: '700' },
   regenerateAction: { alignSelf: 'flex-end' },
 });

@@ -142,7 +142,16 @@ erDiagram
 
 서버의 `PATPAT_STT_URL`에 전사 API 주소를 설정하고, 공급자가 요구하면 `PATPAT_STT_API_KEY`와 `PATPAT_STT_MODEL`을 함께 설정한다. 서버는 원음을 multipart의 `file`로 보내고 응답의 `text`를 사용한다. 설정 우선순위와 실패 응답은 [전사 계약](TRANSCRIPTIONS.md)을 따른다.
 
-앱에서 관찰영역은 초안 요청 전 교사가 확인한다. `POST /api/v2/sessions/{session_id}/generate?manual_areas=true&prepare_journals=true`는 영역을 비워 두어도 작성에 필요한 맥락과 장소·시간을 검토하며, 영역을 추천하거나 역질문으로 묻지 않는다. 같은 세션에서 아이별 초안을 다시 만들 때도 교사가 확인한 영역을 사용한다.
+앱에서 알림장 관찰영역 선택 단계는 없다. 텍스트는 `POST /api/v2/sessions/{session_id}/generate?manual_areas=true`, 녹음은 `POST /api/v2/sessions/{session_id}/recording-drafts`의 `prepare_journals: false`로 알림장 초안을 만든다. `POST /api/v2/notices/{notice_id}/confirm?sync_journal=false`는 일지 생성 없이 알림장을 확정한다. 기존 클라이언트의 연결 일지 계약은 아래와 같이 지원한다.
+
+### 주간 관찰일지
+
+- `POST /api/v2/children/{child_id}/journal/weekly/draft`에 `week_of`를 보내면 아동과 날짜가 속한 주(월요일~일요일)로 생성 작업을 시작한다. 주간 작성 세션의 메모, 아동별 빠른 메모, 반영된 녹음의 관찰·교사 확인을 입력으로 쓰며 외부 모델에는 호출별 가명을 사용한다. 공통 맥락에서 그 아동이 직접 한 행동이 확인된 경우만 개별 관찰로 사용한다.
+- `GET /api/v2/jobs/{job_id}`의 결과는 `week_start`, `week_end`, `source_dates`(근거가 있는 날짜 수), `entries`(실제 관찰일 `date`, `area`, `content`, 원문 근거 `evidence`, 기저장 여부 `saved`)와 `questions`를 반환한다. 근거가 없거나 맞는 장면이 없으면 빈 배열이다.
+- `POST /api/v2/children/{child_id}/journal/weekly/{job_id}/answers`에 `answers`(질문 배열 번호 → 교사 답변)를 보내면 답한 장면만 추가로 판단한 작업을 반환한다. 답하지 않은 장면은 보류한다.
+- `POST /api/v2/children/{child_id}/journal/weekly/{job_id}/confirm`에 `entries`(저장할 초안의 배열 번호 → 검토·수정한 본문)를 보내면 날짜별로 원자적으로 저장한다. 동일 요청을 다시 보내도 중복 저장하지 않는다. 다음 작성에서 같은 날의 새 장면도 추가할 수 있다. 저장 결과는 기존 조회·보관함·Word 출력에 즉시 반영한다.
+
+### 기존 연결·독립 일지 계약
 
 사건사고 알림장 초안은 `text` 안에서 일상 단락과 `특이사항` 구역을 구분한다. 확인되지 않은 항목은 `부위 확인 필요`, `좌우 확인 필요`, `처치 확인 필요`로 표시한다. 처치가 확인되면 처치한 사람이 불명확해도 처치 확인 표시를 붙이지 않는다. 보호자용 특이사항에서 상대 아이의 부상 상세 정보는 생략한다. 교사가 초안에서 표시를 수정할 수 있고, 확인 문구는 관찰일지의 사실 근거에서 제외한다.
 

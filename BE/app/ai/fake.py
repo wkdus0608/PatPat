@@ -91,6 +91,19 @@ def _journal(request: AIRequest) -> dict:
     return {"content": f"{MARK}{request.payload['text'].strip()} 관찰함.", "learning": [], "incident": ""}
 
 
+def _weekly_journal(request: AIRequest) -> dict:
+    entries = []
+    for source in request.payload["sources"]:
+        if source["scope"] != "individual":
+            continue
+        quote = source["text"].splitlines()[0]
+        areas = default_areas(source.get("teacher_answer", quote))
+        if areas:
+            content = source.get("teacher_answer", quote)
+            entries.append({"source_id": source["source_id"], "quote": quote, "area": areas[0], "content": MARK + content})
+    return {"entries": entries, "questions": []}
+
+
 def _journal_word_layout(request: AIRequest) -> dict:
     """Match labeled fields to inline slots or immediately adjacent blanks."""
     fields_by_label = {field: (field,) for field in JOURNAL_WORD_FIELDS}
@@ -157,6 +170,7 @@ DEFAULT_HANDLERS: dict[AITask, Callable[[AIRequest], dict]] = {
     AITask.REVISE: _revise,
     AITask.JOURNAL_COMMON: _journal,
     AITask.JOURNAL_INDIVIDUAL: _journal,
+    AITask.WEEKLY_JOURNAL: _weekly_journal,
     AITask.JOURNAL_WORD_LAYOUT: _journal_word_layout,
     AITask.AREAS: _areas,
 }

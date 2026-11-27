@@ -13,6 +13,7 @@ from app.ai.types import AIError
 from app.core.errors import ApiError
 from app.journal.schemas import JournalObservation
 from app.journal.store import JournalStore
+from app.journal.weekly import WeeklyJournal
 from app.jobs.runner import JobRunner
 from app.notices.store import NoticeStore
 from app.profile.store import ProfileStore
@@ -78,6 +79,7 @@ class JournalService:
         self.profile = profile
         self.jobs = jobs
         self.ai = ai
+        self.weekly = WeeklyJournal(rules, store, profile, jobs, ai)
         jobs.register_recovery("journal", lambda job: self.store.fail_all_pending_for_notice(job["ref_id"], "SERVER_RESTART"))
 
     def draft_standalone(self, teacher_id: str, child_id: str, observation: JournalObservation, *, protect_text: bool = False) -> dict:
