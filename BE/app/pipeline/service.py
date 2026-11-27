@@ -407,7 +407,7 @@ class PipelineService:
         )
         text = schemas.require_text(self._call(request, ctx, visible_child="").data, "text")
         source = "\n".join([common_text, *(item["answer"] for item in answers)])
-        return mask_names(schemas.drop_unobserved_reflections(text, source), ctx.all_names)
+        return mask_names(schemas.clean_routine_notice(text, source), ctx.all_names)
 
     # --- answers ---------------------------------------------------------------------------------------------------------------------
     def submit_answers(self, teacher_id: str, session_id: str, answers: list[dict], skip_remaining: bool,

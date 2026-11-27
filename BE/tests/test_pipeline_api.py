@@ -60,12 +60,45 @@ def test_notice_separates_confirmed_ordinary_activity_from_a_later_incident():
 def test_notice_omits_unobserved_reflections_and_preserves_a_reported_sensation():
     action = "오늘 노란 스펀지를 오른손으로 두 번 눌러 보았어요."
     reflection = "손의 힘을 조절하며 스펀지가 눌리는 느낌을 살펴보는 모습이었답니다."
-    guidance = "자세한 이야기는 하원 시 전해 드리겠습니다."
-    response = {"text": f"{action} {reflection} {guidance}"}
-    assert render_notice(response, incident=False, source="노란 스펀지를 오른손으로 두 번 눌렀다.") == f"{action} {guidance}"
+    response = {"text": f"{action} {reflection}"}
+    assert render_notice(response, incident=False, source="노란 스펀지를 오른손으로 두 번 눌렀다.") == action
     assert render_notice(response, incident=False, source="스펀지를 눌렀고 느낌을 살펴봤다고 말했다.") == response["text"]
     mixed = {"text": f"{action} 파란 바구니에 스펀지를 담으며 눌리는 느낌을 살펴보는 모습이었답니다."}
     assert render_notice(mixed, incident=False, source="스펀지를 눌렀다. 파란 바구니에 스펀지를 담았다.") == mixed["text"]
+
+
+def test_notice_keeps_pickup_guidance_only_in_the_incident_section(tmp_path):
+    shared = "유희실에서 블록 놀이를 했어요."
+    bridge = "긴 블록으로 다리를 만들었어요."
+    quote = "아이는 ‘집에서도 다리를 만들었어요’라고 말했어요."
+    injury = "친구와 부딪혀 왼쪽 무릎이 쓸렸어요."
+    pickup = "자세한 이야기가 궁금하신 경우 하원 시 전해 드리겠습니다..!"
+    home = "어머님, 아버님께서도 집에서 아이와 만든 다리 이야기를 나눠 주시면 좋을 것 같습니다^^"
+
+    def individual(request):
+        if request.payload["incident"]:
+            return {"text": f"{bridge} {pickup} {home}",
+                    "special_notes": f"{injury} {pickup}", "missing_injury_details": []}
+        return {"text": f"{bridge} 오늘 만든 다리에 대해 더 궁금하신 경우 하원 시 자세히 안내 드리겠습니다..! {quote} {home}"}
+
+    def review(request):
+        child_id = request.payload["roster"][1]["child_id"]
+        return {"flags": [], "joint_events": [], "incident_child_ids": [child_id]}
+
+    handlers = {AITask.REVIEW: review, AITask.COMMON: lambda _: {"text": f"{shared} 더 궁금하신 점은 하원 때 말씀드릴게요."},
+                AITask.INDIVIDUAL: individual}
+    with running_env(tmp_path, ai_handlers=handlers) as env:
+        first, second = add_children(env, NAMES[:2])
+        session = open_session(env)
+        fill(env, session, None, shared, ("자연탐구",))
+        fill(env, session, NAMES[0], f"{bridge} {quote}", ("자연탐구",))
+        fill(env, session, NAMES[1], f"{bridge} {injury}", ("신체운동·건강",))
+        session_id = session["session_id"]
+        assert generate(env, session_id)["status"] == "completed"
+        assert notice_of(env, session_id, first)["edited_text"] == f"{shared}\n\n{bridge} {quote}"
+        assert notice_of(env, session_id, second)["edited_text"] == (
+            f"{shared}\n\n{bridge}\n\n특이사항\n{injury} {pickup}"
+        )
 
 
 def ask_about_the_pair(request):

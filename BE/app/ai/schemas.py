@@ -206,6 +206,28 @@ def drop_unobserved_reflections(text: str, source: str) -> str:
     return "".join(parts)
 
 
+_ROUTINE_CLOSING = re.compile(
+    r"(?:(?:자세한\s+(?:이야기|상황|내용)[은는]|"
+    r"(?:(?:자세한\s+(?:이야기|상황|내용)가|[^\"“.!?\n]+?에\s*대해)\s+)?"
+    r"(?:더\s+)?궁금하신\s*(?:경우|점은|점이\s*있으시면))\s+)?"
+    r"하원\s*(?:시|때|하실\s*때)\s+(?:자세히\s+)?(?:전해|안내|말씀)\s*(?:해\s*)?"
+    r"(?:드리(?:겠습니다|도록\s*하겠습니다)|드릴게요)[.!?^]*"
+    r"|(?:어머님,\s*아버님께서도\s+)?집에서도?\s+[^\"“.!?\n]+?이야기를?\s*"
+    r"(?:나눠|나누어)\s*(?:주시면|보시면)\s*좋을\s*것\s*같(?:습니다|아요)[.!?^]*"
+)
+
+
+def clean_routine_notice(text: str, source: str) -> str:
+    text = drop_unobserved_reflections(text, source)
+    parts = re.split(r"(?<=[.!?^])(\s+)", text)
+    for index in range(0, len(parts), 2):
+        if _ROUTINE_CLOSING.fullmatch(parts[index].strip()):
+            parts[index] = ""
+            if index:
+                parts[index - 1] = ""
+    return "".join(parts).strip()
+
+
 def _separate_incident_intro(body: str, notes: str, source: str) -> tuple[str, str]:
     """Move preceding routine sentences only when the memo and notes mark a later incident."""
     def boundary(sentences: list[str]) -> int:
@@ -230,7 +252,7 @@ def _separate_incident_intro(body: str, notes: str, source: str) -> tuple[str, s
 
 def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, source: str = "") -> str:
     if not incident:
-        text = drop_unobserved_reflections(require_text(data, "text"), source)
+        text = clean_routine_notice(require_text(data, "text"), source)
         return _preserve_confirmed_color(text, source)
 
     body = data.get("text")
@@ -255,7 +277,7 @@ def render_notice(data: dict, *, incident: bool, unresolved_side: bool = False, 
         for part in re.split(r"(?<=[.!?])(\s+)", special_notes)
     )
     section = "\n".join((NOTICE_INCIDENT_HEADING, special_notes, *markers))
-    body = _preserve_confirmed_color(drop_unobserved_reflections(body, source), source)
+    body = _preserve_confirmed_color(clean_routine_notice(body, source), source)
     return "\n\n".join(part for part in (body, section) if part)
 
 
